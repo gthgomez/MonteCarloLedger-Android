@@ -1,0 +1,31 @@
+# Android/Gradle generated files
+.gradle/
+build/
+app/build/
+captures/
+*.apk
+*.aab
+
+# Local machine config and signing secrets
+local.properties
+.env
+.env.*
+!.env.example
+secrets.*
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+*.crt
+*.mobileprovision
+
+# IDE/OS/logs
+.idea/
+.vscode/
+*.log
+.DS_Store
+Thumbs.db
+tmp/
+temp/
+logs/

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simplified Flat layered blocks for themed icons -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M34,30 L54,20 L74,30 L54,40 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:fillAlpha="0.7"
+        android:pathData="M34,50 L54,40 L74,50 L54,60 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:fillAlpha="0.4"
+        android:pathData="M34,70 L54,60 L74,70 L54,80 Z" />
+</vector>

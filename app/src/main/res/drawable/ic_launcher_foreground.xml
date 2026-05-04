@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Bottom Layer (Purple) -->
+    <path
+        android:pathData="M34,70 L54,60 L74,70 L54,80 Z"
+        android:strokeAlpha="0.8"
+        android:fillAlpha="0.8">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="34"
+                android:startY="70"
+                android:endX="74"
+                android:endY="70"
+                android:type="linear">
+                <item android:color="#FF7C3AED" android:offset="0" />
+                <item android:color="#FF4C1D95" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Side faces of bottom layer for 3D look -->
+    <path
+        android:pathData="M34,70 L34,75 L54,85 L54,80 Z"
+        android:fillColor="#FF3C1361" />
+    <path
+        android:pathData="M54,80 L54,85 L74,75 L74,70 Z"
+        android:fillColor="#FF2E1065" />
+
+    <!-- Middle Layer (Cyan) -->
+    <path
+        android:pathData="M34,50 L54,40 L74,50 L54,60 Z"
+        android:strokeAlpha="0.9"
+        android:fillAlpha="0.9">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="34"
+                android:startY="50"
+                android:endX="74"
+                android:endY="50"
+                android:type="linear">
+                <item android:color="#FF06B6D4" android:offset="0" />
+                <item android:color="#FF0891B2" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Sides -->
+    <path
+        android:pathData="M34,50 L34,55 L54,65 L54,60 Z"
+        android:fillColor="#FF164E63" />
+    <path
+        android:pathData="M54,60 L54,65 L74,55 L74,50 Z"
+        android:fillColor="#FF155E75" />
+
+    <!-- Top Layer (Bright Cyan / B symbol fragment) -->
+    <path
+        android:pathData="M34,30 L54,20 L74,30 L54,40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="34"
+                android:startY="30"
+                android:endX="74"
+                android:endY="30"
+                android:type="linear">
+                <item android:color="#FF67E8F9" android:offset="0" />
+                <item android:color="#FF22D3EE" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Top layer highlight / glow -->
+    <path
+        android:pathData="M44,30 L54,25 L64,30 L54,35 Z"
+        android:fillColor="#40FFFFFF" />
+
+</vector>

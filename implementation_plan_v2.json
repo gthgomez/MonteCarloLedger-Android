@@ -1,0 +1,98 @@
+{
+  "plan_version": "2.0",
+  "task_summary": "OBJECTIVE: Fix compilation errors and align logic with Python reference for MonteCarlo-Ledger Android port.",
+  "known_facts": [
+    "Compilation errors point to unresolved references in BillingGateway.kt and AddPaymentScreen.kt, and syntax errors in Converters.kt.",
+    "The ForecastEngine, MonteCarloEngine, and TimelineService are present but may not match the Python reference logic."
+  ],
+  "assumptions": [
+    "The unresolved 'Activity' reference in BillingGateway.kt requires adding the appropriate Android import.",
+    "The 'dp' references in AddPaymentScreen.kt are related to UI dimension units and require correct import or context."
+  ],
+  "risks": [
+    {
+      "risk": "Syntax errors in Converters.kt due to malformed file structure",
+      "likelihood": "high",
+      "mitigation": "Rewrite Converters.kt with correct package, imports, and converter methods."
+    },
+    {
+      "risk": "DAO methods failing due to unsupported parameter types",
+      "likelihood": "high",
+      "mitigation": "Add TypeConverters for LocalDate and other custom types."
+    }
+  ],
+  "minimal_action_set": [
+    {
+      "step": 1,
+      "description": "Fix Converters.kt by adding proper package, imports, and converter methods for Room persistence.",
+      "tool": "file_write",
+      "target": "app/src/main/java/com/example/app/data/Converters.kt",
+      "rationale": "The file has syntax errors and is not properly structured. It needs to define type converters for LocalDate to be used by Room.",
+      "verification": "The file is correctly formatted and includes necessary type conversion methods."
+    },
+    {
+      "step": 2,
+      "description": "Fix BillingGateway.kt by adding import for Activity.",
+      "tool": "file_write",
+      "target": "app/src/main/java/com/example/app/billing/BillingGateway.kt",
+      "rationale": "Resolve the unresolved reference to 'Activity' by adding the correct import.",
+      "verification": "The compilation error related to Activity is resolved."
+    },
+    {
+      "step": 3,
+      "description": "Fix AddPaymentScreen.kt by resolving 'dp' references.",
+      "tool": "file_write",
+      "target": "app/src/main/java/com/example/app/ui/AddPaymentScreen.kt",
+      "rationale": "The 'dp' references are likely related to UI dimension units. Ensure correct import and usage.",
+      "verification": "The compilation error related to 'dp' is resolved."
+    },
+    {
+      "step": 4,
+      "description": "Add TypeAdapter for LocalDate in BillOccurrenceDao to handle database persistence.",
+      "tool": "file_write",
+      "target": "app/src/main/java/com/example/app/data/BillOccurrenceDao.kt",
+      "rationale": "DAO methods use LocalDate which is not natively supported by Room. A TypeAdapter is required.",
+      "verification": "The DAO methods compile without errors after adding the TypeAdapter."
+    },
+    {
+      "step": 5,
+      "description": "Compare ForecastEngine.kt with Python reference and adjust if necessary.",
+      "tool": "file_read",
+      "target": "app/src/main/java/com/example/app/processing/ForecastEngine.kt",
+      "rationale": "Ensure the forecasting logic matches the Python implementation.",
+      "verification": "The logic in ForecastEngine.kt aligns with the reference Python code."
+    },
+    {
+      "step": 6,
+      "description": "Compare MonteCarloEngine.kt with Python reference and adjust if necessary.",
+      "tool": "file_read",
+      "target": "app/src/main/java/com/example/app/processing/MonteCarloEngine.kt",
+      "rationale": "Ensure the Monte Carlo simulation logic matches the Python implementation.",
+      "verification": "The logic in MonteCarloEngine.kt aligns with the reference Python code."
+    },
+    {
+      "step": 7,
+      "description": "Compare TimelineService.kt with Python reference and adjust if necessary.",
+      "tool": "file_read",
+      "target": "app/src/main/java/com/example/app/processing/TimelineService.kt",
+      "rationale": "Ensure the timeline generation logic matches the Python implementation.",
+      "verification": "The logic in TimelineService.kt aligns with the reference Python code."
+    },
+    {
+      "step": 8,
+      "description": "Run a full build to verify all fixes and ensure successful compilation.",
+      "tool": "shell_exec",
+      "target": "gradlew assembleDebug",
+      "rationale": "Verify that all compilation errors are resolved and the project builds successfully.",
+      "verification": "The build completes successfully with no errors."
+    }
+  ],
+  "root_cause": "Compilation errors due to missing imports, syntax issues in Converters.kt, and unsupported DAO parameter types.",
+  "out_of_scope": [
+    "Adding new features beyond the Python reference implementation",
+    "Changing the Room schema or DAO signatures",
+    "Introducing Hilt or other DI frameworks",
+    "Modifying the billing integration unless it directly blocks compilation",
+    "Optimizing or refactoring working code that already matches the reference"
+  ]
+}
