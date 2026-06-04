@@ -29,3 +29,17 @@ Thumbs.db
 tmp/
 temp/
 logs/
+
+# Open-source safety hardening
+.secrets/
+secrets/
+credentials/
+tokens/
+node_modules/
+dist/
+.godot/
+*.import
+export_presets.cfg
+*.ipa
+reference-montecarlo-ledger
+
