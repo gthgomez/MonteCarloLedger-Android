@@ -43,3 +43,7 @@ export_presets.cfg
 *.ipa
 reference-montecarlo-ledger
 
+# Temporary development artifacts
+commitPlan.json
+runs/
+
