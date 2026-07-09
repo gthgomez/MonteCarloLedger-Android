@@ -21,7 +21,7 @@ class MonteCarloEngineTest {
                 date = today.plusDays(2),
                 description = "Rent",
                 amount_cents = 300,
-                type = "bill",
+                type = "expense",
             ),
         )
         val engine = MonteCarloEngine(
@@ -47,7 +47,7 @@ class MonteCarloEngineTest {
         assertEquals(1_700, result.median_balance_cents)
         assertEquals(1_700, result.best_90_balance_cents)
         assertNull(result.most_common_first_negative_date)
-        assertNull(result.most_common_negative_window_start)
-        assertNull(result.most_common_negative_window_end)
+        assertNull(result.negative_window_start)
+        assertNull(result.negative_window_end)
     }
 }

@@ -40,11 +40,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.app.GlassTokens
 import com.example.app.MainViewModel
 import com.example.app.data.GoalEntity
+import com.workspace.design.ConfirmDeleteDialog
 import com.example.app.processing.CashFlowWindow
 import com.example.app.processing.TimelineService
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
+import java.util.Locale
 import kotlin.math.abs
 
 @Composable
@@ -112,7 +114,7 @@ fun PlanningScreen(
                     billPlanCents = billPlanCents,
                     variableSpendCents = variableSpendCents,
                     leftAfterPlanCents = leftAfterPlanCents,
-                    monthLabel = "${today.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${today.year}",
+                    monthLabel = "${today.month.name.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() }} ${today.year}",
                 )
             }
             item {
@@ -310,6 +312,7 @@ private fun PlanningGoalCard(
     goal: GoalEntity,
     onDelete: () -> Unit,
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
     val remaining = (goal.targetAmountCents - goal.currentAmountCents).coerceAtLeast(0)
     val progress = if (goal.targetAmountCents > 0) goal.currentAmountCents.toFloat() / goal.targetAmountCents else 0f
 
@@ -341,10 +344,22 @@ private fun PlanningGoalCard(
                     color = GlassTokens.TextSecondary,
                 )
             }
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = { showDeleteDialog = true }) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete goal", tint = GlassTokens.ErrorRed)
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        ConfirmDeleteDialog(
+            title = "Delete this goal?",
+            message = "Remove \"${goal.name}\" from your savings goals? This cannot be undone.",
+            onConfirm = {
+                onDelete()
+                showDeleteDialog = false
+            },
+            onDismiss = { showDeleteDialog = false }
+        )
     }
 }
 

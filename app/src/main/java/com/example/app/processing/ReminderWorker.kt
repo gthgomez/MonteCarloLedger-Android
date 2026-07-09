@@ -22,8 +22,6 @@ class ReminderWorker(
         val prefs = repo.reminderPreferences.first()
         if (!prefs.enabled) return Result.success()
 
-        ensureChannel()
-
         val parts = mutableListOf<String>()
         val today = LocalDate.now()
 
@@ -65,18 +63,6 @@ class ReminderWorker(
 
         NotificationManagerCompat.from(applicationContext).notify(NOTIFICATION_ID, notification)
         return Result.success()
-    }
-
-    private fun ensureChannel() {
-        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Ledger reminders",
-            NotificationManager.IMPORTANCE_DEFAULT
-        ).apply {
-            description = "Due-soon and weekly check-in reminders"
-        }
-        manager.createNotificationChannel(channel)
     }
 
     private companion object {

@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import com.example.app.data.IncomeEntity
 import com.example.app.domain.DomainRules
 import java.time.LocalDate
+import com.example.app.util.dollarsToCents
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 private enum class PayType { HOURLY, FLAT, PER_PROJECT }
 
@@ -65,19 +68,19 @@ fun AddIncomeScreen(onSave: (IncomeEntity) -> Unit) {
         derivedStateOf {
             when (payType) {
                 PayType.HOURLY -> {
-                    val rate = hourlyRate.toDoubleOrNull() ?: 0.0
-                    val hours = hoursPerWeek.toDoubleOrNull() ?: 0.0
-                    val weeklyPay = rate * hours
+                    val rate = runCatching { BigDecimal(hourlyRate.trim()) }.getOrDefault(BigDecimal.ZERO)
+                    val hours = runCatching { BigDecimal(hoursPerWeek.trim()) }.getOrDefault(BigDecimal.ZERO)
+                    val weeklyCents = rate.multiply(hours).multiply(BigDecimal(100)).setScale(0, RoundingMode.HALF_UP)
                     when (frequency) {
-                        "Weekly" -> (weeklyPay * 100).toInt()
-                        "Bi-weekly" -> (weeklyPay * 2 * 100).toInt()
-                        "Semi-monthly" -> ((weeklyPay * 52 / 24) * 100).toInt()
-                        "Monthly" -> ((weeklyPay * 52 / 12) * 100).toInt()
-                        else -> (weeklyPay * 100).toInt()
+                        "Weekly" -> weeklyCents.toInt()
+                        "Bi-weekly" -> weeklyCents.multiply(BigDecimal(2)).toInt()
+                        "Semi-monthly" -> weeklyCents.multiply(BigDecimal(52).divide(BigDecimal(24), 10, RoundingMode.HALF_UP)).toInt()
+                        "Monthly" -> weeklyCents.multiply(BigDecimal(52).divide(BigDecimal(12), 10, RoundingMode.HALF_UP)).toInt()
+                        else -> weeklyCents.toInt()
                     }
                 }
                 PayType.FLAT, PayType.PER_PROJECT -> {
-                    ((flatAmount.toDoubleOrNull() ?: 0.0) * 100).toInt()
+                    dollarsToCents(flatAmount)
                 }
             }
         }
@@ -284,7 +287,7 @@ fun AddIncomeScreen(onSave: (IncomeEntity) -> Unit) {
                 val cents = computedCents
                 val validation = DomainRules.validateIncomeSign(cents)
                 val nextPayday = runCatching { LocalDate.parse(nextPaydayIso) }.getOrNull()
-                val expectedAmount = expectedAmountDollars.toDoubleOrNull()?.let { (it * 100).toInt() }
+                val expectedAmount = dollarsToCents(expectedAmountDollars).takeIf { expectedAmountDollars.isNotBlank() }
 
                 if (name.isBlank()) {
                     errorMessage = "Income name is required"

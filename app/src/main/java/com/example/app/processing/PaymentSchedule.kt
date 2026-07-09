@@ -3,6 +3,7 @@ package com.example.app.processing
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.example.app.processing.RecurrenceMath
 
 object PaymentSchedule {
     val recurrenceOptions = listOf(
@@ -63,7 +64,7 @@ object PaymentSchedule {
     }
 
     private fun normalize(frequency: String): String {
-        return frequency.lowercase().replace(" ", "").replace("-", "")
+        return RecurrenceMath.normalizeFrequency(frequency)
     }
 
     private fun ordinalSuffix(value: Int): String {

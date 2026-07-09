@@ -6,6 +6,6 @@ data class ForecastEvent(
     val date: LocalDate,
     val description: String,
     val amount_cents: Int,
-    val type: String, // "income" or "payment"
+    val type: String, // "income", "expense", or "adjustment"
     val recurrenceLabel: String? = null
 )

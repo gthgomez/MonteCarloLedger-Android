@@ -13,5 +13,7 @@ dependencyResolutionManagement {
     }
 }
 
+includeBuild("../DesignSystem")
+
 rootProject.name = "MonteCarlo-Ledger-app"
 include(":app")

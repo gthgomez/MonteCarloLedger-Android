@@ -63,6 +63,9 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.6")
     implementation("com.android.billingclient:billing-ktx:7.1.1")
 
+    // Shared DesignSystem library
+    implementation("com.workspace:design")
+
     // Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.7.7")
 

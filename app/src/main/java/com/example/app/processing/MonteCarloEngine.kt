@@ -25,8 +25,8 @@ data class MonteCarloResult(
     val runs: Int,
     val negative_runs: Int,
     val most_common_first_negative_date: String?,
-    val most_common_negative_window_start: String?,
-    val most_common_negative_window_end: String?
+    val negative_window_start: String?,
+    val negative_window_end: String?
 )
 
 class MonteCarloEngine(
@@ -42,6 +42,8 @@ class MonteCarloEngine(
         val lowestBalances = mutableListOf<Int>()
         var negativeRuns = 0
         val negativeDates = mutableListOf<String>()
+        var earliestNegDate: String? = null
+        var latestNegDate: String? = null
 
         repeat(params.runs) {
             val scenario = generateScenarioTimeline(events, rng)
@@ -52,6 +54,8 @@ class MonteCarloEngine(
             summary.firstNegativeDate?.let { date ->
                 negativeRuns += 1
                 negativeDates.add(date)
+                if (earliestNegDate == null || date < earliestNegDate!!) earliestNegDate = date
+                if (latestNegDate == null || date > latestNegDate!!) latestNegDate = date
             }
         }
 
@@ -73,8 +77,8 @@ class MonteCarloEngine(
             runs = params.runs,
             negative_runs = negativeRuns,
             most_common_first_negative_date = mostCommonNegDate,
-            most_common_negative_window_start = mostCommonNegDate,
-            most_common_negative_window_end = mostCommonNegDate,
+            negative_window_start = earliestNegDate,
+            negative_window_end = latestNegDate,
         )
     }
 
@@ -91,7 +95,7 @@ class MonteCarloEngine(
                     params.incomeVariationMin,
                     params.incomeVariationMax + 1,
                 )
-                max(0, event.amount_cents + (event.amount_cents * variationPercent / 100))
+                max(0, (event.amount_cents * (100 + variationPercent.toDouble()) / 100).toInt())
             } else {
                 event.amount_cents
             }
@@ -118,7 +122,7 @@ class MonteCarloEngine(
                                 date = surpriseDay,
                                 description = "Unexpected Expense",
                                 amount_cents = surpriseAmount,
-                                type = "bill",
+                                type = "expense",
                             ),
                         )
                     }

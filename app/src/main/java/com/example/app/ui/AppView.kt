@@ -78,6 +78,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import com.example.app.GlassTokens
@@ -244,7 +246,7 @@ private fun AppChrome(
         section == AppSection.Dashboard && onboardingProgress.isComplete -> "Dashboard"
         section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Start here"
         addKind == AddKind.Income -> "Log paycheck"
-        addKind == AddKind.Payment -> "Add bill"
+        addKind == AddKind.Bill -> "Add bill"
         addKind == AddKind.Transaction -> "Record spending"
         addKind == AddKind.Goal -> "Set a savings goal"
         addKind == null && section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Choose what to add"
@@ -478,7 +480,7 @@ private fun AppChrome(
                                             onSetAddKind(AddKind.Income)
                                         }
                                         OnboardingMilestone.FIRST_BILL -> {
-                                            onSetAddKind(AddKind.Payment)
+                                            onSetAddKind(AddKind.Bill)
                                         }
                                         OnboardingMilestone.FIRST_GOAL -> {
                                             onSetAddKind(AddKind.Goal)
@@ -589,6 +591,7 @@ private fun AppChrome(
                             },
                             icon = { androidx.compose.material3.Icon(item.icon, contentDescription = item.label) },
                             label = { Text(item.label) },
+                            modifier = Modifier,
                             colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
                                 selectedIconColor = GlassTokens.CyanBright,
                                 selectedTextColor = GlassTokens.CyanBright,
@@ -632,7 +635,7 @@ private fun AppChrome(
                         onSetAddKind(AddKind.Income)
                     },
                     onAddPayment = {
-                        onSetAddKind(AddKind.Payment)
+                        onSetAddKind(AddKind.Bill)
                     },
                     onAddTransaction = {
                         onSetAddKind(AddKind.Transaction)
@@ -664,7 +667,7 @@ private fun AppChrome(
                         onSetAddKind(AddKind.Income)
                     },
                     onAddPayment = {
-                        onSetAddKind(AddKind.Payment)
+                        onSetAddKind(AddKind.Bill)
                     }
                 )
 
@@ -673,7 +676,7 @@ private fun AppChrome(
                 section == AppSection.Review -> ReviewCommandCenterScreen(
                     viewModel = viewModel,
                     onEditTransaction = { onSelectTransaction(it) },
-                    onTrackAsBill = { onSetAddKind(AddKind.Payment) },
+                    onTrackAsBill = { onSetAddKind(AddKind.Bill) },
                 )
 
                 section == AppSection.Analysis -> AnalysisScreen(viewModel, hazeState = hazeState)
@@ -767,7 +770,7 @@ private fun AppChrome(
                         showSuccessToast = true
                     }
                 )
-                AddKind.Payment -> AddPaymentScreen(
+                AddKind.Bill -> AddPaymentScreen(
                     onSave = {
                         viewModel.addPayment(it)
                         onSetAddKind(null)
@@ -941,7 +944,7 @@ private fun AppChrome(
             confirmButton = {
                 Button(onClick = {
                     showAddAnotherBillDialog = false
-                    onSetAddKind(AddKind.Payment)
+                    onSetAddKind(AddKind.Bill)
                 }) { Text("Add another") }
             },
             dismissButton = {
@@ -1318,6 +1321,7 @@ private fun AdaptiveNavigationRail(
                 onClick = { onSelectSection(item) },
                 icon = { androidx.compose.material3.Icon(item.icon, contentDescription = item.label) },
                 label = { Text(item.label) },
+                modifier = Modifier,
                 colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
                     selectedIconColor = GlassTokens.CyanBright,
                     selectedTextColor = GlassTokens.CyanBright,
@@ -1350,7 +1354,7 @@ private enum class AppSection(val label: String, val shortLabel: String, val tit
 
 private enum class AddKind {
     Income,
-    Payment,
+    Bill,
     Transaction,
     Goal,
 }
@@ -1396,7 +1400,7 @@ private fun AddActionsScreen(
                     buttonText = "Log paycheck"
                 ),
                 AddActionOption(
-                    kind = AddKind.Payment,
+                    kind = AddKind.Bill,
                     title = "Add your first bill",
                     technicalLabel = "bill entry",
                     description = "Add rent, utilities, or subscriptions so due dates show up.",
@@ -1415,7 +1419,7 @@ private fun AddActionsScreen(
         when {
             option.isReviewBalance -> 0
             nextActionMilestone == OnboardingMilestone.FIRST_INCOME && option.kind == AddKind.Income -> 0
-            nextActionMilestone == OnboardingMilestone.FIRST_BILL && option.kind == AddKind.Payment -> 0
+            nextActionMilestone == OnboardingMilestone.FIRST_BILL && option.kind == AddKind.Bill -> 0
             nextActionMilestone == OnboardingMilestone.FIRST_GOAL && option.kind == AddKind.Goal -> 0
             else -> 1
         }
@@ -1468,7 +1472,7 @@ private fun AddActionsScreen(
                 tint = if (
                     (nextActionMilestone == OnboardingMilestone.RECONCILIATION && option.isReviewBalance) ||
                     (nextActionMilestone == OnboardingMilestone.FIRST_INCOME && option.kind == AddKind.Income) ||
-                    (nextActionMilestone == OnboardingMilestone.FIRST_BILL && option.kind == AddKind.Payment) ||
+                    (nextActionMilestone == OnboardingMilestone.FIRST_BILL && option.kind == AddKind.Bill) ||
                     (nextActionMilestone == OnboardingMilestone.FIRST_GOAL && option.kind == AddKind.Goal)
                 ) GlassTint.Cyan else GlassTint.Neutral,
                 surfaceStyle = GlassSurfaceStyle.Quiet
@@ -1486,7 +1490,7 @@ private fun AddActionsScreen(
                     val isRecommended = when (nextActionMilestone) {
                         OnboardingMilestone.RECONCILIATION -> option.isReviewBalance
                         OnboardingMilestone.FIRST_INCOME -> option.kind == AddKind.Income
-                        OnboardingMilestone.FIRST_BILL -> option.kind == AddKind.Payment
+                        OnboardingMilestone.FIRST_BILL -> option.kind == AddKind.Bill
                         OnboardingMilestone.FIRST_GOAL -> option.kind == AddKind.Goal
                         OnboardingMilestone.FIRST_EXPENSE -> option.kind == AddKind.Transaction
                         null -> false
@@ -1496,7 +1500,7 @@ private fun AddActionsScreen(
                             text = option.buttonText,
                             onClick = when (option.kind) {
                                 AddKind.Income -> onAddIncome
-                                AddKind.Payment -> onAddPayment
+                                AddKind.Bill -> onAddPayment
                                 AddKind.Goal -> onAddGoal
                                 AddKind.Transaction -> if (option.isReviewBalance) onReviewBalance else onAddTransaction
                             }
@@ -1506,7 +1510,7 @@ private fun AddActionsScreen(
                             text = option.buttonText,
                             onClick = when (option.kind) {
                                 AddKind.Income -> onAddIncome
-                                AddKind.Payment -> onAddPayment
+                                AddKind.Bill -> onAddPayment
                                 AddKind.Goal -> onAddGoal
                                 AddKind.Transaction -> onAddTransaction
                             }

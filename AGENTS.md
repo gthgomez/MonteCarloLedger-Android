@@ -4,11 +4,13 @@ Agent-neutral startup router for this project. Root `ENGINEERING.md` and root `A
 
 ## Startup Sequence
 
-1. Read `C:\Workspace\ENGINEERING.md`.
-2. Read `C:\Workspace\AGENTS.md`.
-3. Read `PROJECT_CONTEXT.md` in this directory.
-4. Read a model adapter only when it applies to the active tool:
-   - `CLAUDE.md` for Claude
+1. Read `CLAUDE.md` in this directory — project-local Claude agent guidance (primary agent file).
+2. Read `PROJECT_CONTEXT.md` in this directory — directory map and invariants.
+3. Read `C:\Workspace\Project_Android\PROJECT_CONTEXT.md` — workspace-wide context.
+4. Read `C:\Workspace\Project_Android\CLAUDE.md` — behavioral rules and Android patterns.
+5. Review `C:\Workspace\Project_Android\tasks\lessons.md` if it exists.
+6. Read a model adapter only when it applies to the active tool:
+   - `CLAUDE.md` for Claude (already loaded in step 1)
    - `CODEX.md` for Codex, if present
    - `GEMINI.md` for Gemini, if present
 

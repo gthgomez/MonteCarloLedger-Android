@@ -16,6 +16,7 @@ object ReminderScheduler {
     private const val DAILY_WORK_NAME = "daily_reminder_check"
 
     fun scheduleDaily(context: Context) {
+        ensureNotificationChannel(context)  // Create once at schedule time, not every worker run
         val initialDelay = initialDelayToNextEightAm()
         val request = PeriodicWorkRequestBuilder<ReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(initialDelay.toMinutes(), TimeUnit.MINUTES)
@@ -41,5 +42,19 @@ object ReminderScheduler {
             nextRun = nextRun.plusDays(1)
         }
         return Duration.between(now, nextRun)
+    }
+
+    private fun ensureNotificationChannel(context: Context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val channel = android.app.NotificationChannel(
+                "ledger_reminders",
+                "Ledger reminders",
+                android.app.NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Due-soon and weekly check-in reminders"
+            }
+            manager.createNotificationChannel(channel)
+        }
     }
 }

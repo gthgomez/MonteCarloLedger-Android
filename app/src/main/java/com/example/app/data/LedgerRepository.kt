@@ -327,7 +327,7 @@ class LedgerRepository(private val db: AppDatabase) {
         val payments = db.paymentDao().getActive().first()
         for (payment in payments) {
             var cursor = LocalDate.parse(payment.next_date)
-            val freq = payment.frequency.lowercase().replace(" ", "").replace("-", "")
+            val freq = RecurrenceMath.normalizeFrequency(payment.frequency)
             val isOneTime = freq == "onetime"
             val dayOfMonth = payment.day_of_month
             db.billOccurrenceDao().deleteUnpaidForPaymentBetween(payment.id, lookback, horizon)
@@ -387,7 +387,7 @@ class LedgerRepository(private val db: AppDatabase) {
     // Payday processing: record actual received amount as a transaction and advance next_date.
     suspend fun processPayday(income: IncomeEntity, actualAmountCents: Int) {
         val paydayDate = income.next_date
-        val isOneTime = income.frequency.lowercase().replace(" ", "").replace("-", "") == "onetime"
+        val isOneTime = RecurrenceMath.normalizeFrequency(income.frequency) == "onetime"
 
         db.withTransaction {
             db.transactionDao().insert(
@@ -587,9 +587,9 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun paymentKey(payment: PaymentEntity): String {
         return listOf(
-            payment.name.trim().lowercase(),
+            payment.name.trim().lowercase(Locale.ROOT),
             payment.amount_cents.toString(),
-            payment.frequency.trim().lowercase(),
+            payment.frequency.trim().lowercase(Locale.ROOT),
             payment.day_of_month?.toString().orEmpty(),
             payment.next_date.trim(),
             payment.isAutoWithdraw.toString(),
@@ -599,10 +599,10 @@ class LedgerRepository(private val db: AppDatabase) {
     private fun transactionKey(transaction: TransactionEntity): String {
         return listOf(
             transaction.date.trim(),
-            transaction.description.trim().lowercase(),
+            transaction.description.trim().lowercase(Locale.ROOT),
             transaction.amount_cents.toString(),
-            transaction.type.trim().lowercase(),
-            transaction.category.trim().lowercase(),
+            transaction.type.trim().lowercase(Locale.ROOT),
+            transaction.category.trim().lowercase(Locale.ROOT),
         ).joinToString("|")
     }
 
@@ -645,7 +645,7 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     private fun normalizeRuleText(value: String): String {
-        return value.trim().lowercase(Locale.getDefault()).replace(Regex("\\s+"), " ")
+        return value.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
     }
 
     private fun normalizeTransactionCategory(value: String): String {

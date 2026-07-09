@@ -8,10 +8,11 @@ This file is the agent-neutral project context.
 
 ## Startup Sequence
 
-1. Read `C:\Workspace\ENGINEERING.md`.
-2. Read `C:\Workspace\AGENTS.md`.
-3. Read this file.
-4. Read model adapters as needed.
+1. Read `CLAUDE.md` in this directory — project-local agent guidance.
+2. Read this file (`PROJECT_CONTEXT.md`) — directory map and invariants.
+3. Read `C:\Workspace\Project_Android\PROJECT_CONTEXT.md` — workspace-wide context.
+4. Read `C:\Workspace\Project_Android\CLAUDE.md` — behavioral rules and Android patterns.
+5. Review `C:\Workspace\Project_Android\tasks\lessons.md` if it exists.
 
 ## Local Rules
 

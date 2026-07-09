@@ -4,6 +4,7 @@ import com.example.app.data.RecurringCandidate
 import com.example.app.data.TransactionEntity
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 object RecurringDetector {
     fun detect(transactions: List<TransactionEntity>): List<RecurringCandidate> {
@@ -48,11 +49,11 @@ object RecurringDetector {
 
     private fun normalizePattern(value: String): String {
         return value.trim()
-            .lowercase()
+            .lowercase(Locale.ROOT)
             .replace(Regex("\\s+"), " ")
     }
 
     private fun normalizeCategory(value: String): String {
-        return value.trim().lowercase()
+        return value.trim().lowercase(Locale.ROOT)
     }
 }

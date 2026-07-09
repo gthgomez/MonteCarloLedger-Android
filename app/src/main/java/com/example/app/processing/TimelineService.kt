@@ -4,6 +4,7 @@ import com.example.app.data.BillOccurrenceEntity
 import com.example.app.data.IncomeEntity
 import com.example.app.data.PaymentEntity
 import java.time.LocalDate
+import java.util.Locale
 
 object TimelineService {
 
@@ -60,7 +61,7 @@ object TimelineService {
         val events = mutableListOf<ForecastEvent>()
         var currentDate = parseDateOrNull(income.next_date) ?: return emptyList()
         var firstOccurrence = true
-        val isOneTime = income.frequency.lowercase().replace(" ", "").replace("-", "") == "onetime"
+        val isOneTime = RecurrenceMath.normalizeFrequency(income.frequency) == "onetime"
 
         // Unpaid one-time income past its date — surface it on today
         if (isOneTime && currentDate < startDate) {
@@ -104,7 +105,7 @@ object TimelineService {
     ): List<ForecastEvent> {
         val events = mutableListOf<ForecastEvent>()
         var currentDate = parseDateOrNull(payment.next_date) ?: return emptyList()
-        val isOneTime = payment.frequency.lowercase().replace(" ", "").replace("-", "") == "onetime"
+        val isOneTime = RecurrenceMath.normalizeFrequency(payment.frequency) == "onetime"
 
         // Unpaid one-time bills past their due date are overdue — surface them on today
         if (isOneTime && currentDate < startDate) {
@@ -169,7 +170,7 @@ object TimelineService {
                 recurrenceLabel = PaymentSchedule.recurrenceSummary(
                     payment.frequency,
                     payment.day_of_month,
-                    payment.next_date
+                    occurrence.due_date
                 ),
             )
         }

@@ -2,12 +2,12 @@ package com.example.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import java.util.Locale
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.workspace.design.ConfirmDeleteDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.app.data.TransactionEntity
+import com.example.app.util.dollarsToCents
 import java.time.LocalDate
 import kotlin.math.abs
 
@@ -56,16 +57,14 @@ fun EditTransactionScreen(
     var errorMessage by remember { mutableStateOf("") }
 
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Transaction") },
-            text = { Text("Remove this \"${transaction.description}\" entry? This will affect your account balance.") },
-            confirmButton = {
-                AppDestructiveButton(text = "Delete", onClick = { onDelete(transaction) })
+        ConfirmDeleteDialog(
+            title = "Delete this transaction?",
+            message = "Remove \"${transaction.description}\"? This will affect your account balance and cannot be undone.",
+            onConfirm = {
+                onDelete(transaction)
+                showDeleteConfirm = false
             },
-            dismissButton = {
-                Button(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
-            }
+            onDismiss = { showDeleteConfirm = false }
         )
     }
 
@@ -139,15 +138,15 @@ fun EditTransactionScreen(
             AppPrimaryButton(
                 text = "Save",
                 onClick = {
-                    val raw = amountDollars.toDoubleOrNull() ?: 0.0
-                    if (raw <= 0) {
+                    val rawCents = dollarsToCents(amountDollars)
+                    if (rawCents <= 0) {
                         errorMessage = "Amount must be greater than zero."
                     } else if (description.isBlank()) {
                         errorMessage = "Description cannot be empty."
                     } else {
-                        val cents = when (type.lowercase()) {
-                            "expense" -> -((raw * 100).toInt())
-                            else -> (raw * 100).toInt()
+                        val cents = when (type.lowercase(Locale.ROOT)) {
+                            "expense" -> -rawCents
+                            else -> rawCents
                         }
                         val updated = transaction.copy(
                             description = description,

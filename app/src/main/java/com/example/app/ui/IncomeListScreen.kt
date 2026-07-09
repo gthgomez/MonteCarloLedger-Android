@@ -70,8 +70,8 @@ fun IncomeListScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    val raw = paydayAmount.toDoubleOrNull()
-                    val cents = if (raw != null && raw > 0) (raw * 100).toInt()
+                    val rawCents = dollarsToCents(paydayAmount)
+                    val cents = if (rawCents > 0) rawCents
                                 else income.expectedAmountCents ?: income.amount_cents
                     viewModel.processPayday(income, cents)
                     paydayTarget = null

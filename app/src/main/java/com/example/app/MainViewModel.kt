@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -521,7 +522,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         today: LocalDate,
     ): List<TransactionReviewItem> {
         val recentCutoff = today.minusDays(14)
-        val recurringByPattern = recurringCandidates.associateBy { it.pattern.lowercase() }
+        val recurringByPattern = recurringCandidates.associateBy { it.pattern.lowercase(Locale.ROOT) }
         return transactions.asSequence()
             .filter { it.review_status == "pending" || it.type == "expense" }
             .filter { transaction ->
@@ -538,7 +539,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             .take(6)
             .map { transaction ->
-                val normalizedDescription = transaction.description.trim().lowercase()
+                val normalizedDescription = transaction.description.trim().lowercase(Locale.ROOT)
                 val recurringMatch = recurringByPattern[normalizedDescription]
                 val suggestedCategory = when {
                     !transaction.category.equals("uncategorized", ignoreCase = true) -> transaction.category

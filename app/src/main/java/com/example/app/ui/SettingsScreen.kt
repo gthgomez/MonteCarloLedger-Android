@@ -26,6 +26,7 @@ import com.example.app.GlassTokens
 import com.example.app.DashboardConfig
 import com.example.app.DashboardWidget
 import com.example.app.MainViewModel
+import com.workspace.design.ConfirmDeleteDialog
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.HazeStyle
@@ -251,7 +252,7 @@ fun SettingsScreen(
 
             item {
                 Text(
-                    "Dashboard Widgets",
+                    "Customize Dashboard",
                     style = MaterialTheme.typography.labelLarge,
                     color = GlassTokens.TextSecondary,
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
@@ -268,8 +269,20 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.padding(8.dp)
                     ) {
+                        val widgetLabel = mapOf(
+                            DashboardWidget.ActionCenter to "Action Center",
+                            DashboardWidget.ReviewInbox to "Review Inbox",
+                            DashboardWidget.MoneyBuckets to "Money Buckets",
+                            DashboardWidget.TrustLayer to "Trust Signals",
+                            DashboardWidget.Balance to "Balance Card",
+                            DashboardWidget.Monitoring to "Monitoring Status",
+                            DashboardWidget.NetWorth to "Net Worth",
+                            DashboardWidget.Goal to "Savings Goals",
+                            DashboardWidget.PlanAhead to "Plan Ahead",
+                            DashboardWidget.MonteCarlo to "3-Month Estimate"
+                        )
                         DashboardWidget.values().forEach { widget ->
-                            val readableName = widget.name.replace(Regex("([a-z])([A-Z])"), "$1 $2")
+                            val readableName = widgetLabel[widget] ?: widget.name
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -329,6 +342,8 @@ private fun AssetItemCard(
     asset: com.example.app.data.AssetEntity,
     onDelete: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
         tint = GlassTint.Neutral,
@@ -361,10 +376,22 @@ private fun AssetItemCard(
                     color = GlassTokens.TextSecondary
                 )
             }
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = { showDeleteDialog = true }) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = GlassTokens.ErrorRed)
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        ConfirmDeleteDialog(
+            title = "Delete this asset?",
+            message = "Remove \"${asset.name}\" from your net worth tracking? This cannot be undone.",
+            onConfirm = {
+                onDelete()
+                showDeleteDialog = false
+            },
+            onDismiss = { showDeleteDialog = false }
+        )
     }
 }
 

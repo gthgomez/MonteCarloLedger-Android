@@ -699,13 +699,13 @@ private fun BalanceCard(
             if (showForecastCards) {
                 if (uiState.safeToSpendCents < 0) {
                     Text(
-                        "Overdraft projected: -\$${String.format("%.2f", -uiState.safeToSpendCents / 100.0)}",
+                        "Projected shortfall: \$${String.format("%.2f", -uiState.safeToSpendCents / 100.0)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = GlassTokens.ErrorRed
                     )
                 } else {
                     Text(
-                        "Okay to spend today: \$${String.format("%.2f", uiState.safeToSpendCents / 100.0)}",
+                        "Safe to spend: \$${String.format("%.2f", uiState.safeToSpendCents / 100.0)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = GlassTokens.PositiveGreen
                     )
@@ -840,19 +840,34 @@ private fun BalanceCard(
 
 @Composable
 private fun PlanAheadCard(uiState: AppUiState) {
+    var showHelp by remember { mutableStateOf(false) }
     val currentWindow = uiState.cashFlowWindows.firstOrNull()
+    val paDailyBudgetStr = "\$${String.format("%.2f", uiState.dailyBudgetCents / 100.0)}"
     GlassCard(
-        modifier = Modifier.heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight),
+        modifier = Modifier
+            .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
+            .semantics {
+                stateDescription = "Daily budget: $paDailyBudgetStr per day until ${uiState.nextPaydayLabel}"
+            },
         tint = if ((currentWindow?.shortfallCents ?: 0) > 0) GlassTint.Error else GlassTint.Cyan,
         surfaceStyle = GlassSurfaceStyle.Standard
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "Until next payday",
-                style = MaterialTheme.typography.labelMedium,
-                color = GlassTokens.TextSecondary,
-                modifier = Modifier.semantics { heading() }
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Until next payday",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = GlassTokens.TextSecondary,
+                    modifier = Modifier.semantics { heading() }
+                )
+                IconButton(onClick = { showHelp = true }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Info, "How this works", tint = GlassTokens.TextDim)
+                }
+            }
             Text(
                 "\$${String.format("%.2f", uiState.dailyBudgetCents / 100.0)} / day",
                 style = MaterialTheme.typography.titleLarge,
@@ -877,6 +892,17 @@ private fun PlanAheadCard(uiState: AppUiState) {
                 )
             }
         }
+    }
+
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            title = { Text("How we calculate your daily budget", color = GlassTokens.TextPrimary) },
+            text = { Text("We look at your current balance minus all upcoming bills until your next paycheck. That remaining amount, divided by the days until payday, gives you a safe daily spend. If your bills exceed your balance, we show the projected shortfall instead.", color = GlassTokens.TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = { showHelp = false }) { Text("Got it") }
+            }
+        )
     }
 }
 
@@ -941,18 +967,36 @@ private fun NetWorthCard(uiState: AppUiState) {
 
 @Composable
 private fun MonteCarloCard(uiState: AppUiState) {
+    var showHelp by remember { mutableStateOf(false) }
+    val mcLowerStr = "\$${String.format("%.0f", uiState.monteCarlo10thCents / 100.0)}"
+    val mcTypicalStr = "\$${String.format("%.0f", uiState.monteCarlo50thCents / 100.0)}"
+    val mcHigherStr = "\$${String.format("%.0f", uiState.monteCarlo90thCents / 100.0)}"
+    val mcRiskStr = String.format("%.1f", uiState.probabilityNegativePct)
     GlassCard(
-        modifier = Modifier.heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight),
+        modifier = Modifier
+            .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
+            .semantics {
+                stateDescription = "3-month estimate: lower $mcLowerStr, typical $mcTypicalStr, higher $mcHigherStr. Risk of running low: $mcRiskStr%"
+            },
         tint = GlassTint.Teal,
         surfaceStyle = GlassSurfaceStyle.Standard
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                "3-month estimate",
-                style = MaterialTheme.typography.labelMedium,
-                color = GlassTokens.TextSecondary,
-                modifier = Modifier.semantics { heading() }
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "3-month estimate",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = GlassTokens.TextSecondary,
+                    modifier = Modifier.semantics { heading() }
+                )
+                IconButton(onClick = { showHelp = true }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Info, "How this works", tint = GlassTokens.TextDim)
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -995,6 +1039,17 @@ private fun MonteCarloCard(uiState: AppUiState) {
                 Text("Most likely low point: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
             }
         }
+    }
+
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            title = { Text("How the 3-month estimate works", color = GlassTokens.TextPrimary) },
+            text = { Text("We run your upcoming income and bills through 500 different scenarios. Each scenario adds random variation to your income (±8%) and occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). The risk percentage tells you how many scenarios ended with a negative balance.", color = GlassTokens.TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = { showHelp = false }) { Text("Got it") }
+            }
+        )
     }
 }
 
@@ -1212,9 +1267,13 @@ private fun SetupCompleteCard(uiState: AppUiState) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Okay to spend today", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(
-                        if (safeToSpend < 0) "Over budget" else "\$${String.format("%.2f", safeToSpend / 100.0)}",
+                        if (safeToSpend < 0) "Projected shortfall" else "Safe to spend",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GlassTokens.TextDim
+                    )
+                    Text(
+                        if (safeToSpend < 0) "\$${String.format("%.2f", -safeToSpend / 100.0)}" else "\$${String.format("%.2f", safeToSpend / 100.0)}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         color = if (safeToSpend < 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen
@@ -1300,7 +1359,7 @@ private fun MonitoringModeCard(
                         FriendlyTechnicalLabel("Safe to spend", "forecast-safe amount")
                         Text(
                             if (uiState.safeToSpendCents < 0) {
-                                "Overdraft projected"
+                                "Projected shortfall: \$${String.format("%.2f", -uiState.safeToSpendCents / 100.0)}"
                             } else {
                                 "\$${String.format("%.2f", uiState.safeToSpendCents / 100.0)}"
                             },

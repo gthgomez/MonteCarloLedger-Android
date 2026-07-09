@@ -11,13 +11,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.example.app.GlassTokens
 
 @Composable
 fun AppBrandMark(
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.semantics { contentDescription = "MonteCarlo Ledger" }) {
         val width = size.width
         val height = size.height
         val centerX = width / 2f

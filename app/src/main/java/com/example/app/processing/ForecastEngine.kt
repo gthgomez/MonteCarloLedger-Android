@@ -4,12 +4,16 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.max
 
+internal val EVENT_COMPARATOR: Comparator<ForecastEvent> = compareBy<ForecastEvent> { it.date }
+    .thenBy { if (it.type == "income") 0 else 1 }
+
 data class BalanceForecastRow(
     val date: LocalDate,
     val balanceCents: Int,
 )
 
 data class ForecastSummary(
+    /** Minimum running balance across the window. Negative when the forecast goes into overdraft. */
     val safeToSpendCents: Int,
     val lowestBalanceCents: Int,
     val lowestBalanceDate: LocalDate?,
@@ -38,7 +42,7 @@ object ForecastEngine {
         var runningBalance = balanceCents
         var lowestBalance = balanceCents
 
-        for (event in events.sortedWith(compareBy({ it.date }, { if (it.type == "income") 0 else 1 }))) {
+        for (event in events.sortedWith(EVENT_COMPARATOR)) {
             runningBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
             lowestBalance = minOf(lowestBalance, runningBalance)
         }
@@ -63,7 +67,7 @@ object ForecastEngine {
         val endDate = startDate.plusDays(daysAhead.toLong())
         val sortedEvents = events
             .filter { !it.date.isBefore(startDate) && it.date.isBefore(endDate) }
-            .sortedWith(compareBy({ it.date }, { if (it.type == "income") 0 else 1 }))
+            .sortedWith(EVENT_COMPARATOR)
         val paycheckDates = sortedEvents
             .filter { it.type == "income" }
             .map { it.date }
@@ -121,34 +125,32 @@ object ForecastEngine {
     }
 
     fun calculateIncomeContribution(balanceCents: Int, events: List<ForecastEvent>): Int {
-        var runningProjectedBalance = balanceCents
-        var lowestProjectedBalance = balanceCents
-
-        for (event in events.sortedWith(compareBy({ it.date }, { if (it.type == "income") 0 else 1 }))) {
-            runningProjectedBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
-            if (runningProjectedBalance < lowestProjectedBalance) {
-                lowestProjectedBalance = runningProjectedBalance
-            }
-        }
-
+        val sorted = events.sortedWith(EVENT_COMPARATOR)
+        var runningProjected = balanceCents
         var runningCash = balanceCents
+        var lowestProjected = balanceCents
         var minCash = balanceCents
-        for (event in events.sortedWith(compareBy({ it.date }, { if (it.type == "income") 0 else 1 }))) {
-            if (event.type == "bill") {
+
+        for (event in sorted) {
+            if (event.type == "income") {
+                runningProjected += event.amount_cents
+                // runningCash unchanged — we're computing bills-only
+            } else {
+                runningProjected -= event.amount_cents
                 runningCash -= event.amount_cents
             }
+            if (runningProjected < lowestProjected) lowestProjected = runningProjected
             if (runningCash < minCash) minCash = runningCash
         }
 
-        val safeToSpend = max(0, lowestProjectedBalance)
-        val currentCashContribution = max(0, minCash)
-
-        return max(0, safeToSpend - currentCashContribution)
+        val safeToSpend = maxOf(0, lowestProjected)
+        val currentCashContribution = maxOf(0, minCash)
+        return maxOf(0, safeToSpend - currentCashContribution)
     }
 
     fun buildBalanceForecast(balanceCents: Int, events: List<ForecastEvent>): List<BalanceForecastRow> {
         var runningBalance = balanceCents
-        return events.sortedWith(compareBy({ it.date }, { if (it.type == "income") 0 else 1 })).map { event ->
+        return events.sortedWith(EVENT_COMPARATOR).map { event ->
             runningBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
             BalanceForecastRow(
                 date = event.date,

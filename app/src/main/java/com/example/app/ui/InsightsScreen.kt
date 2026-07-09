@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.app.GlassTokens
 import com.example.app.MainViewModel
+import java.util.Locale
 import kotlin.math.abs
 
 @Composable
@@ -185,8 +186,8 @@ internal fun LazyListScope.analysisInsightsSection(
 
     val (untracked, spendingPatterns) = uiState.recurringCandidates.partition { candidate ->
         uiState.payments.none { payment ->
-            payment.name.lowercase().contains(candidate.pattern.lowercase()) ||
-            candidate.pattern.lowercase().contains(payment.name.lowercase())
+            payment.name.lowercase(Locale.ROOT).contains(candidate.pattern.lowercase(Locale.ROOT)) ||
+            candidate.pattern.lowercase(Locale.ROOT).contains(payment.name.lowercase(Locale.ROOT))
         }
     }
 

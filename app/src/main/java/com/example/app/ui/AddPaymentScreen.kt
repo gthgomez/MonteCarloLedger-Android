@@ -29,6 +29,7 @@ import com.example.app.data.PaymentEntity
 import com.example.app.domain.DomainRules
 import com.example.app.processing.PaymentSchedule
 import java.time.LocalDate
+import com.example.app.util.dollarsToCents
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -138,7 +139,7 @@ fun AddPaymentScreen(
         AppPrimaryButton(
             text = "Save",
             onClick = {
-                val cents = ((amountDollars.toDoubleOrNull() ?: 0.0) * 100).toInt()
+                val cents = dollarsToCents(amountDollars)
                 val validation = DomainRules.validatePaymentSign(cents)
                 val dueDate = runCatching { LocalDate.parse(dueDateText.trim()) }.getOrNull()
                 val dueDay = dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth

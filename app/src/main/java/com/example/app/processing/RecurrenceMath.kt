@@ -1,6 +1,7 @@
 package com.example.app.processing
 
 import java.time.LocalDate
+import java.util.Locale
 
 object RecurrenceMath {
 
@@ -46,8 +47,8 @@ object RecurrenceMath {
         }
     }
 
-    private fun normalizeFrequency(frequency: String): String {
-        return frequency.lowercase().replace(" ", "").replace("-", "")
+    internal fun normalizeFrequency(frequency: String): String {
+        return frequency.lowercase(Locale.ROOT).replace(" ", "").replace("-", "")
     }
 
     private fun monthlyDate(baseDate: LocalDate, desiredDay: Int): LocalDate {

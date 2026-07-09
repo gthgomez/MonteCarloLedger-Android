@@ -1,0 +1,9 @@
+# MonteCarloLedger
+
+Modern financial ledger application for Android. Focuses on deterministic forecasting, bill pacing, and secure encrypted backups.
+
+**Tech stack:** Kotlin, Jetpack Compose, Material3, Room (SQLite), AES-GCM encrypted backups, Clean Architecture (Domain/Data/UI).
+
+**Build:** `.\gradlew.bat assembleDebug`
+
+**Detailed docs:** [CLAUDE.md](CLAUDE.md) | [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)

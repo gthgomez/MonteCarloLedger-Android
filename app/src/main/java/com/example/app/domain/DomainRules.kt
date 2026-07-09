@@ -2,12 +2,13 @@ package com.example.app.domain
 
 import com.example.app.data.BillOccurrenceEntity
 import com.example.app.data.TransactionEntity
+import java.util.Locale
 import kotlin.math.abs
 
 object DomainRules {
 
     fun validateTransactionSign(amountCents: Int, type: String) {
-        when (type.lowercase()) {
+        when (type.lowercase(Locale.ROOT)) {
             "income" -> {
                 if (amountCents <= 0) {
                     throw IllegalArgumentException("Income transactions must have a positive amount (> 0).")
@@ -38,7 +39,7 @@ object DomainRules {
         if (transaction == null) {
             throw IllegalArgumentException("Transaction not found.")
         }
-        if (transaction.type.lowercase() != "expense") {
+        if (transaction.type.lowercase(Locale.ROOT) != "expense") {
             throw IllegalArgumentException("Transaction must be an Expense.")
         }
         if (abs(transaction.amount_cents) != occurrence.amount_cents) {

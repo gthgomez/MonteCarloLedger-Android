@@ -1,5 +1,7 @@
 package com.example.app.data
 
+import java.util.Locale
+
 data class CategoryRulePreset(
     val category: String,
     val keywords: List<String>,
@@ -37,5 +39,5 @@ object CategoryRulePresets {
         }
 
     private fun normalize(value: String): String =
-        value.trim().lowercase().replace(Regex("\\s+"), " ")
+        value.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
 }

@@ -7,8 +7,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.workspace.design.ConfirmDeleteDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -34,6 +33,7 @@ import com.example.app.data.PaymentEntity
 import com.example.app.domain.DomainRules
 import com.example.app.processing.PaymentSchedule
 import java.time.LocalDate
+import com.example.app.util.dollarsToCents
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,16 +56,14 @@ fun EditPaymentScreen(
     val recurrences = PaymentSchedule.recurrenceOptions
 
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Payment") },
-            text = { Text("Remove \"${payment.name}\"? This cannot be undone.") },
-            confirmButton = {
-                AppDestructiveButton(text = "Delete", onClick = { onDelete(payment) })
+        ConfirmDeleteDialog(
+            title = "Delete this bill?",
+            message = "Remove \"${payment.name}\"? This cannot be undone.",
+            onConfirm = {
+                onDelete(payment)
+                showDeleteConfirm = false
             },
-            dismissButton = {
-                Button(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
-            }
+            onDismiss = { showDeleteConfirm = false }
         )
     }
 
@@ -158,7 +156,7 @@ fun EditPaymentScreen(
             AppPrimaryButton(
                 text = "Save",
                 onClick = {
-                    val cents = ((amountDollars.toDoubleOrNull() ?: 0.0) * 100).toInt()
+                    val cents = dollarsToCents(amountDollars)
                     val validation = DomainRules.validatePaymentSign(cents)
                     val dueDate = runCatching { LocalDate.parse(dueDateText.trim()) }.getOrNull()
                     val dueDay = dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth

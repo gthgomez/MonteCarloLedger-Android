@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.example.app.data.BillOccurrenceEntity
 import com.example.app.data.PaymentEntity
 import java.time.LocalDate
+import com.example.app.util.dollarsToCents
 
 private data class TransactionTypeOption(
     val value: String,
@@ -67,7 +68,7 @@ fun AddTransactionScreen(
     var showAdvancedTypes by remember { mutableStateOf(false) }
 
     val amountCents = remember(amountDollars) {
-        amountDollars.toDoubleOrNull()?.let { (it * 100).toInt() } ?: 0
+        dollarsToCents(amountDollars)
     }
 
     val billLinkOptions = remember(payments, billOccurrences, amountCents, type) {
@@ -152,7 +153,7 @@ fun AddTransactionScreen(
         }
 
         TextButton(onClick = { showAdvancedTypes = !showAdvancedTypes }) {
-            Text(if (showAdvancedTypes) "Hide advanced entry types" else "Show advanced entry types")
+            Text(if (showAdvancedTypes) "Hide all entry types" else "Show all entry types")
         }
 
         if (type == "expense") {
@@ -208,19 +209,19 @@ fun AddTransactionScreen(
             text = "Save",
             onClick = {
                 localErrorMessage = ""
-                val raw = amountDollars.toDoubleOrNull()
+                val rawCents = dollarsToCents(amountDollars)
                 if (description.isBlank()) {
                     localErrorMessage = "Description is required."
                     return@AppPrimaryButton
                 }
-                if (raw == null || raw <= 0.0) {
+                if (rawCents <= 0) {
                     localErrorMessage = "Enter a valid amount greater than zero."
                     return@AppPrimaryButton
                 }
                 // income/adjustment: positive cents; expense: negative cents (matches domain_rules.py sign convention)
                 val cents = when (type) {
-                    "expense" -> -((raw * 100).toInt())
-                    else -> (raw * 100).toInt()
+                    "expense" -> -rawCents
+                    else -> rawCents
                 }
                 val linkedOccurrenceId = if (type == "expense") selectedOccurrenceId else null
                 onSave(description, cents, type, linkedOccurrenceId, category, dateIso)

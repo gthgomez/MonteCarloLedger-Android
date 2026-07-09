@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.app.GlassTokens
+import java.util.Locale
 
 @Composable
 fun CategoryGlassIcon(
@@ -50,7 +51,7 @@ private data class CategoryIconInfo(
 )
 
 private fun getIconForCategory(category: String): CategoryIconInfo {
-    return when (category.lowercase().trim()) {
+    return when (category.lowercase(Locale.ROOT).trim()) {
         "housing", "rent", "mortgage" -> CategoryIconInfo(Icons.Default.Home, GlassTokens.VioletLight)
         "food", "dining", "groceries", "restaurants" -> CategoryIconInfo(Icons.Default.Restaurant, GlassTokens.CyanBright)
         "transport", "transportation", "car", "gas", "fuel", "uber", "lyft" -> CategoryIconInfo(Icons.Default.DirectionsCar, GlassTokens.Cyan)
