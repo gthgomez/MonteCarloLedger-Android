@@ -124,6 +124,35 @@ object ForecastEngine {
         }
     }
 
+    /**
+     * Computes the worst-case buffer improvement that upcoming income events provide
+     * over a bills-only scenario.
+     *
+     * The function runs two parallel balance simulations across the sorted event window,
+     * both starting from [balanceCents]:
+     *
+     * 1. **All-events path** (`lowestProjected`) — processes every event (income adds,
+     *    bills subtract). This is the actual projected balance floor.
+     * 2. **Bills-only path** (`minCash`) — processes only bill events, skipping income
+     *    entirely. This is the balance floor if no income arrived.
+     *
+     * Each path's minimum is floored at zero. The contribution is the difference:
+     *
+     * ```
+     * contribution = max(0, max(0, lowestProjected) - max(0, minCash))
+     * ```
+     *
+     * In other words: how many cents does income lift the worst-case balance above
+     * what it would be with bills alone?
+     *
+     * **Returns** a non-negative value in cents. Zero means income provides no
+     * measurable buffer improvement (either because there is no income, both paths
+     * go negative, or bills alone never dip below the all-events floor).
+     *
+     * @param balanceCents starting balance in cents (non-negative).
+     * @param events       forecast events to simulate (income + bills, may be empty).
+     * @return worst-case buffer improvement attributable to income, in cents.
+     */
     fun calculateIncomeContribution(balanceCents: Int, events: List<ForecastEvent>): Int {
         val sorted = events.sortedWith(EVENT_COMPARATOR)
         var runningProjected = balanceCents

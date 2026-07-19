@@ -36,6 +36,7 @@ class MonteCarloEngine(
     fun runSimulation(
         balanceCents: Int,
         events: List<ForecastEvent>,
+        today: LocalDate = LocalDate.now(),
     ): MonteCarloResult {
         val rng = Random(params.seed)
         val endingBalances = mutableListOf<Int>()
@@ -46,7 +47,7 @@ class MonteCarloEngine(
         var latestNegDate: String? = null
 
         repeat(params.runs) {
-            val scenario = generateScenarioTimeline(events, rng)
+            val scenario = generateScenarioTimeline(events, rng, today)
             val summary = simulateScenario(balanceCents, scenario)
 
             endingBalances.add(summary.endingBalance)
@@ -85,9 +86,9 @@ class MonteCarloEngine(
     private fun generateScenarioTimeline(
         baseTimeline: List<ForecastEvent>,
         rng: Random,
+        today: LocalDate,
     ): List<ForecastEvent> {
         val scenario = mutableListOf<ForecastEvent>()
-        val today = LocalDate.now()
 
         for (event in baseTimeline) {
             val adjustedAmount = if (event.type == "income") {
@@ -113,6 +114,14 @@ class MonteCarloEngine(
                         index * params.surpriseCheckIntervalDays + rng.nextInt(params.surpriseCheckIntervalDays)
                     val surpriseDay = today.plusDays(surpriseDayOffset.toLong())
                     if (surpriseDay <= lastDate) {
+                        /**
+                         * Surprise / unexpected events are typed as "expense" rather than a
+                         * separate type so that existing filters (e.g. [ForecastEngine],
+                         * summarizers, and dashboard aggregations) handle them without
+                         * changes. The description field ("Unexpected Expense") carries the
+                         * semantic distinction; math treats every non-"income" event as a
+                         * deduction.
+                         */
                         val surpriseAmount = rng.nextInt(
                             params.surpriseAmountMin,
                             params.surpriseAmountMax + 1,

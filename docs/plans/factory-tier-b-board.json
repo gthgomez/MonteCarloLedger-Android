@@ -1,0 +1,115 @@
+{
+  "schema": "factory-board/1",
+  "campaign_id": "placeholder",
+  "parent_plan": "docs/plans/FACTORY_TIER_B_PLAN.md",
+  "tier": "B",
+  "created_at": "2026-07-19T00:00:00Z",
+  "updated_at": "2026-07-19T00:00:00Z",
+  "policy": {
+    "default_mode": "sequential",
+    "allow_parallel": false,
+    "max_parallel": 1,
+    "stop_on_hard": true,
+    "stop_on_blocked": true,
+    "advance_on_pass_with_nits": true,
+    "do_not_start_next_tier": true,
+    "next_tier_requires_user": true
+  },
+  "slices": [
+    {
+      "id": "B1",
+      "title": "Monte Carlo today inject + event typing",
+      "depends_on": [],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/processing/MonteCarloEngine.kt",
+        "app/src/main/java/com/example/app/processing/ForecastEvent.kt",
+        "app/src/main/java/com/example/app/MainViewModel.kt",
+        "app/src/test/java/com/example/app/processing/MonteCarloEngineTest.kt"
+      ],
+      "effort": "S",
+      "status": "pending",
+      "run_dir": "slices/B1",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "Sequential. Focused tests only mid-slice."
+    },
+    {
+      "id": "B2",
+      "title": "Income contribution contract + tests",
+      "depends_on": ["B1"],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/processing/ForecastEngine.kt",
+        "app/src/test/java/com/example/app/processing/ForecastEngineTest.kt"
+      ],
+      "effort": "S",
+      "status": "pending",
+      "run_dir": "slices/B2",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "Docs in KDoc + tests; no UI."
+    },
+    {
+      "id": "B3",
+      "title": "Balance drift re-reconcile banner",
+      "depends_on": ["B2"],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/data/LedgerRepository.kt",
+        "app/src/main/java/com/example/app/AppUiState.kt",
+        "app/src/main/java/com/example/app/MainViewModel.kt",
+        "app/src/main/java/com/example/app/ui/DashboardScreen.kt",
+        "app/src/main/java/com/example/app/ui/DashboardProductLayer.kt",
+        "app/src/main/java/com/example/app/ui/AppView.kt",
+        "app/src/test/java/com/example/app/data/LedgerRepositoryTest.kt"
+      ],
+      "effort": "M",
+      "status": "pending",
+      "run_dir": "slices/B3",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "CTA only; seed model still holds."
+    },
+    {
+      "id": "B4",
+      "title": "Backup plaintext HMAC integrity",
+      "depends_on": ["B3"],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/security/SecurityUtils.kt",
+        "app/src/main/java/com/example/app/data/BackupSnapshot.kt",
+        "app/src/main/java/com/example/app/ui/BackupExport.kt",
+        "app/src/main/java/com/example/app/ui/BackupImport.kt",
+        "app/src/main/java/com/example/app/ui/AppView.kt",
+        "app/src/test/java/com/example/app/ui/BackupExportTest.kt",
+        "app/src/test/java/com/example/app/security/SecurityUtilsTest.kt"
+      ],
+      "effort": "M",
+      "status": "pending",
+      "run_dir": "slices/B4",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "HMAC inside plaintext; legacy without hmac still imports with warning path."
+    }
+  ],
+  "levels": [
+    { "level": 0, "slice_ids": ["B1"] },
+    { "level": 1, "slice_ids": ["B2"] },
+    { "level": 2, "slice_ids": ["B3"] },
+    { "level": 3, "slice_ids": ["B4"] }
+  ],
+  "exit_gate": {
+    "id": "tier-b-exit",
+    "status": "pending",
+    "commands": [
+      ".\\gradlew.bat :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --no-daemon",
+      ".\\gradlew.bat :app:testDebugUnitTest --no-daemon"
+    ],
+    "results": []
+  }
+}

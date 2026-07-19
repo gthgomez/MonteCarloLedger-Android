@@ -290,6 +290,59 @@ class ForecastEngineTest {
         assertEquals(50_00, ForecastEngine.calculateIncomeContribution(balance, events))
     }
 
+    @Test
+    fun calculateIncomeContribution_emptyEvents_returnsZero() {
+        // No events: both paths stay at starting balance, contribution = 0
+        assertEquals(0, ForecastEngine.calculateIncomeContribution(500_00, emptyList()))
+    }
+
+    @Test
+    fun calculateIncomeContribution_incomeOnly_noBillsMeansNoImprovement() {
+        // Multiple incomes, no bills: both paths have the same floor (the starting
+        // balance), so income contributes nothing extra over a bills-only baseline
+        // that already has no bills to drag it down.
+        val balance = 200_00
+        val events = listOf(
+            ForecastEvent(LocalDate.of(2026, 1, 3), "Paycheck 1", 100_00, "income"),
+            ForecastEvent(LocalDate.of(2026, 1, 8), "Paycheck 2", 150_00, "income"),
+            ForecastEvent(LocalDate.of(2026, 1, 12), "Bonus", 50_00, "income"),
+        )
+        assertEquals(0, ForecastEngine.calculateIncomeContribution(balance, events))
+    }
+
+    @Test
+    fun calculateIncomeContribution_multiIncomeMultiBill_computesBufferImprovement() {
+        // Scenario: three bills totaling 350_00 would drive the bills-only path into
+        // overdraft (-150_00), but two income events (250_00 total) keep the all-events
+        // path positive with a floor of 100_00.
+        // Contribution = 100_00 - max(0, -150_00) = 100_00.
+        val balance = 200_00
+        val events = listOf(
+            ForecastEvent(LocalDate.of(2026, 1, 3), "Bill A", 50_00, "bill"),
+            ForecastEvent(LocalDate.of(2026, 1, 5), "Paycheck 1", 150_00, "income"),
+            ForecastEvent(LocalDate.of(2026, 1, 8), "Bill B", 180_00, "bill"),
+            ForecastEvent(LocalDate.of(2026, 1, 10), "Paycheck 2", 100_00, "income"),
+            ForecastEvent(LocalDate.of(2026, 1, 12), "Bill C", 120_00, "bill"),
+        )
+        assertEquals(100_00, ForecastEngine.calculateIncomeContribution(balance, events))
+    }
+
+    @Test
+    fun calculateIncomeContribution_incomeLiftsBufferAboveBillsOnlyFloor() {
+        // Both paths stay positive, but income still lifts the floor.
+        // Bills-only: 500 - 100 = 400, then 400 - 150 = 250 → floor 250_00.
+        // All-events: 500, +200=700, -100=600, +300=900, -150=750 → floor 500_00.
+        // Contribution = 500_00 - 250_00 = 250_00.
+        val balance = 500_00
+        val events = listOf(
+            ForecastEvent(LocalDate.of(2026, 1, 2), "Payday", 200_00, "income"),
+            ForecastEvent(LocalDate.of(2026, 1, 3), "Rent", 100_00, "bill"),
+            ForecastEvent(LocalDate.of(2026, 1, 4), "Freelance", 300_00, "income"),
+            ForecastEvent(LocalDate.of(2026, 1, 5), "Utilities", 150_00, "bill"),
+        )
+        assertEquals(250_00, ForecastEngine.calculateIncomeContribution(balance, events))
+    }
+
     // ──────────────────────────────────────────────
     // buildBalanceForecast
     // ──────────────────────────────────────────────

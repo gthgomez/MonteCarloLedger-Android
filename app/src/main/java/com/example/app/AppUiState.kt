@@ -28,6 +28,8 @@ data class AppUiState(
     val firstNegativeDateLabel: String? = null,
     val lowestBalanceDateLabel: String? = null,
     val bankLedgerMismatch: Boolean = false,
+    /** cents: ledgerBalanceCents - bankBalanceCents when bankLedgerMismatch is true, else 0 */
+    val driftCents: Int = 0,
     val transactions: List<TransactionEntity> = emptyList(),
     val forecastRows: List<BalanceForecastRow> = emptyList(),
     val cashFlowWindows: List<CashFlowWindow> = emptyList(),

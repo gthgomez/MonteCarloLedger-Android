@@ -432,7 +432,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val currentCashFlowWindow = cashFlowWindows.firstOrNull()
                 val dailyBudgetCents = currentCashFlowWindow?.dailySafeSpendCents
                     ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
-                val mc = MonteCarloEngine(MonteCarloParams()).runSimulation(forecastSeedCents, events)
+                val mc = MonteCarloEngine(MonteCarloParams()).runSimulation(forecastSeedCents, events, today)
                 val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
 
                 val nextPaydayLabel = nextPaycheck?.let { "Next: ${it.date.formatDateDisplay()} (${daysUntilPayday}d)" } ?: "No upcoming income"
@@ -449,6 +449,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (mismatch) _reconciliationDetails.value = Pair(ledgerBalanceCents, bankBalanceCents)
                 _reconciliationMismatch.value = mismatch
+                val driftCents = if (mismatch) ledgerBalanceCents - bankBalanceCents else 0
                 val totalAssetBalance = pack.assets.sumOf { it.balanceCents }
                 val totalNetWorthCents = ledgerBalanceCents.toLong() + totalAssetBalance
 
@@ -518,6 +519,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     firstNegativeDateLabel = forecastSummary.firstNegativeDate?.toString(),
                     lowestBalanceDateLabel = forecastSummary.lowestBalanceDate?.toString(),
                     bankLedgerMismatch = mismatch,
+                    driftCents = driftCents,
                     transactions = pack.txns,
                     forecastRows = forecastRows,
                     cashFlowWindows = cashFlowWindows,

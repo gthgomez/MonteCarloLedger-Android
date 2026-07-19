@@ -10,6 +10,7 @@ import com.example.app.data.PaymentEntity
 import com.example.app.data.SettingsEntity
 import com.example.app.data.TransactionRuleEntity
 import com.example.app.data.TransactionEntity
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -388,5 +389,90 @@ class BackupExportTest {
         assertEquals("FLAT", snapshot.incomes.single().payType)
         assertTrue(snapshot.assets.isEmpty())
         assertTrue(snapshot.goals.isEmpty())
+    }
+
+    @Test
+    fun integrityField_insertAndStrip_roundTripsWithRealBackupJson() {
+        val json = buildLedgerBackupJson(
+            exportedAtIso = "2026-07-19T12:00:00",
+            uiState = com.example.app.AppUiState(bankBalanceCents = 5000),
+            incomes = listOf(
+                IncomeEntity(
+                    id = 1, name = "Job", amount_cents = 100000,
+                    frequency = "Monthly", day_of_month = 15,
+                    next_date = "2026-08-01", expectedAmountCents = 100000,
+                    payType = "FLAT",
+                )
+            ),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            settings = emptyList(),
+            rules = emptyList(),
+            onboardingProgress = OnboardingProgress(),
+        )
+
+        val hmac = "testHmacBase64Value+/="
+        val withIntegrity = com.example.app.security.SecurityUtils.insertIntegrityField(json, hmac)
+
+        // Integrity field should be present
+        assertTrue(withIntegrity.contains("\"integrity\""))
+        assertTrue(withIntegrity.contains(hmac))
+
+        // The JSON should still parse correctly (parseLedgerBackupJson ignores integrity)
+        val snapshot = parseLedgerBackupJson(withIntegrity)
+        assertEquals(2, snapshot.schemaVersion)
+        assertEquals(1, snapshot.incomes.size)
+        assertEquals("Job", snapshot.incomes.single().name)
+
+        // Strip integrity and verify it's gone
+        val stripped = com.example.app.security.SecurityUtils.stripIntegrityField(withIntegrity)
+        assertFalse(stripped.contains("\"integrity\""))
+
+        // Stripped JSON should still parse correctly
+        val strippedSnapshot = parseLedgerBackupJson(stripped)
+        assertEquals(snapshot.schemaVersion, strippedSnapshot.schemaVersion)
+        assertEquals(snapshot.incomes.size, strippedSnapshot.incomes.size)
+        assertEquals(snapshot.incomes.single().name, strippedSnapshot.incomes.single().name)
+    }
+
+    @Test
+    fun integrityField_doesNotBreakLegacySchema1Parsing() {
+        val legacy = """
+            {
+              "schemaVersion": 1,
+              "exportedAt": "2026-01-01T00:00:00",
+              "summary": { "bankBalanceCents": 100, "isBalanceReconciled": false },
+              "onboarding": { "firstIncomeCompleted": true, "firstBillCompleted": false, "firstExpenseCompleted": false, "reconciliationCompleted": false },
+              "settings": [], "rules": [], "incomes": [], "payments": [], "transactions": [], "billOccurrences": [],
+              "integrity": "someHmacValue"
+            }
+        """.trimIndent()
+
+        // Should parse without error — integrity field is ignored
+        val snapshot = parseLedgerBackupJson(legacy)
+        assertEquals(1, snapshot.schemaVersion)
+        assertTrue(snapshot.incomes.isEmpty())
+    }
+
+    @Test
+    fun integrityField_doesNotBreakSchema2Parsing() {
+        val json = buildLedgerBackupJson(
+            exportedAtIso = "2026-07-19T12:00:00",
+            uiState = com.example.app.AppUiState(bankBalanceCents = 5000),
+            incomes = emptyList(),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            settings = emptyList(),
+            rules = emptyList(),
+            onboardingProgress = OnboardingProgress(),
+        )
+
+        val withIntegrity = com.example.app.security.SecurityUtils.insertIntegrityField(json, "testHmac123+/=")
+        val snapshot = parseLedgerBackupJson(withIntegrity)
+
+        assertEquals(2, snapshot.schemaVersion)
+        assertEquals("2026-07-19T12:00:00", snapshot.exportedAtIso)
     }
 }

@@ -388,3 +388,46 @@ internal fun OverLimitCategoriesCard(rows: List<CategoryBudgetRow>) {
         }
     }
 }
+
+@Composable
+internal fun BalanceDriftBanner(
+    driftCents: Int,
+    ledgerBalanceCents: Int,
+    bankBalanceCents: Int,
+    onReconcile: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val absDrift = kotlin.math.abs(driftCents)
+    val direction = if (driftCents > 0) "above" else "below"
+    GlassCard(
+        modifier = modifier
+            .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
+            .semantics {
+                stateDescription = "Balances drifted: app total ${centsToDisplay(ledgerBalanceCents)} " +
+                    "is ${centsToDisplay(absDrift)} $direction bank balance ${centsToDisplay(bankBalanceCents)}"
+            },
+        tint = GlassTint.Error,
+        surfaceStyle = GlassSurfaceStyle.Hero,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Balances drifted",
+                style = MaterialTheme.typography.titleMedium,
+                color = GlassTokens.TextPrimary,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "Your app total (${centsToDisplay(ledgerBalanceCents)}) is " +
+                    "${centsToDisplay(absDrift)} $direction your saved bank balance " +
+                    "(${centsToDisplay(bankBalanceCents)}).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = GlassTokens.TextSecondary,
+            )
+            AppPrimaryButton(
+                text = "Re-reconcile",
+                onClick = onReconcile,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}

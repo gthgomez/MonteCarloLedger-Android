@@ -801,6 +801,56 @@ class LedgerRepositoryTest {
     }
 
     @Test
+    fun checkBalanceConsistency_reportsMismatchOnlyWhenReconciledAndDrifted() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+            val today = LocalDate.now().toString()
+
+            // Not reconciled yet — should never report mismatch.
+            val (mismatchBefore, _, _) = repo.checkBalanceConsistency()
+            assertFalse(mismatchBefore)
+
+            // Reconciled with matching bank = ledger sum.
+            repo.setBankBalance(0)
+            val (mismatchMatched, _, _) = repo.checkBalanceConsistency()
+            assertFalse(mismatchMatched)
+
+            // Add transactions so ledger != 0, but bank is still 0 → drift.
+            repo.insertTransaction(
+                TransactionEntity(
+                    description = "Coffee",
+                    amount_cents = -500,
+                    date = today,
+                    type = "expense",
+                )
+            )
+            repo.insertTransaction(
+                TransactionEntity(
+                    description = "Paycheck",
+                    amount_cents = 2_000_00,
+                    date = today,
+                    type = "income",
+                )
+            )
+            // Bank gets adjusted per-transaction when reconciled (auto-lockstep).
+            // Reset bank to a stale value to simulate drift.
+            db.settingsDao().setValue(SettingsEntity("bank_balance_cents", "0"))
+            db.settingsDao().setValue(SettingsEntity("current_balance", "0"))
+
+            val (mismatchDrifted, txnSum, bankBalance) = repo.checkBalanceConsistency()
+            assertTrue(mismatchDrifted)
+            assertEquals(199_500, txnSum)
+            assertEquals(0, bankBalance)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun monitoringModeIntroSeen_canBePersistedIndependently() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)

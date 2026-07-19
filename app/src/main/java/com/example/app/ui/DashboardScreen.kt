@@ -275,6 +275,16 @@ private fun DashboardCompactBody(
                 )
             }
         }
+        if (uiState.bankLedgerMismatch) {
+            item {
+                BalanceDriftBanner(
+                    driftCents = uiState.driftCents,
+                    ledgerBalanceCents = uiState.ledgerBalanceCents,
+                    bankBalanceCents = uiState.bankBalanceCents,
+                    onReconcile = onCheckBalance,
+                )
+            }
+        }
         if (showOnboardingFirst) {
             item {
                 OnboardingProgressCard(
@@ -443,6 +453,16 @@ private fun DashboardGridBody(
                             onEditTransaction = onEditTransaction,
                         )
                     },
+                )
+            }
+        }
+        if (uiState.bankLedgerMismatch) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                BalanceDriftBanner(
+                    driftCents = uiState.driftCents,
+                    ledgerBalanceCents = uiState.ledgerBalanceCents,
+                    bankBalanceCents = uiState.bankBalanceCents,
+                    onReconcile = onCheckBalance,
                 )
             }
         }

@@ -1012,7 +1012,7 @@ private fun AppChrome(
                 scope.launch {
                     val encrypted = withContext(Dispatchers.IO) {
                         runCatching {
-                            com.example.app.security.SecurityUtils.encrypt(currentBackupPayload, password.toCharArray())
+                            com.example.app.security.SecurityUtils.encryptWithHmac(currentBackupPayload, password.toCharArray())
                         }.getOrNull()
                     }
                     if (encrypted != null) {
@@ -1042,16 +1042,44 @@ private fun AppChrome(
                             val encryptedText = context.contentResolver.openInputStream(showDecryptDialog!!)
                                 ?.use { it.bufferedReader().readText() }
                                 ?: error("Unable to read backup file.")
-                            com.example.app.security.SecurityUtils.decrypt(encryptedText, password.toCharArray())
+                            val decrypted = com.example.app.security.SecurityUtils.decrypt(encryptedText, password.toCharArray())
+                            val integrityResult = com.example.app.security.SecurityUtils.verifyIntegrity(
+                                encryptedText, decrypted, password.toCharArray()
+                            )
+                            Pair(decrypted, integrityResult)
                         }
                     }
                     decryptResult.fold(
-                        onSuccess = { decrypted ->
-                            val snapshot = runCatching { parseLedgerBackupJson(decrypted) }.getOrNull()
-                            if (snapshot != null) {
-                                restoreBackupPreview = snapshot
-                            } else {
-                                Toast.makeText(context, "Backup file is corrupted or unsupported.", Toast.LENGTH_SHORT).show()
+                        onSuccess = { (_, integrityResult) ->
+                            when (integrityResult) {
+                                is com.example.app.security.BackupIntegrityResult.Valid -> {
+                                    val snapshot = runCatching { parseLedgerBackupJson(integrityResult.plaintext) }.getOrNull()
+                                    if (snapshot != null) {
+                                        restoreBackupPreview = snapshot
+                                    } else {
+                                        Toast.makeText(context, "Backup file is corrupted or unsupported.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                is com.example.app.security.BackupIntegrityResult.LegacyNoIntegrity -> {
+                                    val snapshot = runCatching { parseLedgerBackupJson(integrityResult.plaintext) }.getOrNull()
+                                    if (snapshot != null) {
+                                        restoreBackupPreview = snapshot
+                                        Toast.makeText(
+                                            context,
+                                            "Backup loaded. No integrity signature found — this backup was created by an older version of the app.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(context, "Backup file is corrupted or unsupported.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                is com.example.app.security.BackupIntegrityResult.IntegrityFailure -> {
+                                    Toast.makeText(
+                                        context,
+                                        integrityResult.message,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             }
                         },
                         onFailure = { error ->
