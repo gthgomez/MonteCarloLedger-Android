@@ -41,6 +41,7 @@ import com.example.app.MainViewModel
 import com.example.app.data.BillOccurrenceEntity
 import com.example.app.data.PaymentEntity
 import com.example.app.processing.PaymentSchedule
+import com.example.app.util.centsToDisplay
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -352,7 +353,7 @@ private fun BillTimelineRow(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    "$${String.format("%.2f", entry.amountCents / 100.0)}",
+                    "${centsToDisplay(entry.amountCents)}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (entry.isPaid) GlassTokens.TextDim else GlassTokens.CyanBright
@@ -451,7 +452,7 @@ private fun PaymentCard(
                     }
                 }
                 Text(
-                    "$${String.format("%.2f", payment.amount_cents / 100.0)}  •  ${
+                    "${centsToDisplay(payment.amount_cents)}  •  ${
                         PaymentSchedule.recurrenceSummary(
                             recurrence = payment.frequency,
                             dayOfMonth = payment.day_of_month,

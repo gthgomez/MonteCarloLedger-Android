@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.app.GlassTokens
 import com.example.app.MainViewModel
+import com.example.app.util.centsToDisplay
 import java.util.Locale
 import kotlin.math.abs
 
@@ -83,7 +84,7 @@ internal fun LazyListScope.analysisInsightsSection(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     FriendlyTechnicalLabel("Money in", "inflow")
                     Text(
-                        "+$${String.format("%.2f", uiState.totalInflowCents / 100.0)}",
+                        "+${centsToDisplay(uiState.totalInflowCents)}",
                         color = GlassTokens.PositiveGreen,
                         fontWeight = FontWeight.Bold
                     )
@@ -92,7 +93,7 @@ internal fun LazyListScope.analysisInsightsSection(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     FriendlyTechnicalLabel("Money out", "outflow")
                     Text(
-                        "-$${String.format("%.2f", uiState.totalOutflowCents / 100.0)}",
+                        "-${centsToDisplay(uiState.totalOutflowCents)}",
                         color = GlassTokens.ErrorRed,
                         fontWeight = FontWeight.Bold
                     )
@@ -104,7 +105,7 @@ internal fun LazyListScope.analysisInsightsSection(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     FriendlyTechnicalLabel("Net change", "net cash flow")
                     Text(
-                        "${if (net >= 0) "+" else "-"}$${String.format("%.2f", abs(net) / 100.0)}",
+                        "${if (net >= 0) "+" else ""}${centsToDisplay(net)}",
                         color = if (net >= 0) GlassTokens.PositiveGreen else GlassTokens.ErrorRed,
                         fontWeight = FontWeight.Bold
                     )
@@ -156,7 +157,7 @@ internal fun LazyListScope.analysisInsightsSection(
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        "$${String.format("%.2f", abs(spend.totalCents) / 100.0)}",
+                        "${centsToDisplay(abs(spend.totalCents))}",
                         fontWeight = FontWeight.SemiBold,
                         color = GlassTokens.CyanBright
                     )
@@ -333,7 +334,7 @@ internal fun LazyListScope.analysisInsightsSection(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(adj.date.formatDateDisplay(), style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextDim)
                         Text(
-                            "${if (adj.amount_cents >= 0) "+" else "-"}$${String.format("%.2f", abs(adj.amount_cents) / 100.0)}",
+                            "${if (adj.amount_cents >= 0) "+" else ""}${centsToDisplay(adj.amount_cents)}",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = if (adj.amount_cents >= 0) GlassTokens.PositiveGreen else GlassTokens.ErrorRed

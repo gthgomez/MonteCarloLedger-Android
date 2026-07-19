@@ -47,3 +47,8 @@ reference-montecarlo-ledger
 commitPlan.json
 runs/
 
+
+# Factory campaign run artifacts (briefs/reports stay local)
+plans/factory/
+handoff-*.md
+handoff-*.repro.json

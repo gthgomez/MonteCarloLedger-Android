@@ -459,6 +459,82 @@ class LedgerRepositoryTest {
     }
 
     @Test
+    fun processPayday_isIdempotentForRecurringIncomeDoubleTap() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+            val payday = LocalDate.of(2026, 4, 15)
+            val income = IncomeEntity(
+                name = "Salary",
+                amount_cents = 200_000,
+                frequency = "Bi-weekly",
+                day_of_month = null,
+                next_date = payday.toString(),
+            )
+            db.incomeDao().insertIncome(income)
+            val stored = db.incomeDao().getAllIncomes().first().single()
+
+            repo.processPayday(stored, 200_000)
+            // Stale UI still holds the same next_date — must not double-count.
+            repo.processPayday(stored, 200_000)
+
+            val transactions = db.transactionDao().getAll().first()
+            val incomes = db.incomeDao().getAllIncomes().first()
+            assertEquals(1, transactions.size)
+            assertEquals(200_000, transactions.single().amount_cents)
+            assertEquals(1, incomes.size)
+            assertEquals(payday.plusWeeks(2).toString(), incomes.single().next_date)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun importTransactions_appliesDeltaWhenBankBalanceIsReconciled() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+            repo.setBankBalance(10_000)
+
+            val bankBefore = repo.getBankBalanceCents()
+            assertEquals(10_000, bankBefore)
+
+            repo.importTransactions(
+                listOf(
+                    TransactionEntity(
+                        description = "Groceries",
+                        amount_cents = -1_500,
+                        date = "2026-04-10",
+                        type = "expense",
+                    ),
+                    TransactionEntity(
+                        description = "Bonus",
+                        amount_cents = 500,
+                        date = "2026-04-11",
+                        type = "income",
+                    ),
+                )
+            )
+
+            val bank = repo.getBankBalanceCents()
+            val ledger = db.transactionDao().getTotalBalanceCents().first() ?: 0
+            // Ledger is sum(txns); reconciled bank is a seed patched by the import delta.
+            assertEquals(-1_000, ledger)
+            assertEquals(bankBefore + ledger, bank)
+            assertEquals(9_000, bank)
+            assertTrue(repo.isBalanceReconciled())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun restoreBackup_replacesLocalDataAndRestoresCoreSettings() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
@@ -478,8 +554,26 @@ class LedgerRepositoryTest {
             )
             db.settingsDao().setValue(SettingsEntity("bank_balance_cents", "100"))
 
+            // Stale local assets/goals must be wiped and replaced by snapshot contents.
+            db.assetDao().insertAsset(
+                AssetEntity(
+                    name = "Old asset",
+                    type = "Cash",
+                    balanceCents = 99L,
+                    lastUpdated = "2026-01-01",
+                )
+            )
+            db.goalDao().insertGoal(
+                GoalEntity(
+                    name = "Old goal",
+                    targetAmountCents = 1,
+                    currentAmountCents = 1,
+                    createdAt = "2026-01-01",
+                )
+            )
+
             val snapshot = LedgerBackupSnapshot(
-                schemaVersion = 1,
+                schemaVersion = 2,
                 exportedAtIso = "2026-04-22T12:00:00",
                 bankBalanceCents = 12_345,
                 isBalanceReconciled = true,
@@ -487,6 +581,7 @@ class LedgerRepositoryTest {
                     firstIncomeCompleted = true,
                     firstBillCompleted = true,
                     firstExpenseCompleted = false,
+                    firstGoalCompleted = true,
                     reconciliationCompleted = true,
                 ),
                 settings = listOf(
@@ -499,6 +594,7 @@ class LedgerRepositoryTest {
                     SettingsEntity("onboarding_first_income_completed", "true"),
                     SettingsEntity("onboarding_first_bill_completed", "true"),
                     SettingsEntity("onboarding_first_expense_completed", "false"),
+                    SettingsEntity("onboarding_first_goal_completed", "true"),
                     SettingsEntity("onboarding_reconciliation_completed", "true"),
                     SettingsEntity("onboarding_monitoring_intro_seen", "false"),
                 ),
@@ -511,6 +607,7 @@ class LedgerRepositoryTest {
                         day_of_month = 1,
                         next_date = "2026-05-01",
                         expectedAmountCents = 2_450_00,
+                        payType = "HOURLY",
                     )
                 ),
                 payments = listOf(
@@ -545,6 +642,25 @@ class LedgerRepositoryTest {
                         created_at = "2026-04-01T10:00:00",
                     )
                 ),
+                assets = listOf(
+                    AssetEntity(
+                        id = 3,
+                        name = "Savings",
+                        type = "Cash",
+                        balanceCents = 50_000L,
+                        lastUpdated = "2026-04-22",
+                    )
+                ),
+                goals = listOf(
+                    GoalEntity(
+                        id = 4,
+                        name = "Vacation",
+                        targetAmountCents = 200_000,
+                        currentAmountCents = 40_000,
+                        deadline = "2026-12-01",
+                        createdAt = "2026-01-15",
+                    )
+                ),
             )
 
             repo.restoreBackup(snapshot)
@@ -553,27 +669,132 @@ class LedgerRepositoryTest {
             val payments = db.paymentDao().getAll().first()
             val transactions = db.transactionDao().getAll().first()
             val occurrences = db.billOccurrenceDao().getAll().first()
+            val assets = db.assetDao().getAllAssets().first()
+            val goals = db.goalDao().getAllGoals().first()
             val settings = db.settingsDao().getAll().first().associateBy { it.key }
 
             assertEquals(1, incomes.size)
             assertEquals("Paycheck", incomes.single().name)
+            assertEquals("HOURLY", incomes.single().payType)
             assertEquals(1, payments.size)
             assertEquals("Rent", payments.single().name)
             assertEquals(1, transactions.size)
             assertEquals("Coffee", transactions.single().description)
             assertEquals(1, occurrences.size)
             assertEquals(11, occurrences.single().payment_id)
+            assertEquals(1, assets.size)
+            assertEquals("Savings", assets.single().name)
+            assertEquals(50_000L, assets.single().balanceCents)
+            assertEquals(1, goals.size)
+            assertEquals("Vacation", goals.single().name)
             assertEquals("12345", settings["bank_balance_cents"]?.value)
             assertEquals("12345", settings["current_balance"]?.value)
             assertEquals("true", settings["bank_balance_reconciled"]?.value)
             assertEquals("true", settings["onboarding_first_income_completed"]?.value)
             assertEquals("true", settings["onboarding_first_bill_completed"]?.value)
             assertEquals("false", settings["onboarding_first_expense_completed"]?.value)
+            assertEquals("true", settings["onboarding_first_goal_completed"]?.value)
             assertEquals("true", settings["onboarding_reconciliation_completed"]?.value)
             assertEquals("false", settings["onboarding_monitoring_intro_seen"]?.value)
             assertEquals("true", settings["balance_reconciled"]?.value)
             assertEquals("12345", settings["starting_balance"]?.value)
             assertEquals("120", settings["simulation_days"]?.value)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun upsertAndDeleteCategoryBudget_persistsAndRemovesWatchlist() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+
+            val budget = CategoryBudgetEntity(
+                category = "dining",
+                limitCents = 50_000,
+                enabled = 1,
+                createdAt = "2026-04-01",
+            )
+            repo.upsertCategoryBudget(budget)
+
+            val stored = repo.allCategoryBudgets.first()
+            assertEquals(1, stored.size)
+            assertEquals("dining", stored.single().category)
+            assertEquals(50_000, stored.single().limitCents)
+
+            // Upsert by same category replaces
+            repo.upsertCategoryBudget(budget.copy(limitCents = 60_000))
+            val updated = repo.allCategoryBudgets.first()
+            assertEquals(1, updated.size)
+            assertEquals(60_000, updated.single().limitCents)
+
+            repo.deleteCategoryBudget(updated.single())
+            val afterDelete = repo.allCategoryBudgets.first()
+            assertTrue(afterDelete.isEmpty())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun restoreBackup_replacesCategoryBudgets() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+
+            // Pre-populate a stale budget
+            repo.upsertCategoryBudget(
+                CategoryBudgetEntity(
+                    category = "old-category",
+                    limitCents = 10_000,
+                    enabled = 1,
+                    createdAt = "2026-01-01",
+                )
+            )
+
+            val snapshot = LedgerBackupSnapshot(
+                schemaVersion = 2,
+                exportedAtIso = "2026-04-22T12:00:00",
+                bankBalanceCents = 0,
+                isBalanceReconciled = false,
+                onboardingProgress = OnboardingProgress(),
+                incomes = emptyList(),
+                payments = emptyList(),
+                transactions = emptyList(),
+                billOccurrences = emptyList(),
+                categoryBudgets = listOf(
+                    CategoryBudgetEntity(
+                        id = 1,
+                        category = "dining",
+                        limitCents = 30_000,
+                        enabled = 1,
+                        createdAt = "2026-04-01",
+                    ),
+                    CategoryBudgetEntity(
+                        id = 2,
+                        category = "groceries",
+                        limitCents = 80_000,
+                        enabled = 0,
+                        createdAt = "2026-04-01",
+                    ),
+                ),
+            )
+
+            repo.restoreBackup(snapshot)
+
+            val restored = repo.allCategoryBudgets.first()
+            assertEquals(2, restored.size)
+            assertEquals("dining", restored[0].category)
+            assertEquals(30_000, restored[0].limitCents)
+            assertEquals("groceries", restored[1].category)
+            assertEquals(0, restored[1].enabled)
         } finally {
             db.close()
         }

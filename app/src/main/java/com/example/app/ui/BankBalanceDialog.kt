@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.math.BigDecimal
+import com.example.app.util.centsToDollarInputString
 import java.math.RoundingMode
 import java.util.Locale
 
@@ -60,7 +61,7 @@ private fun BankBalanceDialogContent(
     useDialog: Boolean,
 ) {
     var amountText by remember(initialAmountCents) {
-        mutableStateOf(String.format(Locale.US, "%.2f", initialAmountCents / 100.0))
+        mutableStateOf(centsToDollarInputString(initialAmountCents))
     }
     var errorMessage by remember { mutableStateOf("") }
 

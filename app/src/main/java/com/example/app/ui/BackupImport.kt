@@ -1,6 +1,9 @@
 package com.example.app.ui
 
+import com.example.app.data.AssetEntity
 import com.example.app.data.BillOccurrenceEntity
+import com.example.app.data.CategoryBudgetEntity
+import com.example.app.data.GoalEntity
 import com.example.app.data.IncomeEntity
 import com.example.app.data.LedgerBackupSnapshot
 import com.example.app.data.OnboardingProgress
@@ -14,7 +17,7 @@ import org.json.JSONObject
 internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
     val root = JSONObject(jsonText)
     val schemaVersion = root.optInt("schemaVersion", 0)
-    require(schemaVersion == 1) {
+    require(schemaVersion == 1 || schemaVersion == 2) {
         "Unsupported backup schema version: $schemaVersion"
     }
 
@@ -30,6 +33,7 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
             firstIncomeCompleted = onboarding.optBoolean("firstIncomeCompleted", false),
             firstBillCompleted = onboarding.optBoolean("firstBillCompleted", false),
             firstExpenseCompleted = onboarding.optBoolean("firstExpenseCompleted", false),
+            firstGoalCompleted = onboarding.optBoolean("firstGoalCompleted", false),
             reconciliationCompleted = onboarding.optBoolean("reconciliationCompleted", false),
         ),
         settings = root.optJSONArray("settings").toSettingsEntities(),
@@ -38,6 +42,9 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
         payments = root.optJSONArray("payments").toPaymentEntities(),
         transactions = root.optJSONArray("transactions").toTransactionEntities(),
         billOccurrences = root.optJSONArray("billOccurrences").toBillOccurrenceEntities(),
+        assets = root.optJSONArray("assets").toAssetEntities(),
+        goals = root.optJSONArray("goals").toGoalEntities(),
+        categoryBudgets = root.optJSONArray("categoryBudgets").toCategoryBudgetEntities(),
     )
 }
 
@@ -83,6 +90,20 @@ private fun JSONArray?.toRuleEntities(): List<TransactionRuleEntity> =
         }
     } ?: emptyList()
 
+private fun JSONArray?.toAssetEntities(): List<AssetEntity> =
+    this?.let { array ->
+        List(array.length()) { index ->
+            array.getJSONObject(index).toAssetEntity()
+        }
+    } ?: emptyList()
+
+private fun JSONArray?.toGoalEntities(): List<GoalEntity> =
+    this?.let { array ->
+        List(array.length()) { index ->
+            array.getJSONObject(index).toGoalEntity()
+        }
+    } ?: emptyList()
+
 private fun JSONObject.toIncomeEntity(): IncomeEntity =
     IncomeEntity(
         id = optInt("id", 0),
@@ -92,6 +113,7 @@ private fun JSONObject.toIncomeEntity(): IncomeEntity =
         day_of_month = if (isNull("day_of_month")) null else optInt("day_of_month"),
         next_date = getString("next_date"),
         expectedAmountCents = if (isNull("expectedAmountCents")) null else optInt("expectedAmountCents"),
+        payType = optString("payType").ifBlank { "FLAT" },
     )
 
 private fun JSONObject.toPaymentEntity(): PaymentEntity =
@@ -146,4 +168,39 @@ private fun JSONObject.toRuleEntity(): TransactionRuleEntity =
         is_active = optInt("is_active", 1),
         priority = optInt("priority", 0),
         created_at = optString("created_at"),
+    )
+
+private fun JSONObject.toAssetEntity(): AssetEntity =
+    AssetEntity(
+        id = optLong("id", 0L),
+        name = getString("name"),
+        type = optString("type").ifBlank { "Other" },
+        balanceCents = optLong("balanceCents", 0L),
+        lastUpdated = optString("lastUpdated").ifBlank { "" },
+    )
+
+private fun JSONObject.toGoalEntity(): GoalEntity =
+    GoalEntity(
+        id = optInt("id", 0),
+        name = getString("name"),
+        targetAmountCents = optInt("targetAmountCents", 0),
+        currentAmountCents = optInt("currentAmountCents", 0),
+        deadline = if (isNull("deadline") || optString("deadline").isBlank()) null else optString("deadline"),
+        createdAt = optString("createdAt").ifBlank { "" },
+    )
+
+private fun JSONArray?.toCategoryBudgetEntities(): List<CategoryBudgetEntity> =
+    this?.let { array ->
+        List(array.length()) { index ->
+            array.getJSONObject(index).toCategoryBudgetEntity()
+        }
+    } ?: emptyList()
+
+private fun JSONObject.toCategoryBudgetEntity(): CategoryBudgetEntity =
+    CategoryBudgetEntity(
+        id = optInt("id", 0),
+        category = getString("category"),
+        limitCents = optInt("limitCents", 0),
+        enabled = optInt("enabled", 1),
+        createdAt = optString("createdAt").ifBlank { "" },
     )

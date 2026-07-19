@@ -93,6 +93,7 @@ import com.example.app.data.IncomeEntity
 import com.example.app.data.OnboardingMilestone
 import com.example.app.data.OnboardingProgress
 import com.example.app.data.PaymentEntity
+import com.example.app.util.centsToDisplay
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -135,6 +136,10 @@ fun AppView(
 
         var lockError by rememberSaveable { mutableStateOf<String?>(null) }
         val locked = appLockPreferences.enabled && !appLockUnlocked
+        val throttleState by viewModel.appLockThrottleState.collectAsStateWithLifecycle()
+        val lockoutRemainingSeconds = if (throttleState.lockoutUntilEpochMs > 0L) {
+            ((throttleState.lockoutUntilEpochMs - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+        } else 0L
 
         if (locked) {
             AppBrandBackdrop(
@@ -144,9 +149,10 @@ fun AppView(
             )
             AppLockScreen(
                 errorMessage = lockError,
+                lockoutRemainingSeconds = lockoutRemainingSeconds,
                 onUnlock = { pin ->
-                    viewModel.unlockApp(pin) { unlocked ->
-                        lockError = if (unlocked) null else "Incorrect PIN."
+                    viewModel.unlockApp(pin) { unlocked, errorMsg ->
+                        lockError = if (unlocked) null else (errorMsg ?: "Incorrect PIN.")
                     }
                 },
             )
@@ -298,6 +304,9 @@ private fun AppChrome(
             onboardingProgress = onboardingProgress,
             settings = settings,
             rules = transactionRules,
+            assets = uiState.assets,
+            goals = uiState.goals,
+            categoryBudgets = uiState.categoryBudgets,
         )
     }
     val currentBackupPayload by rememberUpdatedState(backupPayload)
@@ -1028,22 +1037,33 @@ private fun AppChrome(
             onDismiss = { showDecryptDialog = null },
             onConfirm = { password ->
                 scope.launch {
-                    val decrypted = withContext(Dispatchers.IO) {
+                    val decryptResult = withContext(Dispatchers.IO) {
                         runCatching {
-                            val encryptedText = context.contentResolver.openInputStream(showDecryptDialog!!)?.use { it.bufferedReader().readText() } ?: ""
+                            val encryptedText = context.contentResolver.openInputStream(showDecryptDialog!!)
+                                ?.use { it.bufferedReader().readText() }
+                                ?: error("Unable to read backup file.")
                             com.example.app.security.SecurityUtils.decrypt(encryptedText, password.toCharArray())
-                        }.getOrNull()
-                    }
-                    if (decrypted != null) {
-                        val snapshot = runCatching { parseLedgerBackupJson(decrypted) }.getOrNull()
-                        if (snapshot != null) {
-                            restoreBackupPreview = snapshot
-                        } else {
-                            Toast.makeText(context, "Invalid backup format.", Toast.LENGTH_SHORT).show()
                         }
-                    } else {
-                        Toast.makeText(context, "Incorrect password or corrupted file.", Toast.LENGTH_SHORT).show()
                     }
+                    decryptResult.fold(
+                        onSuccess = { decrypted ->
+                            val snapshot = runCatching { parseLedgerBackupJson(decrypted) }.getOrNull()
+                            if (snapshot != null) {
+                                restoreBackupPreview = snapshot
+                            } else {
+                                Toast.makeText(context, "Backup file is corrupted or unsupported.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onFailure = { error ->
+                            val message = when (error) {
+                                is javax.crypto.AEADBadTagException,
+                                is javax.crypto.BadPaddingException -> "Incorrect password."
+                                is IllegalArgumentException -> error.message ?: "Invalid encrypted backup."
+                                else -> "Incorrect password or corrupted file."
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        },
+                    )
                     showDecryptDialog = null
                 }
             }
@@ -1068,10 +1088,11 @@ private fun RestoreBackupDialog(
                         "transactions: ${snapshot.transactions.size}, bill occurrences: ${snapshot.billOccurrences.size}"
                 )
                 Text(
-                    "Settings: ${snapshot.settings.size}"
+                    "Assets: ${snapshot.assets.size}, goals: ${snapshot.goals.size}, " +
+                        "settings: ${snapshot.settings.size}"
                 )
                 Text(
-                    "Bank balance: \$${String.format("%.2f", snapshot.bankBalanceCents / 100.0)}"
+                    "Bank balance: ${centsToDisplay(snapshot.bankBalanceCents)}"
                 )
                 Text(
                     if (snapshot.isBalanceReconciled) {
@@ -1568,7 +1589,7 @@ fun MonitoringModeIntroScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             FriendlyTechnicalLabel("Bank balance", "bank check-in")
                             Text(
-                                "\$${String.format("%.2f", uiState.bankBalanceCents / 100.0)}",
+                                "${centsToDisplay(uiState.bankBalanceCents)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = GlassTokens.PositiveGreen
                             )
@@ -1576,7 +1597,7 @@ fun MonitoringModeIntroScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             FriendlyTechnicalLabel("App total", "ledger balance")
                             Text(
-                                "\$${String.format("%.2f", uiState.ledgerBalanceCents / 100.0)}",
+                                "${centsToDisplay(uiState.ledgerBalanceCents)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = GlassTokens.TextPrimary
                             )
@@ -1597,7 +1618,7 @@ fun MonitoringModeIntroScreen(
                                 if (uiState.safeToSpendCents < 0) {
                                     "Overdraft projected"
                                 } else {
-                                    "\$${String.format("%.2f", uiState.safeToSpendCents / 100.0)}"
+                                    "${centsToDisplay(uiState.safeToSpendCents)}"
                                 },
                                 style = MaterialTheme.typography.titleMedium,
                                 color = if (uiState.safeToSpendCents < 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen

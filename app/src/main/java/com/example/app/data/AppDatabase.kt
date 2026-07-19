@@ -1,6 +1,7 @@
 package com.example.app.data
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -17,10 +18,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SettingsEntity::class,
         TransactionRuleEntity::class,
         AssetEntity::class,
-        GoalEntity::class
+        GoalEntity::class,
+        CategoryBudgetEntity::class
     ],
-    version = 9,
-    exportSchema = false
+    version = 10,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionRuleDao(): TransactionRuleDao
     abstract fun assetDao(): AssetDao
     abstract fun goalDao(): GoalDao
+    abstract fun categoryBudgetDao(): CategoryBudgetDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -51,7 +54,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .build().also { INSTANCE = it }
             }
@@ -155,5 +159,25 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE income ADD COLUMN payType TEXT NOT NULL DEFAULT 'FLAT'")
             }
         }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS category_budgets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        category TEXT NOT NULL UNIQUE,
+                        limitCents INTEGER NOT NULL,
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        createdAt TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        @VisibleForTesting
+        val MIGRATION_9_10_FOR_TEST: Migration
+            get() = MIGRATION_9_10
     }
 }

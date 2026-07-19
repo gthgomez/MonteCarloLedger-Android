@@ -7,4 +7,5 @@ typealias GlassTokens = com.workspace.design.GlassTokens
 
 // AppTheme is now provided by the shared DesignSystem library.
 @Composable
-fun AppTheme(content: @Composable () -> Unit) = com.workspace.design.AppTheme(content)
+fun AppTheme(content: @Composable () -> Unit) =
+    com.workspace.design.AppTheme(content = content)

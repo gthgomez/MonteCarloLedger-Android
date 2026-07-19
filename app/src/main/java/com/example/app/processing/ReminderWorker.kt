@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.app.data.AppDatabase
 import com.example.app.data.LedgerRepository
+import com.example.app.util.centsToDisplay
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.first
@@ -43,7 +44,7 @@ class ReminderWorker(
                 val dueLabels = dueSoon.joinToString(" • ") { occurrence ->
                     val due = runCatching { LocalDate.parse(occurrence.due_date) }.getOrNull()
                     val label = due?.format(DateTimeFormatter.ofPattern("MMM d")) ?: occurrence.due_date
-                    "$label ${String.format("%.2f", occurrence.amount_cents / 100.0)}"
+                    "$label ${centsToDisplay(occurrence.amount_cents)}"
                 }
                 parts += "Bills due soon: $dueLabels"
             }

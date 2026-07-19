@@ -1,0 +1,141 @@
+{
+  "schema": "factory-board/1",
+  "campaign_id": "placeholder",
+  "parent_plan": "docs/plans/FACTORY_REMAINING_HANDOFF_PLAN.md",
+  "tier": "A",
+  "created_at": "2026-07-18T00:00:00Z",
+  "updated_at": "2026-07-18T00:00:00Z",
+  "policy": {
+    "default_mode": "sequential",
+    "allow_parallel": true,
+    "max_parallel": 2,
+    "stop_on_hard": true,
+    "stop_on_blocked": true,
+    "advance_on_pass_with_nits": true,
+    "do_not_start_next_tier": true,
+    "next_tier_requires_user": true
+  },
+  "slices": [
+    {
+      "id": "A1",
+      "title": "Category budgets / soft watchlists",
+      "depends_on": [],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/data/CategoryBudgetEntity.kt",
+        "app/src/main/java/com/example/app/data/CategoryBudgetDao.kt",
+        "app/src/main/java/com/example/app/data/AppDatabase.kt",
+        "app/src/main/java/com/example/app/data/LedgerRepository.kt",
+        "app/src/main/java/com/example/app/data/BackupSnapshot.kt",
+        "app/src/main/java/com/example/app/ui/BackupExport.kt",
+        "app/src/main/java/com/example/app/ui/BackupImport.kt",
+        "app/src/main/java/com/example/app/AppUiState.kt",
+        "app/src/main/java/com/example/app/MainViewModel.kt",
+        "app/src/main/java/com/example/app/ui/PlanningScreen.kt",
+        "app/src/main/java/com/example/app/ui/DashboardScreen.kt",
+        "app/src/main/java/com/example/app/ui/DashboardProductLayer.kt",
+        "app/src/main/java/com/example/app/ui/AppView.kt",
+        "app/src/main/java/com/example/app/processing/CategoryBudgetTracker.kt",
+        "app/src/test/java/com/example/app/data/CategoryBudgetRepositoryTest.kt",
+        "app/src/test/java/com/example/app/processing/CategoryBudgetTrackerTest.kt",
+        "app/src/test/java/com/example/app/data/LedgerRepositoryTest.kt",
+        "app/src/test/java/com/example/app/ui/BackupExportTest.kt"
+      ],
+      "effort": "L",
+      "status": "pending",
+      "run_dir": "slices/A1",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "Soft watchlists only. DB 9→10. Leave Double formatCurrency (A3)."
+    },
+    {
+      "id": "A2",
+      "title": "App lock attempt throttle + backoff",
+      "depends_on": ["A1"],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/data/AppLockPreferences.kt",
+        "app/src/main/java/com/example/app/ui/AppLockScreen.kt",
+        "app/src/main/java/com/example/app/ui/SettingsScreen.kt",
+        "app/src/main/java/com/example/app/data/LedgerRepository.kt",
+        "app/src/main/java/com/example/app/MainViewModel.kt",
+        "app/src/main/java/com/example/app/ui/AppView.kt",
+        "app/src/main/java/com/example/app/security/SecurityUtils.kt",
+        "app/src/main/java/com/example/app/data/AppLockThrottle.kt",
+        "app/src/test/java/com/example/app/data/AppLockThrottleTest.kt",
+        "app/src/test/java/com/example/app/security/SecurityUtilsTest.kt"
+      ],
+      "effort": "M",
+      "status": "pending",
+      "run_dir": "slices/A2",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "Backoff + attempt counter. No new Gradle deps (biometric deferred)."
+    },
+    {
+      "id": "A3",
+      "title": "centsToDisplay + kill Double formatCurrency",
+      "depends_on": ["A1", "A2"],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/util/MoneyUtils.kt",
+        "app/src/main/java/com/example/app/util/MoneyDisplay.kt",
+        "app/src/test/java/com/example/app/util/MoneyDisplayTest.kt",
+        "app/src/main/java/com/example/app/MainViewModel.kt",
+        "app/src/main/java/com/example/app/ui/PlanningScreen.kt",
+        "app/src/main/java/com/example/app/ui/DashboardProductLayer.kt",
+        "app/src/main/java/com/example/app/ui/DashboardScreen.kt",
+        "app/src/main/java/com/example/app/ui/AddTransactionScreen.kt",
+        "app/src/main/java/com/example/app/ui/EditIncomeScreen.kt",
+        "app/src/main/java/com/example/app/ui/EditPaymentScreen.kt",
+        "app/src/main/java/com/example/app/ui/IncomeListScreen.kt",
+        "app/src/main/java/com/example/app/ui/PaymentListScreen.kt",
+        "app/src/main/java/com/example/app/ui/TransactionHistoryScreen.kt",
+        "app/src/main/java/com/example/app/processing/ReminderWorker.kt"
+      ],
+      "effort": "M",
+      "status": "pending",
+      "run_dir": "slices/A3",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "Depends A2 so MainViewModel is free. Integer cents display only."
+    },
+    {
+      "id": "A4",
+      "title": "exportSchema + migration tests + release minify",
+      "depends_on": ["A1"],
+      "edit_allow_list": [
+        "app/src/main/java/com/example/app/data/AppDatabase.kt",
+        "app/schemas/**",
+        "app/src/androidTest/java/com/example/app/data/MigrationTest.kt",
+        "app/build.gradle.kts",
+        "app/proguard-rules.pro"
+      ],
+      "effort": "M",
+      "status": "pending",
+      "run_dir": "slices/A4",
+      "verdict": null,
+      "cost_usd": 0,
+      "session_id": null,
+      "blocked_reason": null,
+      "notes": "Parallel with A2 after A1. Package rename out of scope."
+    }
+  ],
+  "levels": [
+    { "level": 0, "slice_ids": ["A1"] },
+    { "level": 1, "slice_ids": ["A2", "A4"] },
+    { "level": 2, "slice_ids": ["A3"] }
+  ],
+  "exit_gate": {
+    "id": "tier-a-exit",
+    "status": "pending",
+    "commands": [
+      ".\\gradlew.bat :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --no-daemon",
+      ".\\gradlew.bat :app:testDebugUnitTest --no-daemon"
+    ],
+    "results": []
+  }
+}

@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.example.app.data.IncomeEntity
 import com.example.app.domain.DomainRules
 import java.time.LocalDate
+import com.example.app.util.centsToDisplay
+import com.example.app.util.centsToDollarInputString
 import com.example.app.util.dollarsToCents
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -58,7 +60,6 @@ fun EditIncomeScreen(
     var payType by remember { mutableStateOf(initialPayType) }
 
     // Hourly inputs — reconstruct best-guess hourly rate from stored amount if pay type is hourly
-    val initialDollars = income.amount_cents / 100.0
     var hourlyRate by remember {
         mutableStateOf(
             if (initialPayType == EditPayType.HOURLY) "" else ""
@@ -69,7 +70,7 @@ fun EditIncomeScreen(
     // Flat / per-project
     var flatAmount by remember {
         mutableStateOf(
-            if (initialPayType != EditPayType.HOURLY) String.format("%.2f", initialDollars) else ""
+            if (initialPayType != EditPayType.HOURLY) centsToDollarInputString(income.amount_cents) else ""
         )
     }
 
@@ -79,7 +80,7 @@ fun EditIncomeScreen(
     }
     var nextPaydayIso by remember { mutableStateOf(initialNextPayday.toString()) }
     var expectedAmountDollars by remember {
-        mutableStateOf(income.expectedAmountCents?.let { String.format("%.2f", it / 100.0) } ?: "")
+        mutableStateOf(income.expectedAmountCents?.let { centsToDollarInputString(it) } ?: "")
     }
     var errorMessage by remember { mutableStateOf("") }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -198,7 +199,7 @@ fun EditIncomeScreen(
                 }
                 if (computedCents > 0) {
                     Text(
-                        "≈ \$${String.format("%.2f", computedCents / 100.0)} per $frequency paycheck",
+                        "≈ ${centsToDisplay(computedCents)} per $frequency paycheck",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )

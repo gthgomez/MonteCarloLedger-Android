@@ -28,6 +28,7 @@ import com.example.app.GlassTokens
 import com.example.app.data.PaymentEntity
 import com.example.app.data.TransactionEntity
 import com.example.app.processing.PaymentSchedule
+import com.example.app.util.centsToDisplay
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
@@ -159,7 +160,7 @@ internal fun CsvImportSheetContent(
         )
         sampleRows.forEach { row ->
             Text(
-                text = "${row.date.formatDateDisplay()} • ${row.description} • ${row.amount_cents.toCurrencyString()}",
+                text = "${row.date.formatDateDisplay()} • ${row.description} • ${centsToDisplay(row.amount_cents)}",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -171,7 +172,7 @@ internal fun CsvImportSheetContent(
             )
         }
         Text(
-            text = "Total imported: ${totalImportedCents.toCurrencyString()}",
+            text = "Total imported: ${centsToDisplay(totalImportedCents)}",
             style = MaterialTheme.typography.bodyMedium,
             color = GlassTokens.TextSecondary
         )
@@ -321,7 +322,7 @@ internal fun BillCsvImportSheetContent(
         )
         sampleRows.forEach { row ->
             Text(
-                text = "${row.name} • ${row.amount_cents.toCurrencyString()} • ${
+                text = "${row.name} • ${centsToDisplay(row.amount_cents)} • ${
                     PaymentSchedule.recurrenceSummary(
                         recurrence = row.frequency,
                         dayOfMonth = row.day_of_month,
@@ -339,7 +340,7 @@ internal fun BillCsvImportSheetContent(
             )
         }
         Text(
-            text = "Total imported: ${totalImportedCents.toCurrencyString()}",
+            text = "Total imported: ${centsToDisplay(totalImportedCents)}",
             style = MaterialTheme.typography.bodyMedium,
             color = GlassTokens.TextSecondary
         )
@@ -882,8 +883,3 @@ private val DATE_FORMATTERS = listOf(
     DateTimeFormatter.ofPattern("MM-dd-uuuu"),
 )
 
-private fun Int.toCurrencyString(): String {
-    val absolute = abs(this) / 100.0
-    val prefix = if (this < 0) "-" else ""
-    return "$prefix$${String.format("%.2f", absolute)}"
-}

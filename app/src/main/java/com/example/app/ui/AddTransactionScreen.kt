@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.example.app.data.BillOccurrenceEntity
 import com.example.app.data.PaymentEntity
 import java.time.LocalDate
+import com.example.app.util.centsToDisplay
 import com.example.app.util.dollarsToCents
 
 private data class TransactionTypeOption(
@@ -253,7 +254,7 @@ private fun buildBillLinkOptions(
             val payment = paymentById[occurrence.payment_id] ?: return@mapNotNull null
             BillLinkOption(
                 occurrenceId = occurrence.id,
-                label = "${payment.name} • due ${occurrence.due_date.formatDateDisplay()} • $${String.format("%.2f", occurrence.amount_cents / 100.0)}"
+                label = "${payment.name} • due ${occurrence.due_date.formatDateDisplay()} • ${centsToDisplay(occurrence.amount_cents)}"
             )
         }
         .toList()

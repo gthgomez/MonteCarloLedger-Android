@@ -26,6 +26,7 @@ import com.example.app.GlassTokens
 import com.example.app.DashboardConfig
 import com.example.app.DashboardWidget
 import com.example.app.MainViewModel
+import com.example.app.util.centsToDisplay
 import com.workspace.design.ConfirmDeleteDialog
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -371,7 +372,7 @@ private fun AssetItemCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(asset.name, style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary)
                 Text(
-                    "\$${String.format("%.2f", asset.balanceCents / 100.0)}",
+                    "${centsToDisplay(asset.balanceCents)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = GlassTokens.TextSecondary
                 )

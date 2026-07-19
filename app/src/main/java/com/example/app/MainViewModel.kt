@@ -9,6 +9,7 @@ import com.example.app.data.CategoryRulePresets
 import com.example.app.data.CategorySpend
 import com.example.app.data.LedgerBackupSnapshot
 import com.example.app.data.IncomeEntity
+import com.example.app.data.AppLockThrottle
 import com.example.app.data.LedgerRepository
 import com.example.app.data.OnboardingProgress
 import com.example.app.data.PaymentEntity
@@ -21,6 +22,7 @@ import com.example.app.processing.ForecastEngine
 import com.example.app.processing.BalanceSeedResolver
 import com.example.app.processing.RecurringDetector
 import com.example.app.ui.formatDateDisplay
+import com.example.app.util.centsToDisplay
 import com.example.app.processing.MonteCarloEngine
 import com.example.app.processing.MonteCarloParams
 import com.example.app.processing.TimelineService
@@ -72,6 +74,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val appLockPreferences: StateFlow<com.example.app.data.AppLockPreferences> = repo.appLockPreferences
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.example.app.data.AppLockPreferences())
 
+    val allCategoryBudgets: StateFlow<List<com.example.app.data.CategoryBudgetEntity>> = repo.allCategoryBudgets
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val allAssets: StateFlow<List<com.example.app.data.AssetEntity>> = repo.allAssets
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -89,6 +94,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _appLockUnlocked = MutableStateFlow(false)
     val appLockUnlocked: StateFlow<Boolean> = _appLockUnlocked.asStateFlow()
+
+    private val _appLockThrottleState = MutableStateFlow(AppLockThrottle.ThrottleState())
+    val appLockThrottleState: StateFlow<AppLockThrottle.ThrottleState> = _appLockThrottleState.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -234,6 +242,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.enableAppLock(pin)
             }.onSuccess {
                 _appLockUnlocked.value = true
+                _appLockThrottleState.value = AppLockThrottle.ThrottleState()
                 onResult(true, null)
             }.onFailure { throwable ->
                 onResult(false, throwable.message ?: "Unable to enable app lock.")
@@ -247,6 +256,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.disableAppLock()
             }.onSuccess {
                 _appLockUnlocked.value = false
+                _appLockThrottleState.value = AppLockThrottle.ThrottleState()
                 onResult(true, null)
             }.onFailure { throwable ->
                 onResult(false, throwable.message ?: "Unable to disable app lock.")
@@ -254,11 +264,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun unlockApp(pin: String, onResult: (Boolean) -> Unit) {
+    fun unlockApp(pin: String, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
-            val unlocked = runCatching { repo.verifyAppLockPin(pin) }.getOrDefault(false)
-            _appLockUnlocked.value = unlocked
-            onResult(unlocked)
+            val result = runCatching { repo.verifyAppLockPin(pin) }.getOrElse { e ->
+                LedgerRepository.AppLockVerifyResult.Invalid(e.message ?: "Verification failed.")
+            }
+            when (result) {
+                is LedgerRepository.AppLockVerifyResult.Success -> {
+                    _appLockUnlocked.value = true
+                    _appLockThrottleState.value = AppLockThrottle.onSuccess()
+                    onResult(true, null)
+                }
+                is LedgerRepository.AppLockVerifyResult.LockedOut -> {
+                    _appLockThrottleState.value = AppLockThrottle.ThrottleState(
+                        failedAttempts = _appLockThrottleState.value.failedAttempts,
+                        lockoutUntilEpochMs = System.currentTimeMillis() + result.remainingSeconds * 1000,
+                    )
+                    onResult(false, "Too many attempts. Try again in ${formatLockoutTime(result.remainingSeconds)}.")
+                }
+                is LedgerRepository.AppLockVerifyResult.Invalid -> {
+                    _appLockUnlocked.value = false
+                    onResult(false, result.message)
+                }
+            }
+        }
+    }
+
+    private fun formatLockoutTime(totalSeconds: Long): String {
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return when {
+            minutes > 0 && seconds > 0 -> "${minutes}m ${seconds}s"
+            minutes > 0 -> "${minutes}m"
+            else -> "${seconds}s"
         }
     }
 
@@ -304,6 +342,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repo.deleteGoal(goal) }
     }
 
+    // Category Budgets (soft watchlists)
+    fun upsertCategoryBudget(budget: com.example.app.data.CategoryBudgetEntity) {
+        viewModelScope.launch { repo.upsertCategoryBudget(budget) }
+    }
+    fun deleteCategoryBudget(budget: com.example.app.data.CategoryBudgetEntity) {
+        viewModelScope.launch { repo.deleteCategoryBudget(budget) }
+    }
+
     private fun observeDashboardData() {
         viewModelScope.launch {
             val ledgerData = combine(
@@ -318,9 +364,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.allBillOccurrences,
                 repo.allAssets,
                 repo.allGoals,
+                repo.allCategoryBudgets,
                 _dashboardConfig,
-            ) { billOccurrences, assets, goals, config ->
-                PlanningReportingData(billOccurrences, assets, goals, config)
+            ) { billOccurrences, assets, goals, categoryBudgets, config ->
+                PlanningReportingData(billOccurrences, assets, goals, categoryBudgets, config)
             }
             val reportingData = combine(ledgerData, planningCore) { ledger, planning ->
                 ReportingPackage(
@@ -331,6 +378,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     billOccurrences = planning.billOccurrences,
                     assets = planning.assets,
                     goals = planning.goals,
+                    categoryBudgets = planning.categoryBudgets,
                     dashboardConfig = planning.dashboardConfig,
                 )
             }
@@ -351,6 +399,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val flowSummary = recentTransactions.toFlowSummary()
                 val adjustments = pack.txns.filter { it.type == "adjustment" }
                 val recurringCandidates = RecurringDetector.detect(pack.txns)
+                val categoryBudgetRows = com.example.app.processing.CategoryBudgetTracker.compute(
+                    budgets = pack.categoryBudgets,
+                    transactions = pack.txns,
+                    today = today,
+                )
 
                 val ledgerBalanceCents = pack.txns.sumOf { it.amount_cents }
                 val bankBalanceCents = pack.balanceState.bankBalanceCents
@@ -411,6 +464,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     scheduledBillBurdenCents = scheduledBillBurdenCents,
                     goals = pack.goals,
                     safeToSpendCents = safeToSpend,
+                    reconciled = reconciled,
                 )
                 val actionCenter = buildActionCenter(
                     safeToSpendCents = safeToSpend,
@@ -483,7 +537,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     transactionReviewItems = reviewItems,
                     moneyBuckets = moneyBuckets,
                     trustSignals = trustSignals,
-                    dashboardConfig = pack.dashboardConfig
+                    dashboardConfig = pack.dashboardConfig,
+                    categoryBudgets = pack.categoryBudgets,
+                    categoryBudgetRows = categoryBudgetRows,
                 )
             }.collect { }
         }
@@ -571,12 +627,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scheduledBillBurdenCents: Int,
         goals: List<com.example.app.data.GoalEntity>,
         safeToSpendCents: Int,
+        reconciled: Boolean,
     ): List<MoneyBucketState> {
         val positiveSeed = forecastSeedCents.coerceAtLeast(0)
         val goalTargetCents = goals.sumOf { it.targetAmountCents }
         val goalCurrentCents = goals.sumOf { it.currentAmountCents }
         val goalRemainingCents = (goalTargetCents - goalCurrentCents).coerceAtLeast(0)
-        val availableCents = safeToSpendCents.coerceAtLeast(0)
+        val overPlan = safeToSpendCents < 0
+        // When over plan, show the shortfall magnitude rather than hiding it at 0.
+        val availableCents = if (overPlan) safeToSpendCents else safeToSpendCents.coerceAtLeast(0)
         return listOf(
             MoneyBucketState(
                 label = "Bills spoken for",
@@ -588,15 +647,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             MoneyBucketState(
                 label = "Goals funded",
                 amountCents = goalCurrentCents,
-                detail = if (goalRemainingCents > 0) "${formatCurrency(goalRemainingCents)} still targeted" else "No open goal gap",
+                detail = if (goalRemainingCents > 0) "${centsToDisplay(goalRemainingCents)} still targeted" else "No open goal gap",
                 progress = if (goalTargetCents > 0) goalCurrentCents.toFloat() / goalTargetCents else 0f,
                 accent = MoneyBucketAccent.Goals,
             ),
             MoneyBucketState(
-                label = "Available after plan",
+                label = if (overPlan) "Over plan" else "Available after plan",
                 amountCents = availableCents,
-                detail = if (safeToSpendCents < 0) "Forecast is below zero" else "Safe-to-spend reserve",
-                progress = if (positiveSeed > 0) availableCents.toFloat() / positiveSeed else 0f,
+                detail = when {
+                    !reconciled -> "Confirm bank balance to trust this number"
+                    overPlan -> "Reduce bills or add income"
+                    else -> "Safe-to-spend reserve"
+                },
+                progress = if (positiveSeed > 0 && !overPlan) availableCents.toFloat() / positiveSeed else if (overPlan) 1f else 0f,
                 accent = MoneyBucketAccent.Available,
             ),
         )
@@ -612,8 +675,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         hasIncome: Boolean,
         hasBills: Boolean,
     ): ActionCenterState {
+        val forecastUnlocked = reconciled
         val riskLabel = when {
-            safeToSpendCents < 0 -> "Overdraft projected"
+            !hasIncome || !hasBills -> "Add income and bills"
+            !reconciled -> "Confirm bank balance"
+            safeToSpendCents < 0 -> "Shortfall projected"
             probabilityNegativePct >= 25.0 -> "High risk (${String.format("%.0f", probabilityNegativePct)}%)"
             runwayDays < 14 -> "Thin runway"
             else -> "Stable forecast"
@@ -634,6 +700,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             DashboardPrimaryAction.OpenForecast -> "Open forecast"
             DashboardPrimaryAction.RecordSpending -> "Record spending"
         }
+        val caption = when {
+            !reconciled -> "Provisional until balance confirmed"
+            safeToSpendCents < 0 -> "Lowest balance over next 90 days"
+            else -> "Safe to spend"
+        }
         return ActionCenterState(
             safeToSpendCents = safeToSpendCents,
             needsReviewCount = reviewCount,
@@ -641,6 +712,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             forecastRiskLabel = riskLabel,
             primaryActionLabel = label,
             primaryAction = action,
+            forecastUnlocked = forecastUnlocked,
+            safeToSpendCaption = caption,
         )
     }
 
@@ -669,14 +742,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             TrustSignal(
                 label = "Forecast basis",
                 value = if (reconciled) "Bank balance" else "App balance",
-                detail = "${formatCurrency(forecastSeedCents)} seed with $eventCount scheduled events",
+                detail = "${centsToDisplay(forecastSeedCents)} seed with $eventCount scheduled events",
                 level = if (reconciled) TrustSignalLevel.Good else TrustSignalLevel.Attention,
             ),
         )
-    }
-
-    private fun formatCurrency(cents: Int): String {
-        return "\$${String.format("%.2f", cents / 100.0)}"
     }
 
     private data class ReportingPackage(
@@ -687,6 +756,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val billOccurrences: List<com.example.app.data.BillOccurrenceEntity>,
         val assets: List<com.example.app.data.AssetEntity>,
         val goals: List<com.example.app.data.GoalEntity>,
+        val categoryBudgets: List<com.example.app.data.CategoryBudgetEntity>,
         val dashboardConfig: DashboardConfig,
     )
 
@@ -701,6 +771,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val billOccurrences: List<com.example.app.data.BillOccurrenceEntity>,
         val assets: List<com.example.app.data.AssetEntity>,
         val goals: List<com.example.app.data.GoalEntity>,
+        val categoryBudgets: List<com.example.app.data.CategoryBudgetEntity>,
         val dashboardConfig: DashboardConfig,
     )
 

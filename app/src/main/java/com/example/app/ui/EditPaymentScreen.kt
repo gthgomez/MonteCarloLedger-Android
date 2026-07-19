@@ -33,6 +33,7 @@ import com.example.app.data.PaymentEntity
 import com.example.app.domain.DomainRules
 import com.example.app.processing.PaymentSchedule
 import java.time.LocalDate
+import com.example.app.util.centsToDollarInputString
 import com.example.app.util.dollarsToCents
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,7 +45,7 @@ fun EditPaymentScreen(
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(payment.name) }
-    var amountDollars by remember { mutableStateOf(String.format("%.2f", payment.amount_cents / 100.0)) }
+    var amountDollars by remember { mutableStateOf(centsToDollarInputString(payment.amount_cents)) }
     var recurrence by remember { mutableStateOf(payment.frequency) }
     var dueDateText by remember { mutableStateOf(payment.next_date) }
     var isAutoWithdraw by remember { mutableStateOf(payment.isAutoWithdraw) }

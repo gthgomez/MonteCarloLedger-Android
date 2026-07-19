@@ -24,4 +24,7 @@ interface AssetDao {
 
     @Query("SELECT SUM(balanceCents) FROM assets")
     fun getTotalAssetBalance(): Flow<Long?>
+
+    @Query("DELETE FROM assets")
+    suspend fun deleteAllAssets()
 }

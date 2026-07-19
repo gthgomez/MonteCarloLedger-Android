@@ -39,6 +39,7 @@ import com.example.app.data.PaymentEntity
 import com.example.app.data.RecurringCandidate
 import com.example.app.data.TransactionEntity
 import com.example.app.data.TransactionRuleEntity
+import com.example.app.util.centsToDisplay
 import java.time.LocalDate
 import kotlin.math.abs
 
@@ -248,7 +249,7 @@ private fun CommandReviewRow(
                     Text(item.transaction.description, style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("${item.reason} • ${item.transaction.date.formatDateDisplay()}", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                 }
-                Text(formatCommandCurrency(item.transaction.amount_cents), color = GlassTokens.ErrorRed, fontWeight = FontWeight.Bold)
+                Text(centsToDisplay(item.transaction.amount_cents), color = GlassTokens.ErrorRed, fontWeight = FontWeight.Bold)
             }
             OutlinedTextField(
                 value = category,
@@ -318,7 +319,7 @@ private fun BillAttentionRow(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(payment?.name ?: "Removed bill", style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary)
-                    Text("Due $dueDate • ${formatCommandCurrency(-occurrence.amount_cents)}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
+                    Text("Due $dueDate • ${centsToDisplay(-occurrence.amount_cents)}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(onClick = onMarkPaid) {
@@ -393,9 +394,4 @@ private fun EmptyCommandCard(title: String, detail: String) {
             Text(detail, style = MaterialTheme.typography.bodyMedium, color = GlassTokens.TextSecondary)
         }
     }
-}
-
-private fun formatCommandCurrency(cents: Int): String {
-    val sign = if (cents < 0) "-" else ""
-    return "$sign\$${String.format("%.2f", abs(cents) / 100.0)}"
 }

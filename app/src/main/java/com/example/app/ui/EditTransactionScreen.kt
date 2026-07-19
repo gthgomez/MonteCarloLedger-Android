@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.app.data.TransactionEntity
+import com.example.app.util.centsToDollarInputString
 import com.example.app.util.dollarsToCents
 import java.time.LocalDate
 import kotlin.math.abs
@@ -43,7 +44,7 @@ fun EditTransactionScreen(
 ) {
     var description by remember { mutableStateOf(transaction.description) }
     // Display positive amount in UI
-    var amountDollars by remember { mutableStateOf(String.format("%.2f", abs(transaction.amount_cents) / 100.0)) }
+    var amountDollars by remember { mutableStateOf(centsToDollarInputString(abs(transaction.amount_cents))) }
     var type by remember { mutableStateOf(transaction.type) }
     var category by remember { mutableStateOf(transaction.category) }
     var dateIso by remember {

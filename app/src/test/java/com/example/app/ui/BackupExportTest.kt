@@ -1,7 +1,9 @@
 package com.example.app.ui
 
 import com.example.app.AppUiState
+import com.example.app.data.AssetEntity
 import com.example.app.data.BillOccurrenceEntity
+import com.example.app.data.GoalEntity
 import com.example.app.data.IncomeEntity
 import com.example.app.data.OnboardingProgress
 import com.example.app.data.PaymentEntity
@@ -48,6 +50,7 @@ class BackupExportTest {
                     day_of_month = 12,
                     next_date = "2026-04-29",
                     expectedAmountCents = 118_000,
+                    payType = "HOURLY",
                 )
             ),
             payments = listOf(
@@ -98,23 +101,47 @@ class BackupExportTest {
                     created_at = "2026-04-22T12:00:00",
                 )
             ),
+            assets = listOf(
+                AssetEntity(
+                    id = 9,
+                    name = "Emergency fund",
+                    type = "Cash",
+                    balanceCents = 500_00L,
+                    lastUpdated = "2026-04-22",
+                )
+            ),
+            goals = listOf(
+                GoalEntity(
+                    id = 8,
+                    name = "Vacation",
+                    targetAmountCents = 200_000,
+                    currentAmountCents = 50_000,
+                    deadline = "2026-12-01",
+                    createdAt = "2026-01-01",
+                )
+            ),
             onboardingProgress = OnboardingProgress(
                 firstIncomeCompleted = true,
                 firstBillCompleted = true,
                 firstExpenseCompleted = false,
+                firstGoalCompleted = true,
                 reconciliationCompleted = true,
             ),
         )
 
-        assertTrue(json.contains("\"schemaVersion\": 1"))
+        assertTrue(json.contains("\"schemaVersion\": 2"))
         assertTrue(json.contains("\"exportedAt\": \"2026-04-22T12:00:00\""))
         assertTrue(json.contains("\"name\": \"Paycheck\""))
+        assertTrue(json.contains("\"payType\": \"HOURLY\""))
         assertTrue(json.contains("\"name\": \"Rent\""))
         assertTrue(json.contains("\"description\": \"Coffee\""))
         assertTrue(json.contains("\"due_date\": \"2026-05-01\""))
         assertTrue(json.contains("\"original_due_date\": \"2026-05-01\""))
         assertTrue(json.contains("\"is_user_modified\": true"))
         assertTrue(json.contains("\"isBalanceReconciled\": true"))
+        assertTrue(json.contains("\"name\": \"Emergency fund\""))
+        assertTrue(json.contains("\"name\": \"Vacation\""))
+        assertTrue(json.contains("\"firstGoalCompleted\": true"))
     }
 
     @Test
@@ -136,6 +163,7 @@ class BackupExportTest {
                     day_of_month = 12,
                     next_date = "2026-04-29",
                     expectedAmountCents = 118_000,
+                    payType = "FLAT",
                 )
             ),
             payments = listOf(
@@ -186,22 +214,43 @@ class BackupExportTest {
                     created_at = "2026-04-22T12:00:00",
                 )
             ),
+            assets = listOf(
+                AssetEntity(
+                    id = 9,
+                    name = "Brokerage",
+                    type = "Stock",
+                    balanceCents = 1_000_00L,
+                    lastUpdated = "2026-04-22",
+                )
+            ),
+            goals = listOf(
+                GoalEntity(
+                    id = 8,
+                    name = "Car",
+                    targetAmountCents = 500_000,
+                    currentAmountCents = 100_000,
+                    deadline = null,
+                    createdAt = "2026-02-01",
+                )
+            ),
             onboardingProgress = OnboardingProgress(
                 firstIncomeCompleted = true,
                 firstBillCompleted = false,
                 firstExpenseCompleted = false,
+                firstGoalCompleted = true,
                 reconciliationCompleted = true,
             ),
         )
 
         val snapshot = parseLedgerBackupJson(exported)
 
-        assertEquals(1, snapshot.schemaVersion)
+        assertEquals(2, snapshot.schemaVersion)
         assertEquals("2026-04-22T12:00:00", snapshot.exportedAtIso)
         assertEquals(12_345, snapshot.bankBalanceCents)
         assertTrue(snapshot.isBalanceReconciled)
         assertEquals(1, snapshot.incomes.size)
         assertEquals("Paycheck", snapshot.incomes.single().name)
+        assertEquals("FLAT", snapshot.incomes.single().payType)
         assertEquals(1, snapshot.payments.size)
         assertEquals("Rent", snapshot.payments.single().name)
         assertEquals(1, snapshot.transactions.size)
@@ -217,7 +266,127 @@ class BackupExportTest {
         assertEquals("120", snapshot.settings[1].value)
         assertEquals(1, snapshot.rules.size)
         assertEquals("netflix", snapshot.rules.single().match_text)
+        assertEquals(1, snapshot.assets.size)
+        assertEquals("Brokerage", snapshot.assets.single().name)
+        assertEquals(1_000_00L, snapshot.assets.single().balanceCents)
+        assertEquals(1, snapshot.goals.size)
+        assertEquals("Car", snapshot.goals.single().name)
         assertTrue(snapshot.onboardingProgress.firstIncomeCompleted)
+        assertTrue(snapshot.onboardingProgress.firstGoalCompleted)
         assertTrue(snapshot.onboardingProgress.reconciliationCompleted)
+    }
+
+    @Test
+    fun buildLedgerBackupJson_includesCategoryBudgetsWhenProvided() {
+        val json = buildLedgerBackupJson(
+            exportedAtIso = "2026-04-22T12:00:00",
+            uiState = AppUiState(),
+            incomes = emptyList(),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            settings = emptyList(),
+            rules = emptyList(),
+            onboardingProgress = OnboardingProgress(),
+            categoryBudgets = listOf(
+                com.example.app.data.CategoryBudgetEntity(
+                    id = 1,
+                    category = "dining",
+                    limitCents = 50_000,
+                    enabled = 1,
+                    createdAt = "2026-04-01",
+                )
+            ),
+        )
+
+        assertTrue(json.contains("\"categoryBudgets\""))
+        assertTrue(json.contains("\"category\": \"dining\""))
+        assertTrue(json.contains("\"limitCents\": 50000"))
+    }
+
+    @Test
+    fun parseLedgerBackupJson_roundTripsCategoryBudgets() {
+        val exported = buildLedgerBackupJson(
+            exportedAtIso = "2026-04-22T12:00:00",
+            uiState = AppUiState(),
+            incomes = emptyList(),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            settings = emptyList(),
+            rules = emptyList(),
+            assets = emptyList(),
+            goals = emptyList(),
+            categoryBudgets = listOf(
+                com.example.app.data.CategoryBudgetEntity(
+                    id = 3,
+                    category = "groceries",
+                    limitCents = 80_000,
+                    enabled = 0,
+                    createdAt = "2026-03-15",
+                ),
+                com.example.app.data.CategoryBudgetEntity(
+                    id = 4,
+                    category = "dining",
+                    limitCents = 50_000,
+                    enabled = 1,
+                    createdAt = "2026-04-01",
+                ),
+            ),
+            onboardingProgress = OnboardingProgress(),
+        )
+
+        val snapshot = parseLedgerBackupJson(exported)
+
+        assertEquals(2, snapshot.categoryBudgets.size)
+        val dining = snapshot.categoryBudgets.first { it.category == "dining" }
+        assertEquals(50_000, dining.limitCents)
+        assertEquals(1, dining.enabled)
+        val groceries = snapshot.categoryBudgets.first { it.category == "groceries" }
+        assertEquals(80_000, groceries.limitCents)
+        assertEquals(0, groceries.enabled)
+    }
+
+    @Test
+    fun parseLedgerBackupJson_acceptsLegacySchema1WithoutAssetsOrGoals() {
+        val legacy = """
+            {
+              "schemaVersion": 1,
+              "exportedAt": "2026-01-01T00:00:00",
+              "summary": {
+                "bankBalanceCents": 100,
+                "isBalanceReconciled": false
+              },
+              "onboarding": {
+                "firstIncomeCompleted": true,
+                "firstBillCompleted": false,
+                "firstExpenseCompleted": false,
+                "reconciliationCompleted": false
+              },
+              "settings": [],
+              "rules": [],
+              "incomes": [
+                {
+                  "id": 1,
+                  "name": "Job",
+                  "amount_cents": 1000,
+                  "frequency": "weekly",
+                  "day_of_month": null,
+                  "next_date": "2026-01-08",
+                  "expectedAmountCents": null
+                }
+              ],
+              "payments": [],
+              "transactions": [],
+              "billOccurrences": []
+            }
+        """.trimIndent()
+
+        val snapshot = parseLedgerBackupJson(legacy)
+        assertEquals(1, snapshot.schemaVersion)
+        assertEquals(1, snapshot.incomes.size)
+        assertEquals("FLAT", snapshot.incomes.single().payType)
+        assertTrue(snapshot.assets.isEmpty())
+        assertTrue(snapshot.goals.isEmpty())
     }
 }

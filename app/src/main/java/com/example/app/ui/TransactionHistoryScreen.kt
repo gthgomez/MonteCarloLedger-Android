@@ -30,6 +30,7 @@ import com.example.app.MainViewModel
 import com.example.app.data.BillOccurrenceEntity
 import com.example.app.data.PaymentEntity
 import com.example.app.data.TransactionEntity
+import com.example.app.util.centsToDisplay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,7 +137,7 @@ internal fun TransactionHistoryContent(
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(txn.description, style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary)
                             Text(
-                                "${if (txn.amount_cents >= 0) "+" else ""}$${String.format("%.2f", txn.amount_cents / 100.0)}",
+                                "${if (txn.amount_cents >= 0) "+" else ""}${centsToDisplay(txn.amount_cents)}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = if (txn.amount_cents >= 0) GlassTokens.PositiveGreen else GlassTokens.ErrorRed

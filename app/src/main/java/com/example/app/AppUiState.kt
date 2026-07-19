@@ -1,10 +1,12 @@
 package com.example.app
 
+import com.example.app.data.CategoryBudgetEntity
 import com.example.app.data.CategorySpend
 import com.example.app.data.RecurringCandidate
 import com.example.app.data.TransactionEntity
 import com.example.app.processing.BalanceForecastRow
 import com.example.app.processing.CashFlowWindow
+import com.example.app.processing.CategoryBudgetRow
 
 data class AppUiState(
     val isLoading: Boolean = false,
@@ -45,7 +47,9 @@ data class AppUiState(
     val transactionReviewItems: List<TransactionReviewItem> = emptyList(),
     val moneyBuckets: List<MoneyBucketState> = emptyList(),
     val trustSignals: List<TrustSignal> = emptyList(),
-    val dashboardConfig: DashboardConfig = DashboardConfig()
+    val dashboardConfig: DashboardConfig = DashboardConfig(),
+    val categoryBudgets: List<CategoryBudgetEntity> = emptyList(),
+    val categoryBudgetRows: List<CategoryBudgetRow> = emptyList(),
 )
 
 enum class DashboardWidget {
@@ -72,6 +76,9 @@ data class ActionCenterState(
     val forecastRiskLabel: String = "Add income and bills",
     val primaryActionLabel: String = "Start setup",
     val primaryAction: DashboardPrimaryAction = DashboardPrimaryAction.AddIncome,
+    /** False until the user confirms bank balance — safe-to-spend is provisional. */
+    val forecastUnlocked: Boolean = false,
+    val safeToSpendCaption: String = "Safe to spend",
 )
 
 data class TransactionReviewItem(

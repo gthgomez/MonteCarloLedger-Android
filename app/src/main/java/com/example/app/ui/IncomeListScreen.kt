@@ -40,6 +40,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.app.GlassTokens
 import com.example.app.MainViewModel
 import com.example.app.data.IncomeEntity
+import com.example.app.util.centsToDisplay
+import com.example.app.util.dollarsToCents
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,7 +60,7 @@ fun IncomeListScreen(
             title = { Text("Record Paycheck: ${income.name}", color = GlassTokens.TextPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Default: \$${String.format("%.2f", (income.expectedAmountCents ?: income.amount_cents) / 100.0)}", color = GlassTokens.TextSecondary)
+                    Text("Default: ${centsToDisplay(income.expectedAmountCents ?: income.amount_cents)}", color = GlassTokens.TextSecondary)
                     OutlinedTextField(
                         value = paydayAmount,
                         onValueChange = { paydayAmount = it },
@@ -159,12 +161,12 @@ fun IncomeListScreen(
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(income.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = GlassTokens.TextPrimary)
                                 Text(
-                                    "\$${String.format("%.2f", income.amount_cents / 100.0)}  •  ${income.frequency}",
+                                    "${centsToDisplay(income.amount_cents)}  •  ${income.frequency}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = GlassTokens.CyanBright
                                 )
                                 income.expectedAmountCents?.let {
-                                    Text("Expected: \$${String.format("%.2f", it / 100.0)}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextDim)
+                                    Text("Expected: ${centsToDisplay(it)}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextDim)
                                 }
                                 Text("Next payday: ${income.next_date.formatDateDisplay()}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextDim)
                             }

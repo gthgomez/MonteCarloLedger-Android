@@ -28,6 +28,12 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Int): TransactionEntity?
 
+    @Query(
+        "SELECT COUNT(*) FROM transactions " +
+            "WHERE type = 'income' AND date = :date AND description = :description"
+    )
+    suspend fun countIncomeByDescriptionAndDate(description: String, date: String): Int
+
     @Query("SELECT SUM(amount_cents) FROM transactions")
     fun getTotalBalanceCents(): Flow<Int?>
 

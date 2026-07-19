@@ -34,7 +34,9 @@ import com.example.app.TransactionReviewItem
 import com.example.app.TrustSignal
 import com.example.app.TrustSignalLevel
 import com.example.app.data.TransactionEntity
-import kotlin.math.abs
+import com.example.app.processing.CategoryBudgetRow
+import com.example.app.util.centsToDisplay
+
 
 @Composable
 internal fun DashboardActionCenterCard(
@@ -47,7 +49,11 @@ internal fun DashboardActionCenterCard(
             .semantics {
                 stateDescription = "Primary action: ${state.primaryActionLabel}. Risk level: ${state.forecastRiskLabel}"
             },
-        tint = if (state.safeToSpendCents < 0) GlassTint.Error else GlassTint.Cyan,
+        tint = when {
+            !state.forecastUnlocked -> GlassTint.Cyan
+            state.safeToSpendCents < 0 -> GlassTint.Error
+            else -> GlassTint.Cyan
+        },
         surfaceStyle = GlassSurfaceStyle.Hero,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -65,17 +71,31 @@ internal fun DashboardActionCenterCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = GlassTokens.TextSecondary,
                     )
-                    Text(
-                        formatCurrency(state.safeToSpendCents),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = if (state.safeToSpendCents < 0) GlassTokens.ErrorRed else GlassTokens.CyanBright,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "Safe to spend",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GlassTokens.TextDim,
-                    )
+                    if (!state.forecastUnlocked) {
+                        Text(
+                            "Confirm balance",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = GlassTokens.CyanBright,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Unlock trusted safe-to-spend",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GlassTokens.TextDim,
+                        )
+                    } else {
+                        Text(
+                            centsToDisplay(state.safeToSpendCents),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = if (state.safeToSpendCents < 0) GlassTokens.ErrorRed else GlassTokens.CyanBright,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            state.safeToSpendCaption,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GlassTokens.TextDim,
+                        )
+                    }
                 }
                 AppPrimaryButton(
                     text = state.primaryActionLabel,
@@ -205,7 +225,7 @@ private fun ReviewRow(
                 )
             }
             Text(
-                formatCurrency(item.transaction.amount_cents),
+                centsToDisplay(item.transaction.amount_cents),
                 style = MaterialTheme.typography.titleSmall,
                 color = GlassTokens.ErrorRed,
                 fontWeight = FontWeight.Bold,
@@ -257,10 +277,11 @@ internal fun MoneyBucketsCard(buckets: List<MoneyBucketState>) {
 
 @Composable
 private fun BucketRow(bucket: MoneyBucketState) {
-    val color = when (bucket.accent) {
-        MoneyBucketAccent.Bills -> GlassTokens.VioletLight
-        MoneyBucketAccent.Goals -> GlassTokens.PositiveGreen
-        MoneyBucketAccent.Available -> GlassTokens.CyanBright
+    val color = when {
+        bucket.amountCents < 0 -> GlassTokens.ErrorRed
+        bucket.accent == MoneyBucketAccent.Bills -> GlassTokens.VioletLight
+        bucket.accent == MoneyBucketAccent.Goals -> GlassTokens.PositiveGreen
+        else -> GlassTokens.CyanBright
     }
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(
@@ -268,7 +289,7 @@ private fun BucketRow(bucket: MoneyBucketState) {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(bucket.label, style = MaterialTheme.typography.bodyMedium, color = GlassTokens.TextPrimary)
-            Text(formatCurrency(bucket.amountCents), style = MaterialTheme.typography.bodyMedium, color = color, fontWeight = FontWeight.Bold)
+            Text(centsToDisplay(bucket.amountCents), style = MaterialTheme.typography.bodyMedium, color = color, fontWeight = FontWeight.Bold)
         }
         LinearProgressIndicator(
             progress = { bucket.progress.coerceIn(0f, 1f) },
@@ -329,7 +350,41 @@ private fun SectionHeader(title: String, detail: String) {
     }
 }
 
-private fun formatCurrency(cents: Int): String {
-    val sign = if (cents < 0) "-" else ""
-    return "$sign\$${String.format("%.2f", abs(cents) / 100.0)}"
+@Composable
+internal fun OverLimitCategoriesCard(rows: List<CategoryBudgetRow>) {
+    val overLimit = rows.filter { it.overLimit }
+    if (overLimit.isEmpty()) return
+
+    GlassCard(
+        modifier = Modifier.heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight),
+        tint = GlassTint.Error,
+        surfaceStyle = GlassSurfaceStyle.Standard,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionHeader(
+                title = "Over budget",
+                detail = "${overLimit.size} categor${if (overLimit.size == 1) "y" else "ies"} over limit",
+            )
+            overLimit.forEachIndexed { index, row ->
+                if (index > 0) HorizontalDivider(color = GlassTokens.DividerColor)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        row.category.replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassTokens.TextPrimary,
+                    )
+                    Text(
+                        "${centsToDisplay(row.spentCents)} / ${centsToDisplay(row.limitCents)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = GlassTokens.ErrorRed,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+    }
 }

@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.app.GlassTokens
 import com.example.app.MainViewModel
 import com.example.app.processing.BalanceForecastRow
+import com.example.app.util.centsToDisplay
 import dev.chrisbanes.haze.HazeState
 import java.time.format.DateTimeFormatter
 
@@ -144,13 +145,13 @@ private fun ForecastSummaryCard(
                 SummaryMetric(
                     friendlyLabel = "Lowest balance",
                     technicalLabel = "lowest forecast balance",
-                    value = formatCents(lowestBalanceCents),
+                    value = centsToDisplay(lowestBalanceCents),
                     valueColor = if (lowestBalanceCents < 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen,
                 )
                 SummaryMetric(
                     friendlyLabel = "Ending balance",
                     technicalLabel = "forecast ending balance",
-                    value = formatCents(endingBalanceCents),
+                    value = centsToDisplay(endingBalanceCents),
                     valueColor = if (endingBalanceCents < 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen,
                 )
             }
@@ -295,7 +296,7 @@ private fun ForecastRowCard(row: BalanceForecastRow, tint: GlassTint, isNegative
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    formatCents(row.balanceCents),
+                    centsToDisplay(row.balanceCents),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = accentColor,
@@ -303,11 +304,4 @@ private fun ForecastRowCard(row: BalanceForecastRow, tint: GlassTint, isNegative
             }
         }
     }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-private fun formatCents(cents: Int): String {
-    val abs = Math.abs(cents) / 100.0
-    return if (cents < 0) "-$${String.format("%.2f", abs)}" else "$${String.format("%.2f", abs)}"
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.example.app.data.IncomeEntity
 import com.example.app.domain.DomainRules
 import java.time.LocalDate
+import com.example.app.util.centsToDisplay
 import com.example.app.util.dollarsToCents
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -159,7 +160,7 @@ fun AddIncomeScreen(onSave: (IncomeEntity) -> Unit) {
                 }
                 if (computedCents > 0) {
                     Text(
-                        "≈ \$${String.format("%.2f", computedCents / 100.0)} per $frequency paycheck",
+                        "≈ ${centsToDisplay(computedCents)} per $frequency paycheck",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
