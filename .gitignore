@@ -52,3 +52,7 @@ runs/
 plans/factory/
 handoff-*.md
 handoff-*.repro.json
+
+# Factory parallel worktrees
+.factory-wt/
+
