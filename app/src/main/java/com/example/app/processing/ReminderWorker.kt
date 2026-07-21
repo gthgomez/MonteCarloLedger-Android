@@ -1,10 +1,12 @@
 package com.example.app.processing
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.app.data.AppDatabase
@@ -62,7 +64,19 @@ class ReminderWorker(
             .setAutoCancel(true)
             .build()
 
-        NotificationManagerCompat.from(applicationContext).notify(NOTIFICATION_ID, notification)
+        // POST_NOTIFICATIONS is runtime-granted on API 33+; skip quietly if denied.
+        if (Build.VERSION.SDK_INT >= 33) {
+            val granted = ContextCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) return Result.success()
+        }
+        try {
+            NotificationManagerCompat.from(applicationContext).notify(NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            return Result.success()
+        }
         return Result.success()
     }
 

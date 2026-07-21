@@ -38,6 +38,10 @@ android {
         compose = true
     }
 
+    lint {
+        // local.properties is machine-local and gitignored; PropertyEscape is not a product defect.
+        disable += "PropertyEscape"
+    }
 
     packaging {
         resources {
