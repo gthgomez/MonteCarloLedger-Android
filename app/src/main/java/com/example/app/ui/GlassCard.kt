@@ -23,5 +23,14 @@ fun GlassCard(
         com.workspace.design.GlassSurfaceStyle.Quiet -> 12.dp
     },
     hazeState: HazeState? = null,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(16.dp),
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
-) = com.workspace.design.GlassCard(modifier, tint, surfaceStyle, cornerRadius, hazeState, content)
+) = com.workspace.design.GlassCard(
+    modifier = modifier,
+    tint = tint,
+    surfaceStyle = surfaceStyle,
+    cornerRadius = cornerRadius,
+    hazeState = hazeState,
+    contentPadding = contentPadding,
+    content = content
+)

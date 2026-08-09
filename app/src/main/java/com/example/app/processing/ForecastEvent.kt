@@ -13,7 +13,7 @@ import java.time.LocalDate
 data class ForecastEvent(
     val date: LocalDate,
     val description: String,
-    val amount_cents: Int,
+    val amount_cents: Long,
     val type: String,
     val recurrenceLabel: String? = null
 )

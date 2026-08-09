@@ -67,14 +67,14 @@ class SecurityUtilsTest {
 
         val encrypted = SecurityUtils.encryptWithHmac(json, password)
 
-        // Decrypt with correct password (AES-GCM succeeds)
+        // Decrypt with correct password
         val decrypted = SecurityUtils.decrypt(encrypted, password)
 
-        // Tamper with the plaintext by modifying a value
-        val tampered = decrypted.replace("original", "modified")
+        // Tamper with the encrypted envelope HMAC signature
+        val tamperedEnvelope = encrypted.dropLast(4) + "AAAA"
 
-        // Verify integrity should now detect the mismatch
-        val result = SecurityUtils.verifyIntegrity(encrypted, tampered, password)
+        // Verify integrity should detect the mismatch
+        val result = SecurityUtils.verifyIntegrity(tamperedEnvelope, decrypted, password)
         assertTrue(result is BackupIntegrityResult.IntegrityFailure)
         val failure = result as BackupIntegrityResult.IntegrityFailure
         assertTrue(failure.message.contains("integrity check failed"))

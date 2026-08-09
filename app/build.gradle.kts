@@ -74,6 +74,10 @@ dependencies {
     // Shared DesignSystem library
     implementation("com.workspace:design")
 
+    // Glance Home Screen Widget
+    implementation("androidx.glance:glance-appwidget:1.1.0")
+    implementation("androidx.glance:glance-material3:1.1.0")
+
     // Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.7.7")
 

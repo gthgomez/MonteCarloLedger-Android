@@ -45,6 +45,7 @@ fun SettingsScreen(
     onRestoreEncrypted: () -> Unit,
     onShowReminders: () -> Unit,
     onShowAppLock: () -> Unit,
+    onShowTransactionRules: () -> Unit = {},
     appLockPreferences: com.example.app.data.AppLockPreferences,
     viewModel: MainViewModel,
     hazeState: HazeState,
@@ -163,6 +164,15 @@ fun SettingsScreen(
                     description = "Load spending data from a CSV file.",
                     icon = Icons.Default.FileUpload,
                     onClick = onImportCsv
+                )
+            }
+
+            item {
+                SettingsCard(
+                    title = "Categorization Rules",
+                    description = "Manage merchant auto-categorization keywords.",
+                    icon = Icons.Default.Star,
+                    onClick = onShowTransactionRules
                 )
             }
 

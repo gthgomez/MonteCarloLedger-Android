@@ -7,15 +7,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +47,9 @@ import com.example.app.util.centsToDisplay
 internal fun DashboardActionCenterCard(
     state: ActionCenterState,
     onPrimaryAction: (DashboardPrimaryAction) -> Unit,
+    onApplyRecommendation: ((com.example.app.processing.OverdraftRecommendation) -> Unit)? = null,
 ) {
+    var showAllRecs by rememberSaveable { mutableStateOf(false) }
     GlassCard(
         modifier = Modifier
             .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
@@ -124,6 +131,89 @@ internal fun DashboardActionCenterCard(
                     modifier = Modifier.weight(1f),
                 )
             }
+
+            if (state.overdraftRecommendations.isNotEmpty()) {
+                HorizontalDivider(color = GlassTokens.DividerColor)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Proactive Action Recommendations (${state.overdraftRecommendations.size})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GlassTokens.TextSecondary,
+                    )
+                    if (state.overdraftRecommendations.size > 1) {
+                        TextButton(
+                            onClick = { showAllRecs = !showAllRecs },
+                        ) {
+                            Text(
+                                if (showAllRecs) "Show less" else "+${state.overdraftRecommendations.size - 1} more",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GlassTokens.CyanBright,
+                            )
+                        }
+                    }
+                }
+
+                val visibleRecs = if (showAllRecs || state.overdraftRecommendations.size == 1) {
+                    state.overdraftRecommendations
+                } else {
+                    state.overdraftRecommendations.take(1)
+                }
+
+                visibleRecs.forEach { rec ->
+                    when (rec) {
+                        is com.example.app.processing.OverdraftRecommendation.RescheduleBill -> {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Move ${rec.billName} (${centsToDisplay(rec.amountCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt())})",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = GlassTokens.TextPrimary
+                                        )
+                                        Text(
+                                            "Shift from ${rec.currentDueDate} to ${rec.suggestedDueDate} (after payday) → Drops risk to 0%",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = GlassTokens.TextSecondary
+                                        )
+                                    }
+                                    if (rec.occurrenceId != null && onApplyRecommendation != null) {
+                                        Button(
+                                            onClick = { onApplyRecommendation(rec) },
+                                            modifier = Modifier.padding(start = 8.dp)
+                                        ) {
+                                            Text("Shift Date", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        is com.example.app.processing.OverdraftRecommendation.CapDailySpend -> {
+                            Text(
+                                "💡 Spending Pace: Cap daily spending at ${centsToDisplay(rec.suggestedDailyCapCents)}/day to cover the ${centsToDisplay(rec.deficitCents)} dip.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GlassTokens.CyanBright
+                            )
+                        }
+                        is com.example.app.processing.OverdraftRecommendation.TransferFromAsset -> {
+                            Text(
+                                "🏦 Emergency Transfer: ${centsToDisplay(rec.suggestedTransferCents)} from ${rec.assetName} available to bridge shortfall.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GlassTokens.CyanBright
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -169,10 +259,25 @@ internal fun TransactionReviewInboxCard(
         surfaceStyle = GlassSurfaceStyle.Standard,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionHeader(
-                title = "Transaction review",
-                detail = if (items.isEmpty()) "Nothing waiting" else "${items.size} entries need a look",
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionHeader(
+                    title = "Transaction review",
+                    detail = if (items.isEmpty()) "Nothing waiting" else "${items.size} entries need a look",
+                )
+            }
+            if (items.isNotEmpty() && items.size > 1) {
+                AppNeutralButton(
+                    text = "Approve all (${items.size})",
+                    onClick = {
+                        items.forEach { onApprove(it.transaction.id) }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (items.isEmpty()) {
                 Text(
                     "Imported and newly categorized transactions will appear here before they affect your habits and rules.",
@@ -427,6 +532,111 @@ internal fun BalanceDriftBanner(
                 text = "Re-reconcile",
                 onClick = onReconcile,
                 modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SpendPacingCard(
+    pacingResult: com.example.app.processing.BudgetPacingResult?,
+    modifier: Modifier = Modifier,
+) {
+    if (pacingResult == null) return
+
+    val statusColor = when (pacingResult.pacingStatus) {
+        com.example.app.processing.PacingStatus.ON_TRACK -> GlassTokens.PositiveGreen
+        com.example.app.processing.PacingStatus.WARNING -> GlassTokens.CyanBright
+        com.example.app.processing.PacingStatus.CRITICAL -> GlassTokens.ErrorRed
+    }
+
+    val statusText = when (pacingResult.pacingStatus) {
+        com.example.app.processing.PacingStatus.ON_TRACK -> "On Track"
+        com.example.app.processing.PacingStatus.WARNING -> "Velocity Warning (+15%)"
+        com.example.app.processing.PacingStatus.CRITICAL -> "Critical Pace Overrun"
+    }
+
+    val progress = if (pacingResult.targetDailyVelocityCents > 0) {
+        (pacingResult.actualDailyVelocityCents.toFloat() / pacingResult.targetDailyVelocityCents.toFloat()).coerceIn(0f, 1f)
+    } else {
+        1f
+    }
+
+    GlassCard(
+        modifier = modifier
+            .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
+            .semantics {
+                stateDescription = "Spending pace: $statusText. Actual ${centsToDisplay(pacingResult.actualDailyVelocityCents.toInt())}/day vs Target ${centsToDisplay(pacingResult.targetDailyVelocityCents.toInt())}/day"
+            },
+        tint = when (pacingResult.pacingStatus) {
+            com.example.app.processing.PacingStatus.CRITICAL -> GlassTint.Error
+            com.example.app.processing.PacingStatus.WARNING -> GlassTint.Cyan
+            else -> GlassTint.Neutral
+        },
+        surfaceStyle = GlassSurfaceStyle.Standard,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Spend Velocity Pacing",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = GlassTokens.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = statusColor,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text("Actual Speed (7-day)", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
+                    Text(
+                        "${centsToDisplay(pacingResult.actualDailyVelocityCents.toInt())}/day",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = statusColor,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Target Speed", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
+                    Text(
+                        "${centsToDisplay(pacingResult.targetDailyVelocityCents.toInt())}/day",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = GlassTokens.TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape),
+                color = statusColor,
+                trackColor = GlassTokens.DividerColor,
+            )
+
+            Text(
+                if (pacingResult.runwayDays.isInfinite()) {
+                    "Infinite runway remaining until payday (${pacingResult.daysToPayday}d)"
+                } else {
+                    "Estimated runway: ${String.format("%.1f", pacingResult.runwayDays)} days remaining (${pacingResult.daysToPayday}d to payday)"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = GlassTokens.TextSecondary,
             )
         }
     }

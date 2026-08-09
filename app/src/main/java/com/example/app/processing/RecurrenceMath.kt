@@ -11,10 +11,23 @@ object RecurrenceMath {
             "weekly" -> date.plusWeeks(1)
             "biweekly" -> date.plusWeeks(2)
             "semimonthly" -> {
-                if (date.dayOfMonth >= 15) {
-                    date.plusMonths(1).withDayOfMonth(1)
+                val targetFirstDay = dayOfMonth ?: 1
+                if (targetFirstDay >= 15) {
+                    // 15th and End-of-Month cycle
+                    if (date.dayOfMonth < 15) {
+                        date.withDayOfMonth(15)
+                    } else if (date.dayOfMonth < date.lengthOfMonth()) {
+                        date.withDayOfMonth(date.lengthOfMonth())
+                    } else {
+                        date.plusMonths(1).withDayOfMonth(15)
+                    }
                 } else {
-                    date.withDayOfMonth(15)
+                    // 1st and 15th cycle
+                    if (date.dayOfMonth < 15) {
+                        date.withDayOfMonth(15)
+                    } else {
+                        date.plusMonths(1).withDayOfMonth(1)
+                    }
                 }
             }
             "monthly" -> monthlyDate(date.plusMonths(1), dayOfMonth ?: date.dayOfMonth)
@@ -32,10 +45,24 @@ object RecurrenceMath {
             "weekly" -> date.minusWeeks(1)
             "biweekly" -> date.minusWeeks(2)
             "semimonthly" -> {
-                if (date.dayOfMonth == 1) {
-                    date.minusMonths(1).withDayOfMonth(15)
+                val targetFirstDay = dayOfMonth ?: 1
+                if (targetFirstDay >= 15) {
+                    // 15th and End-of-Month cycle
+                    if (date.dayOfMonth > 15) {
+                        date.withDayOfMonth(15)
+                    } else {
+                        val prevMonth = date.minusMonths(1)
+                        prevMonth.withDayOfMonth(prevMonth.lengthOfMonth())
+                    }
                 } else {
-                    date.withDayOfMonth(1)
+                    // 1st and 15th cycle
+                    if (date.dayOfMonth > 15) {
+                        date.withDayOfMonth(15)
+                    } else if (date.dayOfMonth > 1) {
+                        date.withDayOfMonth(1)
+                    } else {
+                        date.minusMonths(1).withDayOfMonth(15)
+                    }
                 }
             }
             "monthly" -> monthlyDate(date.minusMonths(1), dayOfMonth ?: date.dayOfMonth)

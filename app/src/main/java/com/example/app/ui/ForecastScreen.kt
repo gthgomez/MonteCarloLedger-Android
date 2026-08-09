@@ -18,12 +18,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,26 +42,98 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.app.GlassTokens
 import com.example.app.MainViewModel
 import com.example.app.processing.BalanceForecastRow
+import com.example.app.processing.MonteCarloResult
 import com.example.app.util.centsToDisplay
 import dev.chrisbanes.haze.HazeState
 import java.time.format.DateTimeFormatter
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ForecastScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showDailySheet by remember { mutableStateOf(false) }
+
+    val fanPoints = remember(uiState.monteCarloDailyPercentiles) {
+        uiState.monteCarloDailyPercentiles.map { pt ->
+            FanChartPoint(
+                dayIndex = pt.dayIndex,
+                dateLabel = pt.date.format(rowFormatter),
+                worst10Cents = pt.worst10Cents,
+                medianCents = pt.medianCents,
+                best90Cents = pt.best90Cents,
+            )
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { Spacer(Modifier.height(12.dp)) }
-        forecastSection(uiState.forecastRows, hazeState)
+        forecastSection(
+            rows = uiState.forecastRows,
+            fanPoints = fanPoints,
+            mcResult = uiState.monteCarloResult,
+            hazeState = hazeState,
+            onViewDailyValuesClicked = { showDailySheet = true },
+        )
         item { Spacer(Modifier.height(16.dp)) }
+    }
+
+    if (showDailySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showDailySheet = false }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    "90-Day Daily Projection Values",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(380.dp)
+                ) {
+                    itemsIndexed(fanPoints) { _, pt ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "Day ${pt.dayIndex} (${pt.dateLabel})",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GlassTokens.TextSecondary,
+                            )
+                            Text(
+                                "10th: ${centsToDisplay(pt.worst10Cents)} | 50th: ${centsToDisplay(pt.medianCents)} | 90th: ${centsToDisplay(pt.best90Cents)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GlassTokens.TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        HorizontalDivider(color = GlassTokens.DividerColor)
+                    }
+                }
+            }
+        }
     }
 }
 
 internal fun LazyListScope.forecastSection(
     rows: List<com.example.app.processing.BalanceForecastRow>,
+    fanPoints: List<FanChartPoint> = emptyList(),
+    mcResult: MonteCarloResult? = null,
     hazeState: HazeState? = null,
+    probabilityNegativePct: Double = 0.0,
+    onViewDailyValuesClicked: (() -> Unit)? = null,
 ) {
     val lowestBalance = rows.minOfOrNull { it.balanceCents } ?: 0
     val endingBalance = rows.lastOrNull()?.balanceCents ?: 0
@@ -71,6 +148,16 @@ internal fun LazyListScope.forecastSection(
             hasNegative = hasNegative,
             hazeState = hazeState,
         )
+    }
+
+    if (fanPoints.isNotEmpty()) {
+        item {
+            MonteCarloFanChart(
+                points = fanPoints,
+                result = mcResult,
+                onViewDailyValuesClicked = onViewDailyValuesClicked,
+            )
+        }
     }
 
     item { Spacer(Modifier.height(4.dp)) }

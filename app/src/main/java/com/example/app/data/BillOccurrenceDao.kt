@@ -31,6 +31,9 @@ interface BillOccurrenceDao {
     @Query("SELECT * FROM bill_occurrences ORDER BY due_date ASC")
     fun getAll(): Flow<List<BillOccurrenceEntity>>
 
+    @Query("SELECT * FROM bill_occurrences ORDER BY due_date ASC")
+    suspend fun getAllOccurrencesList(): List<BillOccurrenceEntity>
+
     @Query("SELECT * FROM bill_occurrences WHERE payment_id = :paymentId ORDER BY due_date ASC")
     fun getForPayment(paymentId: Int): Flow<List<BillOccurrenceEntity>>
 

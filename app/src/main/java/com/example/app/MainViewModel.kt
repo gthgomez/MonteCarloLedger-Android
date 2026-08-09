@@ -26,6 +26,8 @@ import com.example.app.util.centsToDisplay
 import com.example.app.processing.MonteCarloEngine
 import com.example.app.processing.MonteCarloParams
 import com.example.app.processing.TimelineService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
@@ -149,6 +151,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun applyOverdraftRecommendation(recommendation: com.example.app.processing.OverdraftRecommendation) {
+        viewModelScope.launch {
+            when (recommendation) {
+                is com.example.app.processing.OverdraftRecommendation.RescheduleBill -> {
+                    val id = recommendation.occurrenceId
+                    if (id != null) {
+                        rescheduleBillOccurrence(id, recommendation.suggestedDueDate.toString())
+                    }
+                }
+                is com.example.app.processing.OverdraftRecommendation.CapDailySpend -> {
+                    // Informational cap indicator
+                }
+                is com.example.app.processing.OverdraftRecommendation.TransferFromAsset -> {
+                    // Informational transfer indicator
+                }
+            }
+        }
+    }
+
     fun checkBalanceConsistency() {
         viewModelScope.launch {
             val result = repo.checkBalanceConsistency()
@@ -212,9 +233,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repo.deleteTransaction(entity) }
     }
 
-    fun saveTransactionRule(description: String, category: String) {
+    fun saveTransactionRule(description: String, category: String, applyRetroactively: Boolean = true) {
         viewModelScope.launch {
-            repo.saveTransactionRule(description, category)
+            repo.addTransactionRule(description, category, applyRetroactively)
         }
     }
 
@@ -365,9 +386,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.allAssets,
                 repo.allGoals,
                 repo.allCategoryBudgets,
+                repo.allTransactionRules,
                 _dashboardConfig,
-            ) { billOccurrences, assets, goals, categoryBudgets, config ->
-                PlanningReportingData(billOccurrences, assets, goals, categoryBudgets, config)
+            ) { args: Array<Any?> ->
+                @Suppress("UNCHECKED_CAST")
+                PlanningReportingData(
+                    billOccurrences = args[0] as List<BillOccurrenceEntity>,
+                    assets = args[1] as List<com.example.app.data.AssetEntity>,
+                    goals = args[2] as List<com.example.app.data.GoalEntity>,
+                    categoryBudgets = args[3] as List<com.example.app.data.CategoryBudgetEntity>,
+                    rules = args[4] as List<TransactionRuleEntity>,
+                    dashboardConfig = args[5] as DashboardConfig,
+                )
             }
             val reportingData = combine(ledgerData, planningCore) { ledger, planning ->
                 ReportingPackage(
@@ -379,6 +409,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     assets = planning.assets,
                     goals = planning.goals,
                     categoryBudgets = planning.categoryBudgets,
+                    rules = planning.rules,
                     dashboardConfig = planning.dashboardConfig,
                 )
             }
@@ -432,8 +463,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val currentCashFlowWindow = cashFlowWindows.firstOrNull()
                 val dailyBudgetCents = currentCashFlowWindow?.dailySafeSpendCents
                     ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
-                val mc = MonteCarloEngine(MonteCarloParams()).runSimulation(forecastSeedCents, events, today)
-                val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
+                val mc = withContext(Dispatchers.Default) {
+                    MonteCarloEngine(MonteCarloParams(includeDailyPercentiles = true)).runSimulation(forecastSeedCents.toLong(), events, today)
+                }
+                val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
                 val nextPaydayLabel = nextPaycheck?.let { "Next: ${it.date.formatDateDisplay()} (${daysUntilPayday}d)" } ?: "No upcoming income"
                 val upcomingBills = events.filter { it.type == "bill" }.take(5)
@@ -467,6 +500,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     safeToSpendCents = safeToSpend,
                     reconciled = reconciled,
                 )
+                val overdraftRecommendations = com.example.app.processing.OverdraftActionEngine.analyze(
+                    mcResult = mc,
+                    windows = cashFlowWindows,
+                    events = events,
+                    billOccurrences = pack.billOccurrences,
+                    assets = pack.assets,
+                    today = today,
+                )
                 val actionCenter = buildActionCenter(
                     safeToSpendCents = safeToSpend,
                     reviewCount = reviewItems.size + if (mismatch) 1 else 0,
@@ -476,6 +517,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     reconciled = reconciled,
                     hasIncome = pack.incomes.isNotEmpty(),
                     hasBills = pack.payments.isNotEmpty(),
+                    overdraftRecommendations = overdraftRecommendations,
                 )
                 val trustSignals = buildTrustSignals(
                     updatedAt = LocalDateTime.now(),
@@ -500,6 +542,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     (avgMonthlyOutflow * (day.toFloat() / today.lengthOfMonth())).toInt()
                 }
 
+                val pacingResult = com.example.app.processing.BudgetPacingEngine.calculatePacing(
+                    safeToSpendCents = safeToSpend.toLong(),
+                    daysToPayday = daysUntilPayday,
+                    transactions = pack.txns,
+                    today = today,
+                )
+
                 _uiState.value = AppUiState(
                     isLoading = false,
                     bankBalanceCents = bankBalanceCents,
@@ -511,9 +560,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     nextPaydayLabel = nextPaydayLabel,
                     dailyBudgetCents = dailyBudgetCents,
                     upcomingBillBurdenCents = scheduledBillBurdenCents,
-                    monteCarlo10thCents = mc.worst_10_balance_cents,
-                    monteCarlo50thCents = mc.median_balance_cents,
-                    monteCarlo90thCents = mc.best_90_balance_cents,
+                    monteCarlo10thCents = mc.worst_10_balance_cents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
+                    monteCarlo50thCents = mc.median_balance_cents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
+                    monteCarlo90thCents = mc.best_90_balance_cents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
                     probabilityNegativePct = mc.probability_negative_pct,
                     projectedTroubleDateLabel = mc.most_common_first_negative_date,
                     firstNegativeDateLabel = forecastSummary.firstNegativeDate?.toString(),
@@ -542,6 +591,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     dashboardConfig = pack.dashboardConfig,
                     categoryBudgets = pack.categoryBudgets,
                     categoryBudgetRows = categoryBudgetRows,
+                    transactionRules = pack.rules,
+                    pacingResult = pacingResult,
+                    monteCarloDailyPercentiles = mc.dailyPercentiles,
+                    monteCarloResult = mc,
                 )
             }.collect { }
         }
@@ -676,6 +729,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reconciled: Boolean,
         hasIncome: Boolean,
         hasBills: Boolean,
+        overdraftRecommendations: List<com.example.app.processing.OverdraftRecommendation> = emptyList(),
     ): ActionCenterState {
         val forecastUnlocked = reconciled
         val riskLabel = when {
@@ -716,6 +770,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             primaryAction = action,
             forecastUnlocked = forecastUnlocked,
             safeToSpendCaption = caption,
+            overdraftRecommendations = overdraftRecommendations,
         )
     }
 
@@ -759,6 +814,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val assets: List<com.example.app.data.AssetEntity>,
         val goals: List<com.example.app.data.GoalEntity>,
         val categoryBudgets: List<com.example.app.data.CategoryBudgetEntity>,
+        val rules: List<com.example.app.data.TransactionRuleEntity>,
         val dashboardConfig: DashboardConfig,
     )
 
@@ -774,6 +830,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val assets: List<com.example.app.data.AssetEntity>,
         val goals: List<com.example.app.data.GoalEntity>,
         val categoryBudgets: List<com.example.app.data.CategoryBudgetEntity>,
+        val rules: List<com.example.app.data.TransactionRuleEntity>,
         val dashboardConfig: DashboardConfig,
     )
 

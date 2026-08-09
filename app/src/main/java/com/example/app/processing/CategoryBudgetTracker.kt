@@ -49,7 +49,7 @@ object CategoryBudgetTracker {
                 !date.isBefore(monthStart) && date.isBefore(monthEndExclusive)
             }
             .groupBy { normalizeCategory(it.category) }
-            .mapValues { (_, txns) -> txns.sumOf { abs(it.amount_cents) } }
+            .mapValues { (_, txns) -> txns.sumOf { abs(it.amount_cents.toLong()) }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() }
 
         return budgets.map { budget ->
             val normalizedCategory = normalizeCategory(budget.category)

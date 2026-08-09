@@ -55,6 +55,7 @@ fun AddTransactionScreen(
     payments: List<PaymentEntity>,
     billOccurrences: List<BillOccurrenceEntity>,
     externalErrorMessage: String? = null,
+    onCancel: (() -> Unit)? = null,
     onSave: (description: String, amountCents: Int, type: String, linkedOccurrenceId: Int?, category: String, date: String) -> Unit
 ) {
     var description by remember { mutableStateOf("") }
@@ -206,29 +207,42 @@ fun AddTransactionScreen(
             )
         }
 
-        AppPrimaryButton(
-            text = "Save",
-            onClick = {
-                localErrorMessage = ""
-                val rawCents = dollarsToCents(amountDollars)
-                if (description.isBlank()) {
-                    localErrorMessage = "Description is required."
-                    return@AppPrimaryButton
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            if (onCancel != null) {
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Cancel")
                 }
-                if (rawCents <= 0) {
-                    localErrorMessage = "Enter a valid amount greater than zero."
-                    return@AppPrimaryButton
-                }
-                // income/adjustment: positive cents; expense: negative cents (matches domain_rules.py sign convention)
-                val cents = when (type) {
-                    "expense" -> -rawCents
-                    else -> rawCents
-                }
-                val linkedOccurrenceId = if (type == "expense") selectedOccurrenceId else null
-                onSave(description, cents, type, linkedOccurrenceId, category, dateIso)
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
+            }
+            AppPrimaryButton(
+                text = "Save",
+                onClick = {
+                    localErrorMessage = ""
+                    val rawCents = dollarsToCents(amountDollars)
+                    if (description.isBlank()) {
+                        localErrorMessage = "Description is required."
+                        return@AppPrimaryButton
+                    }
+                    if (rawCents <= 0) {
+                        localErrorMessage = "Enter a valid amount greater than zero."
+                        return@AppPrimaryButton
+                    }
+                    val cents = when (type) {
+                        "expense" -> -rawCents
+                        else -> rawCents
+                    }
+                    val linkedOccurrenceId = if (type == "expense") selectedOccurrenceId else null
+                    onSave(description, cents, type, linkedOccurrenceId, category, dateIso)
+                },
+                modifier = Modifier.weight(if (onCancel != null) 1f else 2f)
+            )
+        }
 
         if (!externalErrorMessage.isNullOrBlank() || localErrorMessage.isNotBlank()) {
             Text(

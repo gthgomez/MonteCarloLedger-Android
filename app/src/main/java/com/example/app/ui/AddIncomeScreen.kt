@@ -39,7 +39,10 @@ private enum class PayType { HOURLY, FLAT, PER_PROJECT }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddIncomeScreen(onSave: (IncomeEntity) -> Unit) {
+fun AddIncomeScreen(
+    onCancel: (() -> Unit)? = null,
+    onSave: (IncomeEntity) -> Unit
+) {
     var name by remember { mutableStateOf("") }
     var payType by remember { mutableStateOf(PayType.HOURLY) }
 
@@ -282,39 +285,55 @@ fun AddIncomeScreen(onSave: (IncomeEntity) -> Unit) {
             )
         }
 
-        AppPrimaryButton(
-            text = "Save",
-            onClick = {
-                val cents = computedCents
-                val validation = DomainRules.validateIncomeSign(cents)
-                val nextPayday = runCatching { LocalDate.parse(nextPaydayIso) }.getOrNull()
-                val expectedAmount = dollarsToCents(expectedAmountDollars).takeIf { expectedAmountDollars.isNotBlank() }
-
-                if (name.isBlank()) {
-                    errorMessage = "Income name is required"
-                } else if (payType == PayType.HOURLY && (hourlyRate.toDoubleOrNull() ?: 0.0) <= 0) {
-                    errorMessage = "Enter a valid hourly rate"
-                } else if (payType == PayType.HOURLY && (hoursPerWeek.toDoubleOrNull() ?: 0.0) <= 0) {
-                    errorMessage = "Enter hours worked per week"
-                } else if (validation.isFailure || cents <= 0) {
-                    errorMessage = validation.exceptionOrNull()?.message ?: "Invalid income amount"
-                } else if (nextPayday == null) {
-                    errorMessage = "Please pick a next payday date"
-                } else {
-                    onSave(
-                        IncomeEntity(
-                            name = name,
-                            amount_cents = cents,
-                            frequency = frequency,
-                            day_of_month = nextPayday.dayOfMonth,
-                            next_date = nextPayday.toString(),
-                            expectedAmountCents = if (payType == PayType.PER_PROJECT) null else expectedAmount,
-                            payType = payType.name
-                        )
-                    )
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            if (onCancel != null) {
+                androidx.compose.material3.TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Cancel")
                 }
-            },
-            modifier = Modifier.semantics { contentDescription = "Save income entry" }
-        )
+            }
+            AppPrimaryButton(
+                text = "Save",
+                onClick = {
+                    val cents = computedCents
+                    val validation = DomainRules.validateIncomeSign(cents)
+                    val nextPayday = runCatching { LocalDate.parse(nextPaydayIso) }.getOrNull()
+                    val expectedAmount = dollarsToCents(expectedAmountDollars).takeIf { expectedAmountDollars.isNotBlank() }
+
+                    if (name.isBlank()) {
+                        errorMessage = "Income name is required"
+                    } else if (payType == PayType.HOURLY && (hourlyRate.toDoubleOrNull() ?: 0.0) <= 0) {
+                        errorMessage = "Enter a valid hourly rate"
+                    } else if (payType == PayType.HOURLY && (hoursPerWeek.toDoubleOrNull() ?: 0.0) <= 0) {
+                        errorMessage = "Enter hours worked per week"
+                    } else if (validation.isFailure || cents <= 0) {
+                        errorMessage = validation.exceptionOrNull()?.message ?: "Invalid income amount"
+                    } else if (nextPayday == null) {
+                        errorMessage = "Please pick a next payday date"
+                    } else {
+                        onSave(
+                            IncomeEntity(
+                                name = name,
+                                amount_cents = cents,
+                                frequency = frequency,
+                                day_of_month = nextPayday.dayOfMonth,
+                                next_date = nextPayday.toString(),
+                                expectedAmountCents = if (payType == PayType.PER_PROJECT) null else expectedAmount,
+                                payType = payType.name
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .weight(if (onCancel != null) 1f else 2f)
+                    .semantics { contentDescription = "Save income entry" }
+            )
+        }
     }
 }

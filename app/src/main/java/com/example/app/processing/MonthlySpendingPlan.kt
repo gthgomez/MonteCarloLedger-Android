@@ -50,44 +50,47 @@ object MonthlySpendingPlanCalculator {
 
         val expectedIncomeCents = monthlyEvents
             .filter { it.type.equals("income", ignoreCase = true) }
-            .sumOf { it.amount_cents }
+            .sumOf { it.amount_cents.toLong() }
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
         // Timeline already suppresses paid bill dates; remaining = still-scheduled bills.
         val remainingBillsCents = monthlyEvents
             .filter { it.type.equals("bill", ignoreCase = true) }
-            .sumOf { it.amount_cents }
+            .sumOf { it.amount_cents.toLong() }
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
         val paidBillsCents = billOccurrences
             .filter { it.is_paid != 0 }
             .mapNotNull { occurrence ->
                 val due = parseDateOrNull(occurrence.due_date) ?: return@mapNotNull null
                 if (due.isBefore(monthStart) || !due.isBefore(monthEndExclusive)) return@mapNotNull null
-                occurrence.amount_cents
+                occurrence.amount_cents.toLong()
             }
             .sum()
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
         val actualIncomeCents = monthTransactions
             .filter { it.type.equals("income", ignoreCase = true) }
-            .sumOf { it.amount_cents }
+            .sumOf { it.amount_cents.toLong() }
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
         val actualExpenseCents = abs(
             monthTransactions
                 .filter { it.type.equals("expense", ignoreCase = true) }
-                .sumOf { it.amount_cents }
-        )
+                .sumOf { it.amount_cents.toLong() }
+        ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
         // Expenses already include paid bills. Variable = non-bill spending only.
-        val billRelatedExpenseCents = maxOf(
-            paidBillsCents,
-            abs(
-                monthTransactions
-                    .filter {
-                        it.type.equals("expense", ignoreCase = true) &&
-                            it.category.trim().lowercase(Locale.ROOT) in BILL_CATEGORIES
-                    }
-                    .sumOf { it.amount_cents }
-            ),
-        )
+        val billCategoryExpenseCents = abs(
+            monthTransactions
+                .filter {
+                    it.type.equals("expense", ignoreCase = true) &&
+                        it.category.trim().lowercase(Locale.ROOT) in BILL_CATEGORIES
+                }
+                .sumOf { it.amount_cents.toLong() }
+        ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+        val billRelatedExpenseCents = maxOf(paidBillsCents, billCategoryExpenseCents)
         val variableSpendCents = (actualExpenseCents - billRelatedExpenseCents).coerceAtLeast(0)
 
         val goalPlanCents = suggestedMonthlyGoalFunding(goals, today)

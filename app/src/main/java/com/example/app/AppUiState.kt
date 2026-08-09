@@ -52,6 +52,10 @@ data class AppUiState(
     val dashboardConfig: DashboardConfig = DashboardConfig(),
     val categoryBudgets: List<CategoryBudgetEntity> = emptyList(),
     val categoryBudgetRows: List<CategoryBudgetRow> = emptyList(),
+    val transactionRules: List<com.example.app.data.TransactionRuleEntity> = emptyList(),
+    val pacingResult: com.example.app.processing.BudgetPacingResult? = null,
+    val monteCarloDailyPercentiles: List<com.example.app.processing.DailyPercentilePoint> = emptyList(),
+    val monteCarloResult: com.example.app.processing.MonteCarloResult? = null,
 )
 
 enum class DashboardWidget {
@@ -81,6 +85,7 @@ data class ActionCenterState(
     /** False until the user confirms bank balance — safe-to-spend is provisional. */
     val forecastUnlocked: Boolean = false,
     val safeToSpendCaption: String = "Safe to spend",
+    val overdraftRecommendations: List<com.example.app.processing.OverdraftRecommendation> = emptyList(),
 )
 
 data class TransactionReviewItem(

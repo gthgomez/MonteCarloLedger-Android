@@ -82,6 +82,7 @@ fun DashboardScreen(
         onEditTransaction = onEditTransaction,
         onApproveTransactionReview = viewModel::approveTransactionReview,
         onCreateReviewRule = viewModel::createRuleFromTransactionReview,
+        onApplyRecommendation = viewModel::applyOverdraftRecommendation,
         hazeState = hazeState,
     )
 }
@@ -104,6 +105,7 @@ fun DashboardContent(
     onEditTransaction: (TransactionEntity) -> Unit = {},
     onApproveTransactionReview: (Int) -> Unit = {},
     onCreateReviewRule: (Int, String) -> Unit = { _, _ -> },
+    onApplyRecommendation: (com.example.app.processing.OverdraftRecommendation) -> Unit = {},
     hazeState: HazeState? = null,
     forcedWidthClass: WindowWidthClass? = null,
 ) {
@@ -176,6 +178,7 @@ fun DashboardContent(
                     onEditTransaction = onEditTransaction,
                     onApproveTransactionReview = onApproveTransactionReview,
                     onCreateReviewRule = onCreateReviewRule,
+                    onApplyRecommendation = onApplyRecommendation,
                     hazeState = hazeState,
                 )
 
@@ -198,6 +201,7 @@ fun DashboardContent(
                     onEditTransaction = onEditTransaction,
                     onApproveTransactionReview = onApproveTransactionReview,
                     onCreateReviewRule = onCreateReviewRule,
+                    onApplyRecommendation = onApplyRecommendation,
                     hazeState = hazeState,
                     columns = 2,
                 )
@@ -221,6 +225,7 @@ fun DashboardContent(
                     onEditTransaction = onEditTransaction,
                     onApproveTransactionReview = onApproveTransactionReview,
                     onCreateReviewRule = onCreateReviewRule,
+                    onApplyRecommendation = onApplyRecommendation,
                     hazeState = hazeState,
                     columns = 3,
                 )
@@ -249,6 +254,7 @@ private fun DashboardCompactBody(
     onEditTransaction: (TransactionEntity) -> Unit,
     onApproveTransactionReview: (Int) -> Unit,
     onCreateReviewRule: (Int, String) -> Unit,
+    onApplyRecommendation: (com.example.app.processing.OverdraftRecommendation) -> Unit = {},
     hazeState: HazeState?,
 ) {
     LazyColumn(
@@ -272,7 +278,11 @@ private fun DashboardCompactBody(
                             onEditTransaction = onEditTransaction,
                         )
                     },
+                    onApplyRecommendation = onApplyRecommendation,
                 )
+            }
+            item {
+                SpendPacingCard(pacingResult = uiState.pacingResult)
             }
         }
         if (uiState.bankLedgerMismatch) {
@@ -427,6 +437,7 @@ private fun DashboardGridBody(
     onEditTransaction: (TransactionEntity) -> Unit,
     onApproveTransactionReview: (Int) -> Unit,
     onCreateReviewRule: (Int, String) -> Unit,
+    onApplyRecommendation: (com.example.app.processing.OverdraftRecommendation) -> Unit = {},
     hazeState: HazeState?,
     columns: Int,
 ) {
@@ -453,7 +464,11 @@ private fun DashboardGridBody(
                             onEditTransaction = onEditTransaction,
                         )
                     },
+                    onApplyRecommendation = onApplyRecommendation,
                 )
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SpendPacingCard(pacingResult = uiState.pacingResult)
             }
         }
         if (uiState.bankLedgerMismatch) {
@@ -1094,7 +1109,7 @@ private fun MonteCarloCard(uiState: AppUiState) {
         AlertDialog(
             onDismissRequest = { showHelp = false },
             title = { Text("How the 3-month estimate works", color = GlassTokens.TextPrimary) },
-            text = { Text("We run your upcoming income and bills through 500 different scenarios. Each scenario adds random variation to your income (±8%) and occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). The risk percentage tells you how many scenarios ended with a negative balance.", color = GlassTokens.TextSecondary) },
+            text = { Text("We run your upcoming income and bills through 500 different scenarios. Each scenario adds random variation to your income (±8%) and occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below $0 at any point in the next 90 days.", color = GlassTokens.TextSecondary) },
             confirmButton = {
                 TextButton(onClick = { showHelp = false }) { Text("Got it") }
             }

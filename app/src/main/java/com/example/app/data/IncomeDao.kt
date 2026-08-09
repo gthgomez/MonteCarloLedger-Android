@@ -25,6 +25,9 @@ interface IncomeDao {
     @Query("SELECT * FROM income")
     fun getAllIncomes(): Flow<List<IncomeEntity>>
 
+    @Query("SELECT * FROM income")
+    suspend fun getAllIncomesList(): List<IncomeEntity>
+
     @Query("DELETE FROM income")
     suspend fun deleteAllIncomes()
 }

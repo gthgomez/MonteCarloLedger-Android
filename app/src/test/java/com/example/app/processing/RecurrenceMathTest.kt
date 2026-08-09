@@ -29,6 +29,19 @@ class RecurrenceMathTest {
     }
 
     @Test
+    fun semimonthlyHandlesFifteenthAndEndOfMonthSchedules() {
+        val fifteenth = LocalDate.of(2026, 1, 15)
+        val endOfJan = RecurrenceMath.nextDate(fifteenth, "semimonthly", 15)
+        val midFeb = RecurrenceMath.nextDate(endOfJan!!, "semimonthly", 15)
+        val endOfFeb = RecurrenceMath.nextDate(midFeb!!, "semimonthly", 15)
+
+        assertEquals(LocalDate.of(2026, 1, 31), endOfJan)
+        assertEquals(LocalDate.of(2026, 2, 15), midFeb)
+        assertEquals(LocalDate.of(2026, 2, 28), endOfFeb)
+        assertEquals(fifteenth, RecurrenceMath.previousDate(endOfJan, "semimonthly", 15))
+    }
+
+    @Test
     fun otherFrequenciesAdvanceByTheirExpectedIntervals() {
         val base = LocalDate.of(2026, 4, 20)
 

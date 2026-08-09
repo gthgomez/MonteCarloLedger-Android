@@ -69,7 +69,7 @@ object TimelineService {
             events += ForecastEvent(
                 date = startDate,
                 description = income.name,
-                amount_cents = amount,
+                amount_cents = amount.toLong(),
                 type = "income",
             )
             return events
@@ -85,7 +85,7 @@ object TimelineService {
                 events += ForecastEvent(
                     date = currentDate,
                     description = income.name,
-                    amount_cents = amount,
+                    amount_cents = amount.toLong(),
                     type = "income",
                 )
             }
@@ -114,7 +114,7 @@ object TimelineService {
                 events += ForecastEvent(
                     date = startDate,
                     description = payment.name,
-                    amount_cents = payment.amount_cents,
+                    amount_cents = payment.amount_cents.toLong(),
                     type = "bill",
                     recurrenceLabel = PaymentSchedule.recurrenceSummary(
                         payment.frequency,
@@ -133,7 +133,7 @@ object TimelineService {
                     events += ForecastEvent(
                         date = currentDate,
                         description = payment.name,
-                        amount_cents = payment.amount_cents,
+                        amount_cents = payment.amount_cents.toLong(),
                         type = "bill",
                         recurrenceLabel = PaymentSchedule.recurrenceSummary(
                             payment.frequency,
@@ -165,7 +165,7 @@ object TimelineService {
             ForecastEvent(
                 date = dueDate,
                 description = payment.name,
-                amount_cents = occurrence.amount_cents,
+                amount_cents = occurrence.amount_cents.toLong(),
                 type = "bill",
                 recurrenceLabel = PaymentSchedule.recurrenceSummary(
                     payment.frequency,

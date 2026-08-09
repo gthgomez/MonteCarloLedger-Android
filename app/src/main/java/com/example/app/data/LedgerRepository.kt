@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.LocalDateTime
 import com.example.app.domain.DomainRules
+import com.example.app.processing.CategoryRuleEngine
 import com.example.app.processing.RecurrenceMath
 import com.example.app.data.LedgerBackupSnapshot
 import com.example.app.security.SecretHash
@@ -723,20 +724,54 @@ class LedgerRepository(private val db: AppDatabase) {
         ).joinToString("|")
     }
 
+    fun getTransactionRulesFlow(): Flow<List<TransactionRuleEntity>> = db.transactionRuleDao().getAll()
+
+    suspend fun addTransactionRule(matchText: String, category: String, applyRetroactively: Boolean = false): Long {
+        val normalizedMatch = normalizeRuleText(matchText)
+        require(normalizedMatch.isNotBlank()) { "Rule match text cannot be blank." }
+        require(category.isNotBlank() && !category.equals("uncategorized", ignoreCase = true)) {
+            "Rule category must be a valid non-uncategorized category."
+        }
+
+        val rule = TransactionRuleEntity(
+            match_text = normalizedMatch,
+            category = category.trim().lowercase(Locale.ROOT),
+            is_active = 1,
+            priority = 0,
+            created_at = LocalDateTime.now().toString(),
+        )
+        val ruleId = db.transactionRuleDao().upsert(rule)
+
+        if (applyRetroactively) {
+            applyRuleRetroactively(rule)
+        }
+        return ruleId
+    }
+
+    suspend fun applyRuleRetroactively(rule: TransactionRuleEntity) {
+        val normalizedMatch = normalizeRuleText(rule.match_text)
+        if (normalizedMatch.isBlank() || rule.is_active == 0) return
+
+        val allTxns = db.transactionDao().getAll().first()
+        val targetTxns = allTxns.filter { txn ->
+            val desc = normalizeRuleText(txn.description)
+            desc.contains(normalizedMatch) && (txn.category.equals("uncategorized", ignoreCase = true) || txn.category.isBlank())
+        }
+
+        db.withTransaction {
+            targetTxns.forEach { txn ->
+                db.transactionDao().update(txn.copy(category = rule.category))
+            }
+        }
+    }
+
     private suspend fun applyTransactionRules(entity: TransactionEntity): TransactionEntity {
         val category = normalizeTransactionCategory(entity.category)
         if (category != "uncategorized") return entity.copy(category = category)
 
-        val description = normalizeRuleText(entity.description)
-        val rule = db.transactionRuleDao().getActiveRules()
-            .firstOrNull { description.contains(it.match_text) }
-
-        return if (rule != null) {
-            entity.copy(category = rule.category)
-        } else {
-            val presetCategory = CategoryRulePresets.inferCategory(entity.description)
-            entity.copy(category = presetCategory)
-        }
+        val activeRules = db.transactionRuleDao().getActiveRules()
+        val result = CategoryRuleEngine.categorize(entity.description, activeRules)
+        return entity.copy(category = result.category)
     }
 
     private suspend fun writeBankBalanceCents(amountCents: Int) {

@@ -65,7 +65,7 @@ fun AnalysisContent(uiState: AppUiState, hazeState: HazeState? = null) {
             )
         }
 
-        forecastSection(uiState.forecastRows, hazeState)
+        forecastSection(rows = uiState.forecastRows, hazeState = hazeState)
 
         item { Spacer(Modifier.height(16.dp)) }
     }

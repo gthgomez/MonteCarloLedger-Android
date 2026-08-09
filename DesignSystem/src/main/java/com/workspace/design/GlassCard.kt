@@ -23,6 +23,9 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.platform.LocalDensity
+
 // Tint variants map to the brand hierarchy: cyan leads, violet adds depth.
 enum class GlassTint {
     Neutral,  // white glass — general purpose
@@ -40,9 +43,6 @@ enum class GlassSurfaceStyle {
 
 @Composable
 fun GlassCard(
-    // Accessibility note: The fixed 16.dp internal padding may clip content
-    // at system font scales above 150%. Consider using a scaled value or
-    // allowing the padding to adapt when testing at 200% font size.
     modifier: Modifier = Modifier,
     tint: GlassTint = GlassTint.Neutral,
     surfaceStyle: GlassSurfaceStyle = GlassSurfaceStyle.Standard,
@@ -52,8 +52,21 @@ fun GlassCard(
         GlassSurfaceStyle.Quiet -> 12.dp
     },
     hazeState: HazeState? = null,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val density = LocalDensity.current
+    val fontScale = density.fontScale
+    // Scale padding slightly if system font scale is > 1.3 to avoid clipping text on large font accessibility settings
+    val effectivePadding = if (fontScale > 1.3f) {
+        PaddingValues(
+            start = (16.dp * (1f / fontScale.coerceAtMost(1.8f))).coerceAtLeast(10.dp),
+            top = 12.dp,
+            end = (16.dp * (1f / fontScale.coerceAtMost(1.8f))).coerceAtLeast(10.dp),
+            bottom = 12.dp,
+        )
+    } else contentPadding
+
     val scheme = androidx.compose.material3.MaterialTheme.colorScheme
     val shape = RoundedCornerShape(cornerRadius)
     val isDarkBackdrop = scheme.background.luminance() < 0.45f
@@ -161,7 +174,7 @@ fun GlassCard(
                 }
             } else Modifier
         )
-        .padding(16.dp)
+        .padding(effectivePadding)
 
     Box(modifier = base, content = content)
 }

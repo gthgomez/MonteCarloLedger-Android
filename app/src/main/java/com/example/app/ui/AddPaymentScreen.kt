@@ -136,52 +136,58 @@ fun AddPaymentScreen(
             )
         }
 
-        AppPrimaryButton(
-            text = "Save",
-            onClick = {
-                val cents = dollarsToCents(amountDollars)
-                val validation = DomainRules.validatePaymentSign(cents)
-                val dueDate = runCatching { LocalDate.parse(dueDateText.trim()) }.getOrNull()
-                val dueDay = dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.TextButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentDescription = "Cancel button" }
+            ) {
+                Text("Cancel")
+            }
+            AppPrimaryButton(
+                text = "Save",
+                onClick = {
+                    val cents = dollarsToCents(amountDollars)
+                    val validation = DomainRules.validatePaymentSign(cents)
+                    val dueDate = runCatching { LocalDate.parse(dueDateText.trim()) }.getOrNull()
+                    val dueDay = dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth
 
-                if (name.isBlank()) {
-                    errorMessage = "Bill name is required"
-                } else if (cents <= 0 || validation.isFailure) {
-                    errorMessage = validation.exceptionOrNull()?.message ?: "Invalid payment amount"
-                } else if (dueDate == null) {
-                    errorMessage = "Enter a valid next due date"
-                } else {
-                    val today = LocalDate.now()
-                    val nextDate = PaymentSchedule.resolveNextPaymentDate(today, recurrence, dueDay, dueDate)
-                    if (nextDate == null) {
+                    if (name.isBlank()) {
+                        errorMessage = "Bill name is required"
+                    } else if (cents <= 0 || validation.isFailure) {
+                        errorMessage = validation.exceptionOrNull()?.message ?: "Invalid payment amount"
+                    } else if (dueDate == null) {
                         errorMessage = "Enter a valid next due date"
                     } else {
-                        onSave(
-                            PaymentEntity(
-                                name = name,
-                                amount_cents = cents,
-                                frequency = recurrence,
-                                day_of_month = dueDay,
-                                next_date = nextDate,
-                                is_active = 1,
-                                isAutoWithdraw = isAutoWithdraw
+                        val today = LocalDate.now()
+                        val nextDate = PaymentSchedule.resolveNextPaymentDate(today, recurrence, dueDay, dueDate)
+                        if (nextDate == null) {
+                            errorMessage = "Enter a valid next due date"
+                        } else {
+                            onSave(
+                                PaymentEntity(
+                                    name = name,
+                                    amount_cents = cents,
+                                    frequency = recurrence,
+                                    day_of_month = dueDay,
+                                    next_date = nextDate,
+                                    is_active = 1,
+                                    isAutoWithdraw = isAutoWithdraw
+                                )
                             )
-                        )
+                        }
                     }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { contentDescription = "Save payment button" }
-        )
-
-        AppNeutralButton(
-            text = "Cancel",
-            onClick = onDismiss,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { contentDescription = "Cancel button" }
-        )
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentDescription = "Save payment button" }
+            )
+        }
     }
 }
 

@@ -48,11 +48,11 @@ object SecurityUtils {
 
     fun decrypt(encryptedBase64: String, password: CharArray): String {
         val trimmed = encryptedBase64.trim()
-        val parts = trimmed.split(":", limit = 3)
+        val parts = trimmed.split(":")
         val iterations: Int
         val payload: String
 
-        if (parts.size == 3 && parts[0] == BACKUP_PREFIX) {
+        if ((parts.size == 3 || parts.size == 4) && parts[0] == BACKUP_PREFIX) {
             iterations = parts[1].toIntOrNull()?.takeIf { it > 0 }
                 ?: throw IllegalArgumentException("Unsupported encrypted backup header.")
             payload = parts[2]
@@ -92,12 +92,10 @@ object SecurityUtils {
     }
 
     /**
-     * Encrypts [plaintext] with AES-GCM and prepends an HMAC-SHA256 integrity signature.
+     * Encrypts [plaintext] with AES-GCM and appends an HMAC-SHA256 integrity signature across the envelope payload.
      *
-     * The HMAC covers the original plaintext (without the integrity field).
-     * The integrity field is inserted into the JSON before encryption.
-     * The HMAC signing key is derived from the same PBKDF2 master key via HKDF-Expand
-     * with info "[HMAC_KEY_INFO]", so it is independent of the AES key.
+     * Format: `$BACKUP_PREFIX:$BACKUP_ITERATIONS:$payloadBase64:$hmacBase64`
+     * The HMAC signature is computed directly over the raw `$payloadBase64` string.
      */
     fun encryptWithHmac(plaintext: String, password: CharArray): String {
         val salt = ByteArray(SALT_LENGTH).apply { SecureRandom().nextBytes(this) }
@@ -108,53 +106,68 @@ object SecurityUtils {
         val aesKey = SecretKeySpec(masterKey, "AES")
         val hmacKey = deriveHmacKey(masterKey)
 
-        // Compute HMAC of plaintext (without integrity field)
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(hmacKey)
-        val hmacBytes = mac.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-        val hmacBase64 = Base64.encodeToString(hmacBytes, Base64.NO_WRAP)
-
-        // Insert integrity field into JSON
-        val plaintextWithIntegrity = insertIntegrityField(plaintext, hmacBase64)
-
-        // Encrypt
+        // Encrypt plaintext directly
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
-        val encryptedBytes = cipher.doFinal(plaintextWithIntegrity.toByteArray(Charsets.UTF_8))
+        val encryptedBytes = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
 
-        val result = salt + iv + encryptedBytes
-        return "$BACKUP_PREFIX:$BACKUP_ITERATIONS:${Base64.encodeToString(result, Base64.NO_WRAP)}"
+        val combined = salt + iv + encryptedBytes
+        val payloadBase64 = Base64.encodeToString(combined, Base64.NO_WRAP)
+
+        // Compute HMAC over payloadBase64
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(hmacKey)
+        val hmacBytes = mac.doFinal(payloadBase64.toByteArray(Charsets.UTF_8))
+        val hmacBase64 = Base64.encodeToString(hmacBytes, Base64.NO_WRAP)
+
+        return "$BACKUP_PREFIX:$BACKUP_ITERATIONS:$payloadBase64:$hmacBase64"
     }
 
     /**
-     * Verifies the HMAC integrity signature on a decrypted backup [plaintext].
-     *
-     * Returns:
-     * - [BackupIntegrityResult.Valid] when the integrity HMAC is present and matches.
-     * - [BackupIntegrityResult.LegacyNoIntegrity] when no integrity field is found (legacy backup).
-     * - [BackupIntegrityResult.IntegrityFailure] when the integrity HMAC is present but wrong.
-     *
-     * The HMAC signing key is re-derived from the salt stored in [encryptedBase64].
+     * Verifies the HMAC integrity signature on an encrypted backup envelope or decrypted [plaintext].
      */
     fun verifyIntegrity(encryptedBase64: String, plaintext: String, password: CharArray): BackupIntegrityResult {
-        // Check for integrity field in the plaintext JSON
-        val integrityHmac = extractIntegrityField(plaintext)
+        val trimmed = encryptedBase64.trim()
+        val parts = trimmed.split(":", limit = 4)
 
+        if (parts.size == 4 && parts[0] == BACKUP_PREFIX) {
+            val iterations = parts[1].toIntOrNull() ?: BACKUP_ITERATIONS
+            val payloadBase64 = parts[2]
+            val expectedHmacBase64 = parts[3]
+
+            val combined = Base64.decode(payloadBase64, Base64.NO_WRAP)
+            if (combined.size < SALT_LENGTH + IV_LENGTH) {
+                return BackupIntegrityResult.IntegrityFailure("Invalid backup envelope structure.")
+            }
+            val salt = combined.sliceArray(0 until SALT_LENGTH)
+            val masterKey = deriveBytes(password, salt, iterations)
+            val hmacKey = deriveHmacKey(masterKey)
+
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(hmacKey)
+            val actualHmacBytes = mac.doFinal(payloadBase64.toByteArray(Charsets.UTF_8))
+            val expectedHmacBytes = Base64.decode(expectedHmacBase64, Base64.NO_WRAP)
+
+            return if (MessageDigest.isEqual(expectedHmacBytes, actualHmacBytes)) {
+                BackupIntegrityResult.Valid(plaintext)
+            } else {
+                BackupIntegrityResult.IntegrityFailure(
+                    "Backup integrity check failed. The file may have been tampered with."
+                )
+            }
+        }
+
+        // Legacy fallback: check for integrity field embedded in plaintext JSON
+        val integrityHmac = extractIntegrityField(plaintext)
         if (integrityHmac == null) {
             return BackupIntegrityResult.LegacyNoIntegrity(plaintext)
         }
 
-        // Extract salt from the encrypted envelope
         val (salt, iterations) = parseEnvelope(encryptedBase64)
-
-        // Strip integrity field to get original plaintext for HMAC computation
         val plaintextWithoutIntegrity = stripIntegrityField(plaintext)
-
-        // Re-derive HMAC key
         val masterKey = deriveBytes(password, salt, iterations)
         val hmacKey = deriveHmacKey(masterKey)
 
-        // Verify HMAC
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(hmacKey)
         val expectedHmac = Base64.decode(integrityHmac, Base64.NO_WRAP)

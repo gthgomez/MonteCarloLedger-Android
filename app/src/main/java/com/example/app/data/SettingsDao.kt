@@ -17,6 +17,9 @@ interface SettingsDao {
     @Query("SELECT * FROM settings")
     fun getAll(): Flow<List<SettingsEntity>>
 
+    @Query("SELECT * FROM settings")
+    suspend fun getAllSettingsList(): List<SettingsEntity>
+
     @Query("DELETE FROM settings")
     suspend fun deleteAllSettings()
 }

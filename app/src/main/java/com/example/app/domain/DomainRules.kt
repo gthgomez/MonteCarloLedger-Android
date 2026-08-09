@@ -47,6 +47,10 @@ object DomainRules {
         }
     }
 
+    fun toExpenseTransactionAmount(magnitudeCents: Int): Int = -abs(magnitudeCents)
+
+    fun toMagnitude(amountCents: Int): Int = abs(amountCents)
+
     fun validateExpectedAmountUsage(amount: Int) {
         validateAmountPositivity(amount, "Income amount")
     }

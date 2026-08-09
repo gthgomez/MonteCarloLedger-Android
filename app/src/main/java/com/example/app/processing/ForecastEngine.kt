@@ -39,15 +39,15 @@ object ForecastEngine {
 
     // Returns the minimum running balance across the event window — can be negative (overdraft signal).
     fun calculateSafeToSpend(balanceCents: Int, events: List<ForecastEvent>): Int {
-        var runningBalance = balanceCents
-        var lowestBalance = balanceCents
+        var runningBalance = balanceCents.toLong()
+        var lowestBalance = balanceCents.toLong()
 
         for (event in events.sortedWith(EVENT_COMPARATOR)) {
             runningBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
             lowestBalance = minOf(lowestBalance, runningBalance)
         }
 
-        return lowestBalance
+        return lowestBalance.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
     }
 
     fun calculateDailySafeSpend(balanceCents: Int, events: List<ForecastEvent>, daysUntilPayday: Int): Int {
@@ -81,13 +81,13 @@ object ForecastEngine {
                 .forEach { add(it) }
         }
 
-        var runningBalance = balanceCents
+        var runningBalance = balanceCents.toLong()
         return windowStarts.mapIndexed { index, windowStart ->
             val windowEnd = windowStarts.getOrNull(index + 1) ?: endDate
             val windowEvents = sortedEvents.filter { !it.date.isBefore(windowStart) && it.date.isBefore(windowEnd) }
             val startingBalance = runningBalance
-            var incomeCents = 0
-            var billCents = 0
+            var incomeCents = 0L
+            var billCents = 0L
             val openingIncomeEvents = windowEvents.filter { it.date == windowStart && it.type == "income" }
             openingIncomeEvents.forEach { event ->
                 incomeCents += event.amount_cents
@@ -107,18 +107,18 @@ object ForecastEngine {
             }
 
             val days = ChronoUnit.DAYS.between(windowStart, windowEnd).toInt().coerceAtLeast(1)
-            val safeToSpend = lowestBalance.coerceAtLeast(0)
+            val safeToSpend = lowestBalance.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             CashFlowWindow(
                 startDate = windowStart,
                 endDate = windowEnd,
-                startingBalanceCents = startingBalance,
-                incomeCents = incomeCents,
-                billCents = billCents,
-                lowestBalanceCents = lowestBalance,
-                endingBalanceCents = runningBalance,
+                startingBalanceCents = startingBalance.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
+                incomeCents = incomeCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
+                billCents = billCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
+                lowestBalanceCents = lowestBalance.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
+                endingBalanceCents = runningBalance.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
                 safeToSpendCents = safeToSpend,
                 dailySafeSpendCents = safeToSpend / days,
-                shortfallCents = (-lowestBalance).coerceAtLeast(0),
+                shortfallCents = (-lowestBalance).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 days = days,
             )
         }
@@ -127,43 +127,17 @@ object ForecastEngine {
     /**
      * Computes the worst-case buffer improvement that upcoming income events provide
      * over a bills-only scenario.
-     *
-     * The function runs two parallel balance simulations across the sorted event window,
-     * both starting from [balanceCents]:
-     *
-     * 1. **All-events path** (`lowestProjected`) — processes every event (income adds,
-     *    bills subtract). This is the actual projected balance floor.
-     * 2. **Bills-only path** (`minCash`) — processes only bill events, skipping income
-     *    entirely. This is the balance floor if no income arrived.
-     *
-     * Each path's minimum is floored at zero. The contribution is the difference:
-     *
-     * ```
-     * contribution = max(0, max(0, lowestProjected) - max(0, minCash))
-     * ```
-     *
-     * In other words: how many cents does income lift the worst-case balance above
-     * what it would be with bills alone?
-     *
-     * **Returns** a non-negative value in cents. Zero means income provides no
-     * measurable buffer improvement (either because there is no income, both paths
-     * go negative, or bills alone never dip below the all-events floor).
-     *
-     * @param balanceCents starting balance in cents (non-negative).
-     * @param events       forecast events to simulate (income + bills, may be empty).
-     * @return worst-case buffer improvement attributable to income, in cents.
      */
     fun calculateIncomeContribution(balanceCents: Int, events: List<ForecastEvent>): Int {
         val sorted = events.sortedWith(EVENT_COMPARATOR)
-        var runningProjected = balanceCents
-        var runningCash = balanceCents
-        var lowestProjected = balanceCents
-        var minCash = balanceCents
+        var runningProjected = balanceCents.toLong()
+        var runningCash = balanceCents.toLong()
+        var lowestProjected = balanceCents.toLong()
+        var minCash = balanceCents.toLong()
 
         for (event in sorted) {
             if (event.type == "income") {
                 runningProjected += event.amount_cents
-                // runningCash unchanged — we're computing bills-only
             } else {
                 runningProjected -= event.amount_cents
                 runningCash -= event.amount_cents
@@ -172,18 +146,19 @@ object ForecastEngine {
             if (runningCash < minCash) minCash = runningCash
         }
 
-        val safeToSpend = maxOf(0, lowestProjected)
-        val currentCashContribution = maxOf(0, minCash)
-        return maxOf(0, safeToSpend - currentCashContribution)
+        val safeToSpend = maxOf(0L, lowestProjected)
+        val currentCashContribution = maxOf(0L, minCash)
+        val contribution = safeToSpend - currentCashContribution
+        return maxOf(0L, contribution).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     fun buildBalanceForecast(balanceCents: Int, events: List<ForecastEvent>): List<BalanceForecastRow> {
-        var runningBalance = balanceCents
+        var runningBalance = balanceCents.toLong()
         return events.sortedWith(EVENT_COMPARATOR).map { event ->
             runningBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
             BalanceForecastRow(
                 date = event.date,
-                balanceCents = runningBalance,
+                balanceCents = runningBalance.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt(),
             )
         }
     }

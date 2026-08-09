@@ -22,6 +22,9 @@ interface PaymentDao {
     @Query("SELECT * FROM payments ORDER BY name ASC")
     fun getAll(): Flow<List<PaymentEntity>>
 
+    @Query("SELECT * FROM payments ORDER BY name ASC")
+    suspend fun getAllPaymentsList(): List<PaymentEntity>
+
     @Query("SELECT * FROM payments WHERE id = :id")
     suspend fun getById(id: Int): PaymentEntity?
 

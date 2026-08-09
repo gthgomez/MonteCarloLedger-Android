@@ -121,6 +121,7 @@ fun AppView(
     val appLockUnlocked by viewModel.appLockUnlocked.collectAsStateWithLifecycle()
     var section by rememberSaveable { mutableStateOf(AppSection.Dashboard) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showRulesScreen by rememberSaveable { mutableStateOf(false) }
     var addKind by rememberSaveable { mutableStateOf<AddKind?>(null) }
     var selectedIncome by remember { mutableStateOf<IncomeEntity?>(null) }
     var selectedPayment by remember { mutableStateOf<PaymentEntity?>(null) }
@@ -188,9 +189,11 @@ fun AppView(
                     section = section,
                     addKind = addKind,
                     showSettings = showSettings,
+                    showRulesScreen = showRulesScreen,
                     onSetSection = { section = it },
                     onSetAddKind = { addKind = it },
                     onSetShowSettings = { showSettings = it },
+                    onSetShowRulesScreen = { showRulesScreen = it },
                     selectedIncome = selectedIncome,
                     selectedPayment = selectedPayment,
                     selectedTransaction = selectedTransaction,
@@ -207,6 +210,15 @@ fun AppView(
                     isCompact = isCompact,
                     isExpanded = isExpanded,
                 )
+
+                if (addKind == null && selectedIncome == null && selectedPayment == null && selectedTransaction == null && !showSettings && !showRulesScreen) {
+                    QuickAddFab(
+                        onAddExpense = { addKind = AddKind.Transaction },
+                        onAddBill = { addKind = AddKind.Bill },
+                        onAddIncome = { addKind = AddKind.Income },
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    )
+                }
             }
         }
     }
@@ -230,9 +242,11 @@ private fun AppChrome(
     section: AppSection,
     addKind: AddKind?,
     showSettings: Boolean,
+    showRulesScreen: Boolean,
     onSetSection: (AppSection) -> Unit,
     onSetAddKind: (AddKind?) -> Unit,
     onSetShowSettings: (Boolean) -> Unit,
+    onSetShowRulesScreen: (Boolean) -> Unit,
     selectedIncome: IncomeEntity?,
     selectedPayment: PaymentEntity?,
     selectedTransaction: com.example.app.data.TransactionEntity?,
@@ -621,6 +635,14 @@ private fun AppChrome(
                 .padding(padding)
         ) {
             when {
+                showRulesScreen -> {
+                    TransactionRulesScreen(
+                        onDismiss = { onSetShowRulesScreen(false) },
+                        viewModel = viewModel,
+                        hazeState = hazeState,
+                    )
+                }
+
                 showSettings -> {
                     SettingsScreen(
                         onDismiss = { onSetShowSettings(false) },
@@ -632,6 +654,7 @@ private fun AppChrome(
                         onRestoreEncrypted = { encryptedRestoreLauncher.launch(jsonMimeTypes) },
                         onShowReminders = { showReminderSettingsDialog = true },
                         onShowAppLock = { showAppLockSettingsDialog = true },
+                        onShowTransactionRules = { onSetShowRulesScreen(true) },
                         appLockPreferences = appLockPreferences,
                         viewModel = viewModel,
                         hazeState = hazeState
@@ -689,6 +712,24 @@ private fun AppChrome(
                 )
 
                 section == AppSection.Analysis -> AnalysisScreen(viewModel, hazeState = hazeState)
+
+                section == AppSection.DebtPayoff -> {
+                    val debtItems = payments.mapIndexed { idx, p ->
+                        com.example.app.processing.DebtItem(
+                            id = (p.id.takeIf { it != 0 } ?: (idx + 1)).toLong(),
+                            name = p.name,
+                            balanceCents = (p.amount_cents.toLong() * 24L).coerceAtLeast(50_000L),
+                            aprPercent = 18.5,
+                            minPaymentCents = p.amount_cents.toLong(),
+                        )
+                    }
+                    val events = com.example.app.processing.TimelineService.generateTimeline(incomes, payments, java.time.LocalDate.now(), 90, billOccurrences)
+                    DebtPayoffScreen(
+                        debts = debtItems,
+                        currentBalanceCents = uiState.ledgerBalanceCents.toLong(),
+                        forecastEvents = events,
+                    )
+                }
             }
         }
     }
@@ -773,6 +814,7 @@ private fun AppChrome(
         ) {
             when (addKind) {
                 AddKind.Income -> AddIncomeScreen(
+                    onCancel = { onSetAddKind(null) },
                     onSave = {
                         viewModel.addIncome(it)
                         onSetAddKind(null)
@@ -791,6 +833,7 @@ private fun AppChrome(
                     payments = payments,
                     billOccurrences = billOccurrences,
                     externalErrorMessage = dashboardErrorMessage,
+                    onCancel = { onSetAddKind(null) },
                     onSave = { description, amountCents, type, linkedOccurrenceId, category, date ->
                         viewModel.addTransaction(description, amountCents, type, linkedOccurrenceId, category, date) {
                             onSetAddKind(null)
@@ -1389,7 +1432,8 @@ private enum class AppSection(val label: String, val shortLabel: String, val tit
     Ledger("Entries", "E", "Entries"),
     Planning("Plan", "P", "Planning"),
     Review("Review", "R", "Command Center"),
-    Analysis("Forecast", "F", "Forecast");
+    Analysis("Forecast", "F", "Forecast"),
+    DebtPayoff("Debt", "D", "Debt Payoff");
 
     val icon: ImageVector
         get() = when (this) {
@@ -1398,6 +1442,7 @@ private enum class AppSection(val label: String, val shortLabel: String, val tit
             Planning -> Icons.Filled.Timeline
             Review -> Icons.Filled.History
             Analysis -> Icons.Filled.Assessment
+            DebtPayoff -> Icons.Filled.Insights
         }
 }
 
