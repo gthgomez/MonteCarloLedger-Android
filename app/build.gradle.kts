@@ -8,12 +8,27 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+composeCompiler {
+    includeSourceInformation = false
+    includeTraceMarkers = false
+}
+
+configurations.matching { it.name == "composeMappingProducerClasspath" }.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("org.jetbrains.kotlin:compose-group-mapping")).using(module("androidx.annotation:annotation:1.7.0"))
+    }
+}
+
+tasks.matching { it.name.contains("ComposeMapping") }.configureEach {
+    enabled = false
+}
+
 android {
-    namespace = "com.example.app"
+    namespace = "com.montecarlo.ledger"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.app"
+        applicationId = "com.montecarlo.ledger"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

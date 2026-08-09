@@ -29,7 +29,7 @@
 # --- General Android ---
 -keepattributes Signature
 -keepattributes Exceptions
--keep class com.example.app.data.** { *; }
+-keep class com.montecarlo.ledger.data.** { *; }
 
 # --- Coroutines ---
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
