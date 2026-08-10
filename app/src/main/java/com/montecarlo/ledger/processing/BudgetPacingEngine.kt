@@ -22,6 +22,17 @@ data class BudgetPacingResult(
 
 object BudgetPacingEngine {
 
+    fun clampedRunwayDays(
+        safeToSpendCents: Long,
+        dailyVelocityCents: Long,
+        maxDays: Int = 90,
+    ): Int {
+        if (dailyVelocityCents <= 0L) return maxDays
+        return (safeToSpendCents / dailyVelocityCents)
+            .coerceIn(0L, maxDays.toLong())
+            .toInt()
+    }
+
     fun calculatePacing(
         safeToSpendCents: Long,
         daysToPayday: Int,

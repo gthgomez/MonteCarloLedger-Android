@@ -113,20 +113,12 @@ internal fun TransactionHistoryContent(
                 }
             }
             items(sorted) { txn ->
-                val tint = when (txn.type) {
-                    "income"  -> GlassTint.Cyan
-                    "expense" -> GlassTint.Neutral
-                    else      -> GlassTint.Neutral
-                }
                 val linkedOccurrence = linkedOccurrenceByTransactionId[txn.id]
                 val linkedPaymentName = linkedOccurrence?.let { occurrence ->
                     paymentById[occurrence.payment_id]?.name
                 }
-                GlassCard(
+                SolidListSurface(
                     modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-                    tint = tint,
-                    surfaceStyle = GlassSurfaceStyle.Quiet,
-                    cornerRadius = 12.dp
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),

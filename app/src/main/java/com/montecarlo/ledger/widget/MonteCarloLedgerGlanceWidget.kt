@@ -31,6 +31,7 @@ import com.montecarlo.ledger.processing.MonteCarloParams
 import com.montecarlo.ledger.processing.TimelineService
 import com.montecarlo.ledger.ui.formatDateDisplay
 import com.montecarlo.ledger.util.centsToDisplay
+import com.montecarlo.ledger.util.toPersistedBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -48,7 +49,7 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
                 val settings = db.settingsDao().getAllSettingsList().associate { it.key to it.value }
 
                 val bankBalanceCents = settings["bank_balance_cents"]?.toLongOrNull() ?: 0L
-                val reconciled = settings["bank_balance_reconciled"] == "1"
+                val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
                 val ledgerBalanceCents = txns.sumOf { it.amount_cents }
                 val forecastSeedCents = BalanceSeedResolver.resolve(ledgerBalanceCents, bankBalanceCents, reconciled)
 

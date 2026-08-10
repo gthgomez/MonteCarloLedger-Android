@@ -129,7 +129,7 @@ class DashboardScreenTest {
                         safeToSpendCents = 1_000,
                     ),
                     mismatch = true,
-                    details = 7_000 to 5_000,
+                    details = 7_000L to 5_000L,
                     onboardingProgress = OnboardingProgress(
                         firstIncomeCompleted = true,
                         firstBillCompleted = true,
@@ -159,7 +159,7 @@ class DashboardScreenTest {
         composeRule.setContent {
             AppTheme {
                 var mismatch by remember { mutableStateOf(true) }
-                var details by remember { mutableStateOf<Pair<Int, Int>?>(7_000 to 5_000) }
+                var details by remember { mutableStateOf<Pair<Long, Long>?>(7_000L to 5_000L) }
                 DashboardContent(
                     uiState = AppUiState(
                         bankBalanceCents = 5_000,

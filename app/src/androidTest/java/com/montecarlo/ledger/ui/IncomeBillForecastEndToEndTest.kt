@@ -63,7 +63,7 @@ class IncomeBillForecastEndToEndTest {
         composeRule.onNodeWithContentDescription("Save income entry").performClick()
 
         waitForViewModelState("Paycheck should be persisted") {
-            viewModel.allIncome.value.any { it.name == "Paycheck" && it.amount_cents == 120_000 }
+            viewModel.allIncome.value.any { it.name == "Paycheck" && it.amount_cents == 120_000L }
         }
 
         composeRule.onNodeWithText("Add a bill first")
@@ -79,14 +79,14 @@ class IncomeBillForecastEndToEndTest {
         composeRule.onNodeWithText("Save").performClick()
 
         waitForViewModelState("Rent bill should be persisted") {
-            viewModel.allPayments.value.any { it.name == "Rent" && it.amount_cents == 5_000 }
+            viewModel.allPayments.value.any { it.name == "Rent" && it.amount_cents == 5_000L }
         }
 
         composeRule.onNodeWithText("Done").performClick()
 
         waitForViewModelState("Forecast should include the saved income and bill") {
-            viewModel.uiState.value.upcomingBillBurdenCents == 5_000 &&
-                viewModel.uiState.value.forecastRows.any { it.balanceCents >= 120_000 }
+            viewModel.uiState.value.upcomingBillBurdenCents == 5_000L &&
+                viewModel.uiState.value.forecastRows.any { it.balanceCents >= 120_000L }
         }
 
         composeRule.onNodeWithText("Rent", substring = true)
@@ -96,7 +96,7 @@ class IncomeBillForecastEndToEndTest {
         val uiState = viewModel.uiState.value
         assertEquals(1, viewModel.allIncome.value.size)
         assertEquals(1, viewModel.allPayments.value.size)
-        assertEquals(5_000, uiState.upcomingBillBurdenCents)
+        assertEquals(5_000L, uiState.upcomingBillBurdenCents)
         assertTrue("Forecast should surface the bill", uiState.upcomingBills.any { it.contains("Rent") })
         assertTrue(
             "Forecast should include projected income",

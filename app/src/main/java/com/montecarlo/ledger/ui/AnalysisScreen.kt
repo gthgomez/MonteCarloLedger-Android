@@ -10,6 +10,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -18,16 +21,43 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.MainViewModel
+import com.montecarlo.ledger.data.RecurringCandidate
 import dev.chrisbanes.haze.HazeState
 
 @Composable
-fun AnalysisScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
+fun AnalysisScreen(
+    viewModel: MainViewModel,
+    hazeState: HazeState? = null,
+    onTrackAsBill: (RecurringCandidate) -> Unit = {},
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    AnalysisContent(uiState = uiState, hazeState = hazeState)
+    var pendingRule by remember { mutableStateOf<Pair<String, String>?>(null) }
+    AnalysisContent(
+        uiState = uiState,
+        hazeState = hazeState,
+        onCreateRule = { description, category -> pendingRule = description to category },
+        onTrackAsBill = onTrackAsBill,
+    )
+    pendingRule?.let { (description, category) ->
+        TransactionRuleConfirmationDialog(
+            description = description,
+            category = category,
+            onConfirm = {
+                viewModel.saveTransactionRule(description, category, applyRetroactively = true)
+                pendingRule = null
+            },
+            onDismiss = { pendingRule = null },
+        )
+    }
 }
 
 @Composable
-fun AnalysisContent(uiState: AppUiState, hazeState: HazeState? = null) {
+fun AnalysisContent(
+    uiState: AppUiState,
+    hazeState: HazeState? = null,
+    onCreateRule: (String, String) -> Unit = { _, _ -> },
+    onTrackAsBill: (RecurringCandidate) -> Unit = {},
+) {
     LazyColumn(
         modifier = Modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -52,8 +82,8 @@ fun AnalysisContent(uiState: AppUiState, hazeState: HazeState? = null) {
 
         analysisInsightsSection(
             uiState = uiState,
-            onCreateRule = { _, _ -> },
-            onTrackAsBill = { _, _, _ -> },
+            onCreateRule = onCreateRule,
+            onTrackAsBill = onTrackAsBill,
         )
 
         item {

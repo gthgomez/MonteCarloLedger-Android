@@ -25,22 +25,31 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.domain.DomainRules
 import com.montecarlo.ledger.processing.PaymentSchedule
 import java.time.LocalDate
 import com.montecarlo.ledger.util.dollarsToCents
 
+data class BillPrefill(
+    val name: String,
+    val suggestedCategory: String? = null,
+    val recurrence: String = "Monthly",
+    val nextDate: String = LocalDate.now().plusMonths(1).toString(),
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddPaymentScreen(
     onSave: (PaymentEntity) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    initialDraft: BillPrefill? = null,
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember(initialDraft) { mutableStateOf(initialDraft?.name.orEmpty()) }
     var amountDollars by remember { mutableStateOf("") }
-    var recurrence by remember { mutableStateOf("Monthly") }
-    var dueDateText by remember { mutableStateOf(LocalDate.now().plusMonths(1).toString()) }
+    var recurrence by remember(initialDraft) { mutableStateOf(initialDraft?.recurrence ?: "Monthly") }
+    var dueDateText by remember(initialDraft) { mutableStateOf(initialDraft?.nextDate ?: LocalDate.now().plusMonths(1).toString()) }
     var isAutoWithdraw by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
@@ -53,6 +62,9 @@ fun AddPaymentScreen(
             "Add a bill or subscription.",
             style = MaterialTheme.typography.bodyMedium
         )
+        initialDraft?.suggestedCategory?.takeIf { it.isNotBlank() }?.let {
+            Text("Suggested category: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextSecondary)
+        }
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },

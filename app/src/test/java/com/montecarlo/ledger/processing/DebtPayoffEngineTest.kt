@@ -13,8 +13,8 @@ class DebtPayoffEngineTest {
 
     @Test
     fun simulateSchedule_snowballSortsByLowestBalanceFirst() {
-        val debtA = DebtItem(1, "Credit Card A", 500_000L, 24.0, 15_000L) // $5,000 @ 24%
-        val debtB = DebtItem(2, "Car Loan B", 100_000L, 6.0, 5_000L)     // $1,000 @ 6%
+        val debtA = DebtItem(1, "Credit Card A", 500_000L, 2_400, 15_000L) // $5,000 @ 24%
+        val debtB = DebtItem(2, "Car Loan B", 100_000L, 600, 5_000L)     // $1,000 @ 6%
 
         val summary = DebtPayoffEngine.simulateSchedule(
             debts = listOf(debtA, debtB),
@@ -30,7 +30,7 @@ class DebtPayoffEngineTest {
     @Test
     fun runSimulation_calculatesAcceleratedPayoffAndInterestSaved() {
         val debts = listOf(
-            DebtItem(1, "Credit Card", 300_000L, 18.0, 10_000L) // $3,000 @ 18%
+            DebtItem(1, "Credit Card", 300_000L, 1_800, 10_000L) // $3,000 @ 18%
         )
 
         val result = DebtPayoffEngine.runSimulation(
@@ -54,7 +54,7 @@ class DebtPayoffEngineTest {
     @Test
     fun runSimulation_cashFlowSafetyGuardFlagsOverdraftWhenExtraPaymentExceedsReserves() {
         val debts = listOf(
-            DebtItem(1, "Store Card", 200_000L, 20.0, 5_000L)
+            DebtItem(1, "Store Card", 200_000L, 2_000, 5_000L)
         )
 
         // Starting balance $100 (10,000 cents), but extra payment proposed is $500 (50,000 cents/mo)

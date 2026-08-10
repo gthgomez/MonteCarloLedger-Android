@@ -148,10 +148,8 @@ fun IncomeListScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(incomeList) { income ->
-                    GlassCard(
+                    SolidListSurface(
                         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-                        tint = GlassTint.Cyan,
-                        surfaceStyle = GlassSurfaceStyle.Quiet
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),

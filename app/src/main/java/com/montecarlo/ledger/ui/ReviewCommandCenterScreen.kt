@@ -47,13 +47,14 @@ import kotlin.math.abs
 fun ReviewCommandCenterScreen(
     viewModel: MainViewModel,
     onEditTransaction: (TransactionEntity) -> Unit,
-    onTrackAsBill: () -> Unit,
+    onTrackAsBill: (RecurringCandidate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val payments by viewModel.allPayments.collectAsStateWithLifecycle()
     val billOccurrences by viewModel.allBillOccurrences.collectAsStateWithLifecycle()
     val rules by viewModel.allTransactionRules.collectAsStateWithLifecycle()
+    var pendingRule by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val paymentById = remember(payments) { payments.associateBy { it.id } }
     val today = LocalDate.now()
@@ -118,7 +119,7 @@ fun ReviewCommandCenterScreen(
                 SubscriptionCommandRow(
                     candidate = candidate,
                     onTrackAsBill = onTrackAsBill,
-                    onCreateRule = { viewModel.saveTransactionRule(candidate.pattern, candidate.category) },
+                    onCreateRule = { description, category -> pendingRule = description to category },
                 )
             }
         }
@@ -163,6 +164,18 @@ fun ReviewCommandCenterScreen(
                 )
             }
         }
+    }
+
+    pendingRule?.let { (description, category) ->
+        TransactionRuleConfirmationDialog(
+            description = description,
+            category = category,
+            onConfirm = {
+                viewModel.saveTransactionRule(description, category, applyRetroactively = true)
+                pendingRule = null
+            },
+            onDismiss = { pendingRule = null },
+        )
     }
 }
 
@@ -238,10 +251,8 @@ private fun CommandReviewRow(
     onEdit: (TransactionEntity) -> Unit,
 ) {
     var category by remember(item.transaction.id, item.suggestedCategory) { mutableStateOf(item.suggestedCategory) }
-    GlassCard(
+    SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-        tint = GlassTint.Neutral,
-        surfaceStyle = GlassSurfaceStyle.Standard,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -276,22 +287,23 @@ private fun CommandReviewRow(
 @Composable
 private fun SubscriptionCommandRow(
     candidate: RecurringCandidate,
-    onTrackAsBill: () -> Unit,
-    onCreateRule: () -> Unit,
+    onTrackAsBill: (RecurringCandidate) -> Unit,
+    onCreateRule: (String, String) -> Unit,
 ) {
-    GlassCard(
+    SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-        tint = GlassTint.Violet,
-        surfaceStyle = GlassSurfaceStyle.Quiet,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(candidate.pattern.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary)
             Text("${candidate.cadenceLabel} • ${candidate.occurrenceCount} instances • suggested category ${candidate.category}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onTrackAsBill, modifier = Modifier.weight(1f)) {
+                Button(onClick = { onTrackAsBill(candidate) }, modifier = Modifier.weight(1f)) {
                     Text("Track bill")
                 }
-                TextButton(onClick = onCreateRule, modifier = Modifier.weight(1f)) {
+                TextButton(
+                    onClick = { onCreateRule(candidate.pattern, candidate.category) },
+                    modifier = Modifier.weight(1f),
+                ) {
                     Text("Create rule")
                 }
             }
@@ -310,10 +322,8 @@ private fun BillAttentionRow(
     val dueDate = occurrence.due_date.formatDateDisplay()
     var showMoveDate by remember(occurrence.id) { mutableStateOf(false) }
     var moveDate by remember(occurrence.id, occurrence.due_date) { mutableStateOf(occurrence.due_date) }
-    GlassCard(
+    SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-        tint = GlassTint.Error,
-        surfaceStyle = GlassSurfaceStyle.Quiet,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -364,10 +374,8 @@ private fun RuleCommandRow(
     rule: TransactionRuleEntity,
     onDelete: () -> Unit,
 ) {
-    GlassCard(
+    SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.AnalysisListCardMinHeight),
-        tint = GlassTint.Neutral,
-        surfaceStyle = GlassSurfaceStyle.Quiet,
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.AutoMirrored.Filled.Rule, contentDescription = null, tint = GlassTokens.CyanBright)

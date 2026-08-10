@@ -11,6 +11,7 @@ import com.montecarlo.ledger.data.LedgerBackupSnapshot
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.AppLockThrottle
 import com.montecarlo.ledger.data.LedgerRepository
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.OnboardingProgress
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
@@ -27,6 +28,7 @@ import com.montecarlo.ledger.processing.MonteCarloEngine
 import com.montecarlo.ledger.processing.MonteCarloParams
 import com.montecarlo.ledger.processing.TimelineService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
@@ -82,6 +84,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allAssets: StateFlow<List<com.montecarlo.ledger.data.AssetEntity>> = repo.allAssets
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val allDebts: StateFlow<List<DebtEntity>> = repo.allDebts
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState
 
@@ -107,6 +112,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repo.syncOnboardingMilestones()
         }
         observeDashboardData()
+    }
+
+    private fun launchPersistence(
+        onResult: (Result<Unit>) -> Unit = {},
+        operation: suspend () -> Unit,
+    ) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(error = null)
+            try {
+                operation()
+                onResult(Result.success(Unit))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _uiState.value = _uiState.value.copy(
+                    error = e.message ?: "Unable to save changes."
+                )
+                onResult(Result.failure(e))
+            }
+        }
     }
 
     fun markOccurrencePaid(occurrenceId: Int) {
@@ -178,8 +203,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setBankBalance(amountCents: Long) {
-        viewModelScope.launch {
+    fun setBankBalance(amountCents: Long, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
             repo.setBankBalance(amountCents)
             _reconciliationMismatch.value = false
             _reconciliationDetails.value = null
@@ -206,8 +231,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateTransaction(entity: TransactionEntity) {
-        viewModelScope.launch { repo.updateTransaction(entity) }
+    fun updateTransaction(entity: TransactionEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.updateTransaction(entity) }
     }
 
     fun approveTransactionReview(transactionId: Int) {
@@ -229,8 +254,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteTransaction(entity: TransactionEntity) {
-        viewModelScope.launch { repo.deleteTransaction(entity) }
+    fun deleteTransaction(entity: TransactionEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.deleteTransaction(entity) }
     }
 
     fun saveTransactionRule(description: String, category: String, applyRetroactively: Boolean = true) {
@@ -353,8 +378,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Goal Management
-    fun addGoal(goal: com.montecarlo.ledger.data.GoalEntity) {
-        viewModelScope.launch { repo.insertGoal(goal) }
+    fun addGoal(goal: com.montecarlo.ledger.data.GoalEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.insertGoal(goal) }
     }
     fun updateGoal(goal: com.montecarlo.ledger.data.GoalEntity) {
         viewModelScope.launch { repo.updateGoal(goal) }
@@ -369,6 +394,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun deleteCategoryBudget(budget: com.montecarlo.ledger.data.CategoryBudgetEntity) {
         viewModelScope.launch { repo.deleteCategoryBudget(budget) }
+    }
+
+    fun addDebt(debt: DebtEntity) {
+        viewModelScope.launch { repo.insertDebt(debt) }
+    }
+
+    fun updateDebt(debt: DebtEntity) {
+        viewModelScope.launch { repo.updateDebt(debt) }
+    }
+
+    fun deleteDebt(debt: DebtEntity) {
+        viewModelScope.launch { repo.deleteDebt(debt) }
     }
 
     private fun observeDashboardData() {
@@ -387,6 +424,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.allGoals,
                 repo.allCategoryBudgets,
                 repo.allTransactionRules,
+                repo.allDebts,
                 _dashboardConfig,
             ) { args: Array<Any?> ->
                 @Suppress("UNCHECKED_CAST")
@@ -396,7 +434,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     goals = args[2] as List<com.montecarlo.ledger.data.GoalEntity>,
                     categoryBudgets = args[3] as List<com.montecarlo.ledger.data.CategoryBudgetEntity>,
                     rules = args[4] as List<TransactionRuleEntity>,
-                    dashboardConfig = args[5] as DashboardConfig,
+                    debts = args[5] as List<DebtEntity>,
+                    dashboardConfig = args[6] as DashboardConfig,
                 )
             }
             val reportingData = combine(ledgerData, planningCore) { ledger, planning ->
@@ -409,6 +448,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     assets = planning.assets,
                     goals = planning.goals,
                     categoryBudgets = planning.categoryBudgets,
+                    debts = planning.debts,
                     rules = planning.rules,
                     dashboardConfig = planning.dashboardConfig,
                 )
@@ -487,7 +527,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val totalNetWorthCents = ledgerBalanceCents + totalAssetBalance
 
                 val dailyVelocityCents = kotlin.math.abs(flowSummary.outflowCents) / 30
-                val runwayDays = if (dailyVelocityCents > 0L) (safeToSpend / dailyVelocityCents).toInt().coerceAtMost(90) else 90
+                val runwayDays = com.montecarlo.ledger.processing.BudgetPacingEngine.clampedRunwayDays(
+                    safeToSpendCents = safeToSpend,
+                    dailyVelocityCents = dailyVelocityCents,
+                )
                 val reviewItems = buildTransactionReviewItems(
                     transactions = pack.txns,
                     recurringCandidates = recurringCandidates,
@@ -589,6 +632,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     trustSignals = trustSignals,
                     dashboardConfig = pack.dashboardConfig,
                     categoryBudgets = pack.categoryBudgets,
+                    debts = pack.debts,
                     categoryBudgetRows = categoryBudgetRows,
                     transactionRules = pack.rules,
                     pacingResult = pacingResult,
@@ -813,6 +857,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val assets: List<com.montecarlo.ledger.data.AssetEntity>,
         val goals: List<com.montecarlo.ledger.data.GoalEntity>,
         val categoryBudgets: List<com.montecarlo.ledger.data.CategoryBudgetEntity>,
+        val debts: List<DebtEntity>,
         val rules: List<com.montecarlo.ledger.data.TransactionRuleEntity>,
         val dashboardConfig: DashboardConfig,
     )
@@ -829,40 +874,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val assets: List<com.montecarlo.ledger.data.AssetEntity>,
         val goals: List<com.montecarlo.ledger.data.GoalEntity>,
         val categoryBudgets: List<com.montecarlo.ledger.data.CategoryBudgetEntity>,
+        val debts: List<DebtEntity>,
         val rules: List<com.montecarlo.ledger.data.TransactionRuleEntity>,
         val dashboardConfig: DashboardConfig,
     )
 
-    fun addIncome(entity: IncomeEntity) {
-        viewModelScope.launch {
-            repo.insertIncome(entity)
-        }
+    fun addIncome(entity: IncomeEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.insertIncome(entity) }
     }
 
-    fun updateIncome(entity: IncomeEntity) {
-        viewModelScope.launch { repo.updateIncome(entity) }
+    fun updateIncome(entity: IncomeEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.updateIncome(entity) }
     }
 
-    fun deleteIncome(entity: IncomeEntity) {
-        viewModelScope.launch { repo.deleteIncome(entity) }
+    fun deleteIncome(entity: IncomeEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.deleteIncome(entity) }
     }
 
-    fun addPayment(entity: PaymentEntity) {
-        viewModelScope.launch {
+    fun addPayment(entity: PaymentEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
             repo.insertPayment(entity)
             repo.syncBillOccurrences()
         }
     }
 
-    fun updatePayment(entity: PaymentEntity) {
-        viewModelScope.launch {
+    fun updatePayment(entity: PaymentEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
             repo.updatePayment(entity)
             repo.syncBillOccurrences()
         }
     }
 
-    fun deletePayment(entity: PaymentEntity) {
-        viewModelScope.launch { repo.deletePayment(entity) }
+    fun deletePayment(entity: PaymentEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.deletePayment(entity) }
     }
 
     fun processPayday(income: com.montecarlo.ledger.data.IncomeEntity, actualAmountCents: Long) {

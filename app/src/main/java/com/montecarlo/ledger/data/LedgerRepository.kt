@@ -13,6 +13,7 @@ import com.montecarlo.ledger.data.LedgerBackupSnapshot
 import com.montecarlo.ledger.security.SecretHash
 import com.montecarlo.ledger.security.SecurityUtils
 import java.util.Locale
+import com.montecarlo.ledger.util.toPersistedBoolean
 
 class LedgerRepository(private val db: AppDatabase) {
 
@@ -233,6 +234,12 @@ class LedgerRepository(private val db: AppDatabase) {
     }
     suspend fun deleteCategoryBudget(budget: CategoryBudgetEntity) = db.categoryBudgetDao().delete(budget)
 
+    // Debts
+    val allDebts: Flow<List<DebtEntity>> = db.debtDao().getAll()
+    suspend fun insertDebt(debt: DebtEntity) = db.debtDao().insert(debt)
+    suspend fun updateDebt(debt: DebtEntity) = db.debtDao().update(debt)
+    suspend fun deleteDebt(debt: DebtEntity) = db.debtDao().delete(debt)
+
     val onboardingProgress: Flow<OnboardingProgress> = db.settingsDao().getAll().map { settings ->
         val byKey = settings.associateBy { it.key }
         OnboardingProgress(
@@ -264,9 +271,8 @@ class LedgerRepository(private val db: AppDatabase) {
         val bankBalance = byKey[KEY_BANK_BALANCE]?.value?.toLongOrNull()
             ?: byKey[KEY_CURRENT_BALANCE]?.value?.toLongOrNull()
             ?: 0L
-        val reconciled = byKey[KEY_BANK_BALANCE_RECONCILED]?.value?.toBoolean()
-            ?: byKey[KEY_LEGACY_RECONCILED]?.value?.toBoolean()
-            ?: false
+        val reconciled = byKey[KEY_BANK_BALANCE_RECONCILED]?.value.toPersistedBoolean() ||
+            byKey[KEY_LEGACY_RECONCILED]?.value.toPersistedBoolean()
         BalanceState(
             bankBalanceCents = bankBalance,
             isReconciled = reconciled,
@@ -321,10 +327,10 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     suspend fun isBalanceReconciled(): Boolean {
-        val reconciled = db.settingsDao().getValue(KEY_BANK_BALANCE_RECONCILED)?.toBoolean()
-        if (reconciled != null) return reconciled
+        val reconciled = db.settingsDao().getValue(KEY_BANK_BALANCE_RECONCILED)
+        if (reconciled != null) return reconciled.toPersistedBoolean()
 
-        return db.settingsDao().getValue(KEY_LEGACY_RECONCILED)?.toBoolean() == true
+        return db.settingsDao().getValue(KEY_LEGACY_RECONCILED).toPersistedBoolean()
     }
 
     suspend fun setBankBalance(amountCents: Long) =
@@ -662,6 +668,7 @@ class LedgerRepository(private val db: AppDatabase) {
             db.assetDao().deleteAllAssets()
             db.goalDao().deleteAllGoals()
             db.categoryBudgetDao().deleteAll()
+            db.debtDao().deleteAll()
 
             snapshot.incomes.forEach { db.incomeDao().insertIncome(it) }
             snapshot.payments.forEach { db.paymentDao().insert(it) }
@@ -671,6 +678,7 @@ class LedgerRepository(private val db: AppDatabase) {
             snapshot.assets.forEach { db.assetDao().insertAsset(it) }
             snapshot.goals.forEach { db.goalDao().insertGoal(it) }
             snapshot.categoryBudgets.forEach { db.categoryBudgetDao().insert(it) }
+            snapshot.debts.forEach { db.debtDao().insert(it) }
 
             restoreSettings(snapshot)
         }

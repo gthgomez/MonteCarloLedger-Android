@@ -11,6 +11,21 @@ class BudgetPacingEngineTest {
     private val today = LocalDate.of(2026, 7, 31)
 
     @Test
+    fun clampedRunwayDays_neverReturnsNegativeDays() {
+        assertEquals(0, BudgetPacingEngine.clampedRunwayDays(-5_000L, 1_000L))
+    }
+
+    @Test
+    fun clampedRunwayDays_capsAtNinetyDays() {
+        assertEquals(90, BudgetPacingEngine.clampedRunwayDays(500_000L, 1_000L))
+    }
+
+    @Test
+    fun clampedRunwayDays_usesMaximumWhenVelocityIsZero() {
+        assertEquals(90, BudgetPacingEngine.clampedRunwayDays(-5_000L, 0L))
+    }
+
+    @Test
     fun calculatePacing_returnsOnTrackWhenActualVelocityIsBelowTarget() {
         // Safe to spend: $1,400 (140,000 cents) over 14 days => Target velocity: $100/day (10,000 cents/day)
         // Spending in last 7 days: $560 (56,000 cents) => Actual velocity: $80/day (8,000 cents/day)

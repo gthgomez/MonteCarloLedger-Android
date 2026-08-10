@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.processing
 
 import java.time.LocalDate
+import com.montecarlo.ledger.util.scaleCentsByPercent
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.random.Random
@@ -165,7 +166,7 @@ class MonteCarloEngine(
                         params.incomeVariationMax + 1,
                     )
                 } else 0
-                max(0L, (event.amount_cents * (100 + variationPercent.toDouble()) / 100).toLong())
+                max(0L, scaleCentsByPercent(event.amount_cents, variationPercent))
             } else {
                 val variationPercent = if (params.expenseVariationMin != 0 || params.expenseVariationMax != 0) {
                     rng.nextInt(
@@ -173,7 +174,7 @@ class MonteCarloEngine(
                         params.expenseVariationMax + 1,
                     )
                 } else 0
-                max(0L, (event.amount_cents * (100 + variationPercent.toDouble()) / 100).toLong())
+                max(0L, scaleCentsByPercent(event.amount_cents, variationPercent))
             }
             scenario.add(event.copy(amount_cents = adjustedAmount))
         }

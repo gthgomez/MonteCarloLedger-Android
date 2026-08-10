@@ -1,6 +1,7 @@
 package com.montecarlo.ledger
 
 import com.montecarlo.ledger.data.CategoryBudgetEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.CategorySpend
 import com.montecarlo.ledger.data.RecurringCandidate
 import com.montecarlo.ledger.data.TransactionEntity
@@ -51,6 +52,7 @@ data class AppUiState(
     val trustSignals: List<TrustSignal> = emptyList(),
     val dashboardConfig: DashboardConfig = DashboardConfig(),
     val categoryBudgets: List<CategoryBudgetEntity> = emptyList(),
+    val debts: List<DebtEntity> = emptyList(),
     val categoryBudgetRows: List<CategoryBudgetRow> = emptyList(),
     val transactionRules: List<com.montecarlo.ledger.data.TransactionRuleEntity> = emptyList(),
     val pacingResult: com.montecarlo.ledger.processing.BudgetPacingResult? = null,

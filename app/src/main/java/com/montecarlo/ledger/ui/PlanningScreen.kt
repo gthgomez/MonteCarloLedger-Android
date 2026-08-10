@@ -404,10 +404,8 @@ private fun PlanningGoalCard(
     val remaining = (goal.targetAmountCents - goal.currentAmountCents).coerceAtLeast(0)
     val progress = if (goal.targetAmountCents > 0) goal.currentAmountCents.toFloat() / goal.targetAmountCents else 0f
 
-    GlassCard(
+    SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-        tint = GlassTint.Neutral,
-        surfaceStyle = GlassSurfaceStyle.Quiet,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -591,7 +589,10 @@ private fun CategoryWatchlistRow(
                     color = if (overLimit) GlassTokens.ErrorRed else GlassTokens.PositiveGreen,
                     fontWeight = FontWeight.SemiBold,
                 )
-                IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(32.dp)) {
+                IconButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.minimumIconButtonTouchTarget(),
+                ) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete watchlist", tint = GlassTokens.ErrorRed, modifier = Modifier.size(18.dp))
                 }
             }

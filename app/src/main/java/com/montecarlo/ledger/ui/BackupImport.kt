@@ -3,6 +3,7 @@ package com.montecarlo.ledger.ui
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.GoalEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.LedgerBackupSnapshot
@@ -17,7 +18,7 @@ import org.json.JSONObject
 internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
     val root = JSONObject(jsonText)
     val schemaVersion = root.optInt("schemaVersion", 0)
-    require(schemaVersion == 1 || schemaVersion == 2) {
+    require(schemaVersion in 1..3) {
         "Unsupported backup schema version: $schemaVersion"
     }
 
@@ -45,6 +46,7 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
         assets = root.optJSONArray("assets").toAssetEntities(),
         goals = root.optJSONArray("goals").toGoalEntities(),
         categoryBudgets = root.optJSONArray("categoryBudgets").toCategoryBudgetEntities(),
+        debts = root.optJSONArray("debts").toDebtEntities(),
     )
 }
 
@@ -195,6 +197,23 @@ private fun JSONArray?.toCategoryBudgetEntities(): List<CategoryBudgetEntity> =
             array.getJSONObject(index).toCategoryBudgetEntity()
         }
     } ?: emptyList()
+
+private fun JSONArray?.toDebtEntities(): List<DebtEntity> =
+    this?.let { array ->
+        List(array.length()) { index -> array.getJSONObject(index).toDebtEntity() }
+    } ?: emptyList()
+
+private fun JSONObject.toDebtEntity(): DebtEntity =
+    DebtEntity(
+        id = optLong("id", 0L),
+        name = getString("name"),
+        balanceCents = optLong("balanceCents", 0L),
+        aprBasisPoints = optInt("aprBasisPoints", 0),
+        minimumPaymentCents = optLong("minimumPaymentCents", 0L),
+        dueDayOfMonth = optInt("dueDayOfMonth", 1),
+        linkedPaymentId = if (isNull("linkedPaymentId")) null else optInt("linkedPaymentId"),
+        isActive = optBoolean("isActive", true),
+    )
 
 private fun JSONObject.toCategoryBudgetEntity(): CategoryBudgetEntity =
     CategoryBudgetEntity(

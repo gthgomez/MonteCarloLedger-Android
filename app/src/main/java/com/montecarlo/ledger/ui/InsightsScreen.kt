@@ -29,12 +29,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.MainViewModel
+import com.montecarlo.ledger.data.RecurringCandidate
 import com.montecarlo.ledger.util.centsToDisplay
 import java.util.Locale
 import kotlin.math.abs
 
 @Composable
-fun InsightsScreen(viewModel: MainViewModel) {
+fun InsightsScreen(
+    viewModel: MainViewModel,
+    onTrackAsBill: (RecurringCandidate) -> Unit = {},
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LazyColumn(
@@ -44,11 +48,7 @@ fun InsightsScreen(viewModel: MainViewModel) {
         analysisInsightsSection(
             uiState = uiState,
             onCreateRule = viewModel::saveTransactionRule,
-            onTrackAsBill = { name, category, amount ->
-                // For now, we'll just open the add bill screen
-                // In a real app, we'd pre-fill the name/category/amount
-                // This will be handled in AppView
-            }
+            onTrackAsBill = onTrackAsBill,
         )
     }
 }
@@ -56,7 +56,7 @@ fun InsightsScreen(viewModel: MainViewModel) {
 internal fun LazyListScope.analysisInsightsSection(
     uiState: com.montecarlo.ledger.AppUiState,
     onCreateRule: (String, String) -> Unit,
-    onTrackAsBill: (String, String, Int) -> Unit,
+    onTrackAsBill: (RecurringCandidate) -> Unit,
 ) {
     item {
         Text(
@@ -238,7 +238,7 @@ internal fun LazyListScope.analysisInsightsSection(
                     }
                     Text("${candidate.cadenceLabel} • ${candidate.occurrenceCount} instances found", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { onTrackAsBill(candidate.pattern, candidate.category, 0) }, modifier = Modifier.weight(1f)) {
+                        TextButton(onClick = { onTrackAsBill(candidate) }, modifier = Modifier.weight(1f)) {
                             Text("Track as Bill")
                         }
                         TextButton(onClick = { onCreateRule(candidate.pattern, candidate.category) }, modifier = Modifier.weight(1f)) {

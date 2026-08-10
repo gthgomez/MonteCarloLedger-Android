@@ -19,12 +19,12 @@ class BankBalanceDialogTest {
 
     @Test
     fun bankBalanceDialog_savesTheEnteredBalance() {
-        var savedAmount = -1
+        var savedAmount = -1L
 
         composeRule.setContent {
             AppTheme {
                 BankBalanceDialog(
-                    initialAmountCents = 12_345,
+                    initialAmountCents = 12_345L,
                     onDismiss = {},
                     onConfirm = { savedAmount = it },
                 )
@@ -38,7 +38,7 @@ class BankBalanceDialogTest {
         composeRule.onNodeWithText("Save").performClick()
 
         composeRule.runOnIdle {
-            assertEquals(9_910, savedAmount)
+            assertEquals(9_910L, savedAmount)
         }
     }
 }

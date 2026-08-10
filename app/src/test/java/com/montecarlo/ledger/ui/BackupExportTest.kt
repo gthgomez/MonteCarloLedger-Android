@@ -4,6 +4,7 @@ import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.GoalEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.OnboardingProgress
 import com.montecarlo.ledger.data.PaymentEntity
@@ -41,6 +42,7 @@ class BackupExportTest {
                 projectedTroubleDateLabel = "2026-05-03",
                 firstNegativeDateLabel = "2026-05-04",
                 lowestBalanceDateLabel = "2026-05-05",
+                debts = listOf(DebtEntity(7L, "Visa", 250_000L, 1_850, 10_000L, 15, 2, true)),
             ),
             incomes = listOf(
                 IncomeEntity(
@@ -130,7 +132,7 @@ class BackupExportTest {
             ),
         )
 
-        assertTrue(json.contains("\"schemaVersion\": 2"))
+        assertTrue(json.contains("\"schemaVersion\": 3"))
         assertTrue(json.contains("\"exportedAt\": \"2026-04-22T12:00:00\""))
         assertTrue(json.contains("\"name\": \"Paycheck\""))
         assertTrue(json.contains("\"payType\": \"HOURLY\""))
@@ -142,6 +144,7 @@ class BackupExportTest {
         assertTrue(json.contains("\"isBalanceReconciled\": true"))
         assertTrue(json.contains("\"name\": \"Emergency fund\""))
         assertTrue(json.contains("\"name\": \"Vacation\""))
+        assertTrue(json.contains("\"aprBasisPoints\": 1850"))
         assertTrue(json.contains("\"firstGoalCompleted\": true"))
     }
 
@@ -154,6 +157,7 @@ class BackupExportTest {
                 ledgerBalanceCents = 11_900,
                 isBalanceReconciled = true,
                 safeToSpendCents = 9_000,
+                debts = listOf(DebtEntity(7L, "Visa", 250_000L, 1_850, 10_000L, 15, 2, true)),
             ),
             incomes = listOf(
                 IncomeEntity(
@@ -245,7 +249,7 @@ class BackupExportTest {
 
         val snapshot = parseLedgerBackupJson(exported)
 
-        assertEquals(2, snapshot.schemaVersion)
+        assertEquals(3, snapshot.schemaVersion)
         assertEquals("2026-04-22T12:00:00", snapshot.exportedAtIso)
         assertEquals(12_345, snapshot.bankBalanceCents)
         assertTrue(snapshot.isBalanceReconciled)
@@ -275,6 +279,9 @@ class BackupExportTest {
         assertTrue(snapshot.onboardingProgress.firstIncomeCompleted)
         assertTrue(snapshot.onboardingProgress.firstGoalCompleted)
         assertTrue(snapshot.onboardingProgress.reconciliationCompleted)
+        assertEquals(1, snapshot.debts.size)
+        assertEquals("Visa", snapshot.debts.single().name)
+        assertEquals(1_850, snapshot.debts.single().aprBasisPoints)
     }
 
     @Test
@@ -421,7 +428,7 @@ class BackupExportTest {
 
         // The JSON should still parse correctly (parseLedgerBackupJson ignores integrity)
         val snapshot = parseLedgerBackupJson(withIntegrity)
-        assertEquals(2, snapshot.schemaVersion)
+        assertEquals(3, snapshot.schemaVersion)
         assertEquals(1, snapshot.incomes.size)
         assertEquals("Job", snapshot.incomes.single().name)
 
@@ -472,7 +479,7 @@ class BackupExportTest {
         val withIntegrity = com.montecarlo.ledger.security.SecurityUtils.insertIntegrityField(json, "testHmac123+/=")
         val snapshot = parseLedgerBackupJson(withIntegrity)
 
-        assertEquals(2, snapshot.schemaVersion)
+        assertEquals(3, snapshot.schemaVersion)
         assertEquals("2026-07-19T12:00:00", snapshot.exportedAtIso)
     }
 }

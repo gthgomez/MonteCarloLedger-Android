@@ -4,6 +4,7 @@ import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.GoalEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.OnboardingProgress
@@ -13,7 +14,7 @@ import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.TransactionEntity
 
 /** Current export schema: includes assets, goals, and income.payType. */
-internal const val BACKUP_SCHEMA_VERSION = 2
+internal const val BACKUP_SCHEMA_VERSION = 3
 
 internal fun buildLedgerBackupJson(
     exportedAtIso: String,
@@ -28,6 +29,7 @@ internal fun buildLedgerBackupJson(
     assets: List<AssetEntity> = uiState.assets,
     goals: List<GoalEntity> = uiState.goals,
     categoryBudgets: List<CategoryBudgetEntity> = emptyList(),
+    debts: List<DebtEntity> = uiState.debts,
 ): String = buildString {
     appendLine("{")
     appendLine("  \"schemaVersion\": $BACKUP_SCHEMA_VERSION,")
@@ -63,7 +65,8 @@ internal fun buildLedgerBackupJson(
     appendJsonArray("billOccurrences", billOccurrences.map { it.toBackupJson() })
     appendJsonArray("assets", assets.map { it.toBackupJson() })
     appendJsonArray("goals", goals.map { it.toBackupJson() })
-    appendJsonArray("categoryBudgets", categoryBudgets.map { it.toBackupJson() }, trailingComma = false)
+    appendJsonArray("categoryBudgets", categoryBudgets.map { it.toBackupJson() })
+    appendJsonArray("debts", debts.map { it.toBackupJson() }, trailingComma = false)
     appendLine("}")
 }
 
@@ -167,6 +170,19 @@ private fun CategoryBudgetEntity.toBackupJson(): String = buildString {
     appendJsonNumberField("limitCents", limitCents, indent = "    ")
     appendJsonNumberField("enabled", enabled, indent = "    ")
     appendJsonStringField("createdAt", createdAt, indent = "    ", trailingComma = false)
+    append("  }")
+}
+
+private fun DebtEntity.toBackupJson(): String = buildString {
+    appendLine("{")
+    appendJsonNumberField("id", id, indent = "    ")
+    appendJsonStringField("name", name, indent = "    ")
+    appendJsonNumberField("balanceCents", balanceCents, indent = "    ")
+    appendJsonNumberField("aprBasisPoints", aprBasisPoints, indent = "    ")
+    appendJsonNumberField("minimumPaymentCents", minimumPaymentCents, indent = "    ")
+    appendJsonNumberField("dueDayOfMonth", dueDayOfMonth, indent = "    ")
+    appendJsonNumberField("linkedPaymentId", linkedPaymentId, indent = "    ")
+    appendJsonBooleanField("isActive", isActive, indent = "    ", trailingComma = false)
     append("  }")
 }
 

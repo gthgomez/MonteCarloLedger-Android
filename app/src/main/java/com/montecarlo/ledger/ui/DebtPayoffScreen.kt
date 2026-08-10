@@ -134,7 +134,7 @@ fun DebtPayoffScreen(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "${centsToDisplay(extraPaymentCents.toInt())}/mo",
+                            "${centsToDisplay(extraPaymentCents.toLong())}/mo",
                             style = MaterialTheme.typography.titleMedium,
                             color = GlassTokens.CyanBright,
                             fontWeight = FontWeight.Bold,
@@ -214,7 +214,7 @@ fun DebtPayoffScreen(
                                 color = GlassTokens.TextSecondary,
                             )
                             Text(
-                                centsToDisplay(simulationResult.baselineSummary.totalInterestCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()) + " interest",
+                                centsToDisplay(simulationResult.baselineSummary.totalInterestCents) + " interest",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = GlassTokens.TextDim,
                             )
@@ -229,7 +229,7 @@ fun DebtPayoffScreen(
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                centsToDisplay(simulationResult.acceleratedSummary.totalInterestCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()) + " interest",
+                                centsToDisplay(simulationResult.acceleratedSummary.totalInterestCents) + " interest",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = GlassTokens.TextDim,
                             )
@@ -286,7 +286,7 @@ fun DebtPayoffScreen(
                         Column(horizontalAlignment = Alignment.End) {
                             Text("Interest Saved", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                             Text(
-                                centsToDisplay(simulationResult.interestSavedCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()) + " saved",
+                                centsToDisplay(simulationResult.interestSavedCents) + " saved",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = GlassTokens.PositiveGreen,
                                 fontWeight = FontWeight.Bold,
@@ -349,13 +349,13 @@ fun DebtPayoffScreen(
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                "APR: ${String.format("%.1f", debt.aprPercent)}% • Min Payment: ${centsToDisplay(debt.minPaymentCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt())}/mo",
+                                "APR: ${debt.aprBasisPoints / 100.0}% • Min Payment: ${centsToDisplay(debt.minPaymentCents)}/mo",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = GlassTokens.TextSecondary,
                             )
                         }
                         Text(
-                            centsToDisplay(debt.balanceCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()),
+                            centsToDisplay(debt.balanceCents),
                             style = MaterialTheme.typography.titleMedium,
                             color = GlassTokens.CyanBright,
                             fontWeight = FontWeight.Bold,

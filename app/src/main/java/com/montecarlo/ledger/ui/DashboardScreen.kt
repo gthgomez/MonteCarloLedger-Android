@@ -928,7 +928,10 @@ private fun PlanAheadCard(uiState: AppUiState) {
                     color = GlassTokens.TextSecondary,
                     modifier = Modifier.semantics { heading() }
                 )
-                IconButton(onClick = { showHelp = true }, modifier = Modifier.size(24.dp)) {
+                IconButton(
+                    onClick = { showHelp = true },
+                    modifier = Modifier.minimumIconButtonTouchTarget(),
+                ) {
                     Icon(Icons.Default.Info, "How this works", tint = GlassTokens.TextDim)
                 }
             }
@@ -1057,7 +1060,10 @@ private fun MonteCarloCard(uiState: AppUiState) {
                     color = GlassTokens.TextSecondary,
                     modifier = Modifier.semantics { heading() }
                 )
-                IconButton(onClick = { showHelp = true }, modifier = Modifier.size(24.dp)) {
+                IconButton(
+                    onClick = { showHelp = true },
+                    modifier = Modifier.minimumIconButtonTouchTarget(),
+                ) {
                     Icon(Icons.Default.Info, "How this works", tint = GlassTokens.TextDim)
                 }
             }
@@ -1530,6 +1536,11 @@ private fun GoalCard(
     }
 }
 
+internal fun normalizedSparklineX(index: Int, pointCount: Int, width: Float): Float {
+    if (pointCount <= 1) return 0f
+    return index.toFloat() / (pointCount - 1) * width
+}
+
 @Composable
 private fun PaceSparkline(
     currentPoints: List<Long>,
@@ -1546,7 +1557,7 @@ private fun PaceSparkline(
         if (avgPoints.size > 1) {
             val path = androidx.compose.ui.graphics.Path()
             avgPoints.forEachIndexed { index, value ->
-                val x = index.toFloat() / (avgPoints.size - 1) * width
+                val x = normalizedSparklineX(index, avgPoints.size, width)
                 val y = height - (value.toFloat() / maxVal * height)
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
@@ -1564,13 +1575,13 @@ private fun PaceSparkline(
         if (currentPoints.size > 1) {
             val path = androidx.compose.ui.graphics.Path()
             currentPoints.forEachIndexed { index, value ->
-                val x = index.toFloat() / (avgPoints.size - 1) * width
+                val x = normalizedSparklineX(index, currentPoints.size, width)
                 val y = height - (value.toFloat() / maxVal * height)
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             drawPath(
                 path = path,
-                color = if ((currentPoints.lastOrNull() ?: 0) > (avgPoints.getOrNull(currentPoints.size - 1) ?: 0)) GlassTokens.ErrorRed else GlassTokens.CyanBright,
+                color = if ((currentPoints.lastOrNull() ?: 0) > (avgPoints.lastOrNull() ?: 0)) GlassTokens.ErrorRed else GlassTokens.CyanBright,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(
                     width = 3.dp.toPx(),
                     cap = androidx.compose.ui.graphics.StrokeCap.Round,

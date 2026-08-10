@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.util.centsToDisplay
+import com.montecarlo.ledger.util.monthlyInterestCents
 import java.time.LocalDate
 
 enum class PayoffStrategy {
@@ -12,8 +13,10 @@ data class DebtItem(
     val id: Long,
     val name: String,
     val balanceCents: Long,
-    val aprPercent: Double,
+    val aprBasisPoints: Int,
     val minPaymentCents: Long,
+    val dueDayOfMonth: Int = 1,
+    val linkedPaymentId: Int? = null,
 )
 
 data class MonthlyPayoffStep(
@@ -74,6 +77,22 @@ object DebtPayoffEngine {
 
         if (extraMonthlyPaymentCents > 0L && debts.isNotEmpty()) {
             val updatedEvents = forecastEvents.toMutableList()
+            debts.filter { it.linkedPaymentId == null }.forEach { debt ->
+                var dueDate = today.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(today.lengthOfMonth()))
+                if (!dueDate.isAfter(today)) dueDate = dueDate.plusMonths(1)
+                while (!dueDate.isAfter(today.plusDays(90))) {
+                    updatedEvents.add(
+                        ForecastEvent(
+                            date = dueDate,
+                            description = "${debt.name} minimum payment",
+                            amount_cents = debt.minPaymentCents,
+                            type = "expense",
+                        ),
+                    )
+                    val nextMonth = dueDate.plusMonths(1)
+                    dueDate = nextMonth.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(nextMonth.lengthOfMonth()))
+                }
+            }
             var currentMonth = today.withDayOfMonth(1).plusMonths(1)
             val endDate = today.plusDays(90)
 
@@ -157,15 +176,14 @@ object DebtPayoffEngine {
             val activeDebts = debtStates.filter { it.currentBalanceCents > 0L }
             val targetOrder = when (strategy) {
                 PayoffStrategy.SNOWBALL -> activeDebts.sortedBy { it.currentBalanceCents }
-                PayoffStrategy.AVALANCHE -> activeDebts.sortedByDescending { it.item.aprPercent }
+                PayoffStrategy.AVALANCHE -> activeDebts.sortedByDescending { it.item.aprBasisPoints }
             }
 
             var extraPool = extraMonthlyPaymentCents
 
             // 2. Accrue interest & apply minimum payments
             for (debt in targetOrder) {
-                val monthlyRate = (debt.item.aprPercent / 100.0) / 12.0
-                val interestCents = (debt.currentBalanceCents * monthlyRate).toLong()
+                val interestCents = monthlyInterestCents(debt.currentBalanceCents, debt.item.aprBasisPoints)
                 debt.currentBalanceCents += interestCents
                 totalInterestPaidCents += interestCents
 

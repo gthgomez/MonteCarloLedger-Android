@@ -419,12 +419,8 @@ private fun PaymentCard(
     val isOverdue = runCatching {
         LocalDate.parse(payment.next_date).isBefore(LocalDate.now())
     }.getOrDefault(false)
-    val tint = if (isOverdue) GlassTint.Error else GlassTint.Neutral
-
-    GlassCard(
+    SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-        tint = tint,
-        surfaceStyle = GlassSurfaceStyle.Quiet
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),

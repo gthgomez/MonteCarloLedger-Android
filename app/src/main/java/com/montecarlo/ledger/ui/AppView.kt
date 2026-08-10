@@ -93,6 +93,7 @@ import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.OnboardingMilestone
 import com.montecarlo.ledger.data.OnboardingProgress
 import com.montecarlo.ledger.data.PaymentEntity
+import com.montecarlo.ledger.data.RecurringCandidate
 import com.montecarlo.ledger.util.centsToDisplay
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -101,6 +102,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
+import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,6 +113,7 @@ fun AppView(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val incomes by viewModel.allIncome.collectAsStateWithLifecycle()
     val payments by viewModel.allPayments.collectAsStateWithLifecycle()
+    val debts by viewModel.allDebts.collectAsStateWithLifecycle()
     val billOccurrences by viewModel.allBillOccurrences.collectAsStateWithLifecycle()
     val transactionRules by viewModel.allTransactionRules.collectAsStateWithLifecycle()
     val transactions by viewModel.allTransactions.collectAsStateWithLifecycle()
@@ -123,6 +126,7 @@ fun AppView(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showRulesScreen by rememberSaveable { mutableStateOf(false) }
     var addKind by rememberSaveable { mutableStateOf<AddKind?>(null) }
+    var pendingBillPrefill by remember { mutableStateOf<BillPrefill?>(null) }
     var selectedIncome by remember { mutableStateOf<IncomeEntity?>(null) }
     var selectedPayment by remember { mutableStateOf<PaymentEntity?>(null) }
     var selectedTransaction by remember { mutableStateOf<com.montecarlo.ledger.data.TransactionEntity?>(null) }
@@ -178,6 +182,9 @@ fun AppView(
                     uiState = uiState,
                     incomes = incomes,
                     payments = payments,
+                    debts = debts,
+                    pendingBillPrefill = pendingBillPrefill,
+                    onClearBillPrefill = { pendingBillPrefill = null },
                     billOccurrences = billOccurrences,
                     transactionRules = transactionRules,
                     transactions = transactions,
@@ -192,6 +199,10 @@ fun AppView(
                     showRulesScreen = showRulesScreen,
                     onSetSection = { section = it },
                     onSetAddKind = { addKind = it },
+                    onTrackAsBill = { candidate ->
+                        pendingBillPrefill = candidate.toBillPrefill()
+                        addKind = AddKind.Bill
+                    },
                     onSetShowSettings = { showSettings = it },
                     onSetShowRulesScreen = { showRulesScreen = it },
                     selectedIncome = selectedIncome,
@@ -231,6 +242,9 @@ private fun AppChrome(
     uiState: com.montecarlo.ledger.AppUiState,
     incomes: List<IncomeEntity>,
     payments: List<PaymentEntity>,
+    debts: List<com.montecarlo.ledger.data.DebtEntity>,
+    pendingBillPrefill: BillPrefill?,
+    onClearBillPrefill: () -> Unit,
     billOccurrences: List<com.montecarlo.ledger.data.BillOccurrenceEntity>,
     transactionRules: List<com.montecarlo.ledger.data.TransactionRuleEntity>,
     transactions: List<com.montecarlo.ledger.data.TransactionEntity>,
@@ -245,6 +259,7 @@ private fun AppChrome(
     showRulesScreen: Boolean,
     onSetSection: (AppSection) -> Unit,
     onSetAddKind: (AddKind?) -> Unit,
+    onTrackAsBill: (RecurringCandidate) -> Unit,
     onSetShowSettings: (Boolean) -> Unit,
     onSetShowRulesScreen: (Boolean) -> Unit,
     selectedIncome: IncomeEntity?,
@@ -296,6 +311,30 @@ private fun AppChrome(
         "text/json",
         "text/plain"
     )
+    val encryptedBackupMimeTypes = arrayOf(
+        "application/octet-stream",
+        "text/plain",
+        "*/*",
+    )
+    fun handlePersistenceResult(
+        result: Result<Unit>,
+        showSuccess: Boolean = true,
+        onSuccessAction: () -> Unit,
+    ) {
+        result.fold(
+            onSuccess = {
+                onSuccessAction()
+                if (showSuccess) showSuccessToast = true
+            },
+            onFailure = { throwable ->
+                Toast.makeText(
+                    context,
+                    throwable.message ?: "Unable to save changes.",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+        )
+    }
     val backupPayload = remember(
         uiState,
         incomes,
@@ -651,7 +690,7 @@ private fun AppChrome(
                         onBackup = { backupLauncher.launch("montecarlo-ledger-backup-${LocalDateTime.now().toLocalDate()}.json") },
                         onRestore = { restoreLauncher.launch(jsonMimeTypes) },
                         onBackupEncrypted = { encryptedBackupLauncher.launch("montecarlo-ledger-backup-${LocalDateTime.now().toLocalDate()}.mcl") },
-                        onRestoreEncrypted = { encryptedRestoreLauncher.launch(jsonMimeTypes) },
+                        onRestoreEncrypted = { encryptedRestoreLauncher.launch(encryptedBackupMimeTypes) },
                         onShowReminders = { showReminderSettingsDialog = true },
                         onShowAppLock = { showAppLockSettingsDialog = true },
                         onShowTransactionRules = { onSetShowRulesScreen(true) },
@@ -708,27 +747,46 @@ private fun AppChrome(
                 section == AppSection.Review -> ReviewCommandCenterScreen(
                     viewModel = viewModel,
                     onEditTransaction = { onSelectTransaction(it) },
-                    onTrackAsBill = { onSetAddKind(AddKind.Bill) },
+                    onTrackAsBill = onTrackAsBill,
                 )
 
-                section == AppSection.Analysis -> AnalysisScreen(viewModel, hazeState = hazeState)
+                section == AppSection.Analysis -> AnalysisScreen(
+                    viewModel,
+                    hazeState = hazeState,
+                    onTrackAsBill = onTrackAsBill,
+                )
 
                 section == AppSection.DebtPayoff -> {
-                    val debtItems = payments.mapIndexed { idx, p ->
+                    val debtItems = debts.filter { it.isActive }.map {
                         com.montecarlo.ledger.processing.DebtItem(
-                            id = (p.id.takeIf { it != 0 } ?: (idx + 1)).toLong(),
-                            name = p.name,
-                            balanceCents = (p.amount_cents.toLong() * 24L).coerceAtLeast(50_000L),
-                            aprPercent = 18.5,
-                            minPaymentCents = p.amount_cents.toLong(),
+                            id = it.id,
+                            name = it.name,
+                            balanceCents = it.balanceCents,
+                            aprBasisPoints = it.aprBasisPoints,
+                            minPaymentCents = it.minimumPaymentCents,
+                            dueDayOfMonth = it.dueDayOfMonth,
+                            linkedPaymentId = it.linkedPaymentId,
                         )
                     }
                     val events = com.montecarlo.ledger.processing.TimelineService.generateTimeline(incomes, payments, java.time.LocalDate.now(), 90, billOccurrences)
-                    DebtPayoffScreen(
-                        debts = debtItems,
-                        currentBalanceCents = uiState.ledgerBalanceCents.toLong(),
-                        forecastEvents = events,
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        DebtManagementScreen(
+                            debts = debts,
+                            payments = payments,
+                            onAdd = viewModel::addDebt,
+                            onUpdate = viewModel::updateDebt,
+                            onDelete = viewModel::deleteDebt,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (debtItems.isNotEmpty()) {
+                            DebtPayoffScreen(
+                                debts = debtItems,
+                                currentBalanceCents = uiState.ledgerBalanceCents,
+                                forecastEvents = events,
+                                modifier = Modifier.weight(2f),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -743,14 +801,14 @@ private fun AppChrome(
             EditIncomeScreen(
                 income = income,
                 onSave = {
-                    viewModel.updateIncome(it)
-                    onSelectIncome(null)
-                    showSuccessToast = true
+                    viewModel.updateIncome(it) { result ->
+                        handlePersistenceResult(result) { onSelectIncome(null) }
+                    }
                 },
                 onDelete = {
-                    viewModel.deleteIncome(it)
-                    onSelectIncome(null)
-                    showSuccessToast = true
+                    viewModel.deleteIncome(it) { result ->
+                        handlePersistenceResult(result) { onSelectIncome(null) }
+                    }
                 },
                 onDismiss = { onSelectIncome(null) }
             )
@@ -766,14 +824,14 @@ private fun AppChrome(
             EditPaymentScreen(
                 payment = payment,
                 onSave = {
-                    viewModel.updatePayment(it)
-                    onSelectPayment(null)
-                    showSuccessToast = true
+                    viewModel.updatePayment(it) { result ->
+                        handlePersistenceResult(result) { onSelectPayment(null) }
+                    }
                 },
                 onDelete = {
-                    viewModel.deletePayment(it)
-                    onSelectPayment(null)
-                    showSuccessToast = true
+                    viewModel.deletePayment(it) { result ->
+                        handlePersistenceResult(result) { onSelectPayment(null) }
+                    }
                 },
                 onDismiss = { onSelectPayment(null) }
             )
@@ -789,17 +847,17 @@ private fun AppChrome(
             EditTransactionScreen(
                 transaction = transaction,
                 onSave = {
-                    viewModel.updateTransaction(it)
-                    onSelectTransaction(null)
-                    showSuccessToast = true
+                    viewModel.updateTransaction(it) { result ->
+                        handlePersistenceResult(result) { onSelectTransaction(null) }
+                    }
                 },
                 onSaveRule = { description, category ->
                     viewModel.saveTransactionRule(description, category)
                 },
                 onDelete = {
-                    viewModel.deleteTransaction(it)
-                    onSelectTransaction(null)
-                    showSuccessToast = true
+                    viewModel.deleteTransaction(it) { result ->
+                        handlePersistenceResult(result) { onSelectTransaction(null) }
+                    }
                 },
                 onDismiss = { onSelectTransaction(null) }
             )
@@ -816,18 +874,30 @@ private fun AppChrome(
                 AddKind.Income -> AddIncomeScreen(
                     onCancel = { onSetAddKind(null) },
                     onSave = {
-                        viewModel.addIncome(it)
-                        onSetAddKind(null)
-                        showSuccessToast = true
+                        viewModel.addIncome(it) { result ->
+                            handlePersistenceResult(result) { onSetAddKind(null) }
+                        }
                     }
                 )
                 AddKind.Bill -> AddPaymentScreen(
+                    initialDraft = pendingBillPrefill,
                     onSave = {
-                        viewModel.addPayment(it)
-                        onSetAddKind(null)
-                        showAddAnotherBillDialog = true
+                        viewModel.addPayment(it) { result ->
+                            handlePersistenceResult(
+                                result = result,
+                                onSuccessAction = {
+                                    onClearBillPrefill()
+                                    onSetAddKind(null)
+                                    showAddAnotherBillDialog = true
+                                },
+                                showSuccess = false,
+                            )
+                        }
                     },
-                    onDismiss = { onSetAddKind(null) }
+                    onDismiss = {
+                        onClearBillPrefill()
+                        onSetAddKind(null)
+                    }
                 )
                 AddKind.Transaction -> AddTransactionScreen(
                     payments = payments,
@@ -844,9 +914,9 @@ private fun AppChrome(
                 AddKind.Goal -> AddGoalDialog(
                     onDismiss = { onSetAddKind(null) },
                     onSave = { goal ->
-                        viewModel.addGoal(goal)
-                        onSetAddKind(null)
-                        showSuccessToast = true
+                        viewModel.addGoal(goal) { result ->
+                            handlePersistenceResult(result) { onSetAddKind(null) }
+                        }
                     }
                 )
             }
@@ -977,9 +1047,9 @@ private fun AppChrome(
                 initialAmountCents = uiState.bankBalanceCents,
                 onDismiss = { showBankBalanceDialog = false },
                 onConfirm = { amountCents ->
-                    viewModel.setBankBalance(amountCents)
-                    showBankBalanceDialog = false
-                    showSuccessToast = true
+                    viewModel.setBankBalance(amountCents) { result ->
+                        handlePersistenceResult(result) { showBankBalanceDialog = false }
+                    }
                 }
             )
         }
@@ -1461,6 +1531,30 @@ private data class AddActionOption(
     val description: String,
     val buttonText: String
 )
+
+private fun RecurringCandidate.toBillPrefill(): BillPrefill {
+    val lastSeen = runCatching { LocalDate.parse(lastSeenDate) }.getOrElse { LocalDate.now() }
+    val recurrence = when (cadenceLabel.lowercase()) {
+        "weekly" -> "Weekly"
+        "bi-weekly" -> "Bi-weekly"
+        "quarterly" -> "Quarterly"
+        "yearly" -> "Yearly"
+        else -> "Monthly"
+    }
+    val nextDate = when (recurrence) {
+        "Weekly" -> lastSeen.plusWeeks(1)
+        "Bi-weekly" -> lastSeen.plusWeeks(2)
+        "Quarterly" -> lastSeen.plusMonths(3)
+        "Yearly" -> lastSeen.plusYears(1)
+        else -> lastSeen.plusMonths(1)
+    }
+    return BillPrefill(
+        name = pattern.replaceFirstChar { it.uppercase() },
+        suggestedCategory = category,
+        recurrence = recurrence,
+        nextDate = nextDate.toString(),
+    )
+}
 
 @Composable
 private fun AddActionsScreen(

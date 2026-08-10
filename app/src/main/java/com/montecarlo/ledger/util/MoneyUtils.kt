@@ -16,3 +16,21 @@ fun dollarsToCents(amount: String?): Long {
             .toLong()
     }.getOrDefault(0L)
 }
+
+/** Scale a cent amount by a whole-number percentage without floating-point currency math. */
+fun scaleCentsByPercent(amountCents: Long, variationPercent: Int): Long {
+    return java.math.BigDecimal.valueOf(amountCents)
+        .multiply(java.math.BigDecimal.valueOf(100L + variationPercent.toLong()))
+        .divide(java.math.BigDecimal.valueOf(100L), 0, java.math.RoundingMode.HALF_UP)
+        .longValueExact()
+}
+
+/** Calculate one month's interest from APR basis points (hundredths of a percent). */
+fun monthlyInterestCents(balanceCents: Long, aprBasisPoints: Int): Long {
+    require(balanceCents >= 0L) { "Balance cannot be negative" }
+    require(aprBasisPoints >= 0) { "APR cannot be negative" }
+    return java.math.BigDecimal.valueOf(balanceCents)
+        .multiply(java.math.BigDecimal.valueOf(aprBasisPoints.toLong()))
+        .divide(java.math.BigDecimal.valueOf(120_000L), 0, java.math.RoundingMode.HALF_UP)
+        .longValueExact()
+}

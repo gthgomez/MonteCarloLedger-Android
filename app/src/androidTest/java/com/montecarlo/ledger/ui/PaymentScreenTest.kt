@@ -103,4 +103,26 @@ class PaymentScreenTest {
             )
         }
     }
+
+    @Test
+    fun addPaymentScreen_appliesRecurringCandidatePrefill() {
+        composeRule.setContent {
+            AppTheme {
+                AddPaymentScreen(
+                    initialDraft = BillPrefill(
+                        name = "Streaming",
+                        suggestedCategory = "subscriptions",
+                        recurrence = "Monthly",
+                        nextDate = "2026-09-15",
+                    ),
+                    onSave = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Streaming").assertIsDisplayed()
+        composeRule.onNodeWithText("Suggested category: subscriptions").assertIsDisplayed()
+        composeRule.onNodeWithText("Monthly").assertIsDisplayed()
+    }
 }

@@ -19,9 +19,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TransactionRuleEntity::class,
         AssetEntity::class,
         GoalEntity::class,
-        CategoryBudgetEntity::class
+        CategoryBudgetEntity::class,
+        DebtEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -35,6 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun assetDao(): AssetDao
     abstract fun goalDao(): GoalDao
     abstract fun categoryBudgetDao(): CategoryBudgetDao
+    abstract fun debtDao(): DebtDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -56,7 +58,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_7_8,
                         MIGRATION_8_9,
                         MIGRATION_9_10,
-                        MIGRATION_10_11
+                        MIGRATION_10_11,
+                        MIGRATION_11_12,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -184,9 +187,34 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS debts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        balanceCents INTEGER NOT NULL,
+                        aprBasisPoints INTEGER NOT NULL,
+                        minimumPaymentCents INTEGER NOT NULL,
+                        dueDayOfMonth INTEGER NOT NULL,
+                        linkedPaymentId INTEGER,
+                        isActive INTEGER NOT NULL,
+                        FOREIGN KEY(linkedPaymentId) REFERENCES payments(id) ON UPDATE NO ACTION ON DELETE SET NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_debts_linkedPaymentId ON debts(linkedPaymentId)")
+            }
+        }
+
         @VisibleForTesting
         val MIGRATION_9_10_FOR_TEST: Migration
             get() = MIGRATION_9_10
+
+        @VisibleForTesting
+        val MIGRATION_11_12_FOR_TEST: Migration
+            get() = MIGRATION_11_12
 
         @VisibleForTesting
         val MIGRATION_10_11_FOR_TEST: Migration
