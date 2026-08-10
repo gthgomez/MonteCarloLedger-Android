@@ -159,11 +159,20 @@ class MigrationTest {
 
     @Test
     fun migrate10To11_updatesVersionAndPreservesData() {
+        // Value above Int.MAX_VALUE to prove SQLite INTEGER + Room Long path retain 64-bit cents.
+        val largeAmountCents = 9_000_000_000L
+
         val db10 = helper.createDatabase(TEST_DB, 10)
+        // Schema v10 transactions columns (no is_reconciled): id, description, amount_cents,
+        // date, type, category, source, review_status, reviewed_at
         db10.execSQL(
             """
-            INSERT INTO transactions (id, description, amount_cents, date, type, is_reconciled, review_status)
-            VALUES (1, 'Large transaction', 9000000000, '2026-04-15', 'expense', 1, 'approved')
+            INSERT INTO transactions (
+                id, description, amount_cents, date, type, category, source, review_status, reviewed_at
+            ) VALUES (
+                1, 'Large transaction', $largeAmountCents, '2026-04-15', 'expense',
+                'uncategorized', 'manual', 'approved', NULL
+            )
             """.trimIndent()
         )
         db10.close()
@@ -181,10 +190,48 @@ class MigrationTest {
         val txnCursor = migratedDb.query(
             "SELECT amount_cents FROM transactions WHERE id = 1"
         )
-        assertTrue(txnCursor.moveToFirst())
-        assertEquals(9000000000L, txnCursor.getLong(0))
+        assertTrue("Large transaction should survive 10→11 migration", txnCursor.moveToFirst())
+        assertEquals(largeAmountCents, txnCursor.getLong(0))
+        assertTrue(
+            "amount_cents must exceed Int.MAX_VALUE to exercise 64-bit storage",
+            txnCursor.getLong(0) > Int.MAX_VALUE.toLong()
+        )
         txnCursor.close()
 
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate11To12_createsEmptyDebtsTableWithoutChangingLedgerRows() {
+        val db11 = helper.createDatabase(TEST_DB, 11)
+        db11.execSQL(
+            """
+            INSERT INTO payments (id, name, amount_cents, frequency, day_of_month, next_date, is_active, isAutoWithdraw)
+            VALUES (1, 'Credit Card Bill', 10000, 'Monthly', 15, '2026-08-15', 1, 0)
+            """.trimIndent()
+        )
+        db11.close()
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            TEST_DB, 12, true,
+            AppDatabase.MIGRATION_11_12_FOR_TEST
+        )
+
+        val tableCursor = migratedDb.query(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='debts'"
+        )
+        assertTrue("debts table should exist after 11→12 migration", tableCursor.moveToFirst())
+        tableCursor.close()
+
+        val paymentCursor = migratedDb.query("SELECT name FROM payments WHERE id = 1")
+        assertTrue("existing bill should survive 11→12 migration", paymentCursor.moveToFirst())
+        assertEquals("Credit Card Bill", paymentCursor.getString(0))
+        paymentCursor.close()
+
+        val debtCursor = migratedDb.query("SELECT COUNT(*) FROM debts")
+        debtCursor.moveToFirst()
+        assertEquals(0, debtCursor.getInt(0))
+        debtCursor.close()
         migratedDb.close()
     }
 }

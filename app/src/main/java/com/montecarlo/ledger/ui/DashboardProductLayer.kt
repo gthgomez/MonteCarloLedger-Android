@@ -176,7 +176,7 @@ internal fun DashboardActionCenterCard(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            "Move ${rec.billName} (${centsToDisplay(rec.amountCents.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt())})",
+                                            "Move ${rec.billName} (${centsToDisplay(rec.amountCents)})",
                                             style = MaterialTheme.typography.titleSmall,
                                             color = GlassTokens.TextPrimary
                                         )
@@ -566,7 +566,7 @@ internal fun SpendPacingCard(
         modifier = modifier
             .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
             .semantics {
-                stateDescription = "Spending pace: $statusText. Actual ${centsToDisplay(pacingResult.actualDailyVelocityCents.toInt())}/day vs Target ${centsToDisplay(pacingResult.targetDailyVelocityCents.toInt())}/day"
+                stateDescription = "Spending pace: $statusText. Actual ${centsToDisplay(pacingResult.actualDailyVelocityCents)}/day vs Target ${centsToDisplay(pacingResult.targetDailyVelocityCents)}/day"
             },
         tint = when (pacingResult.pacingStatus) {
             com.montecarlo.ledger.processing.PacingStatus.CRITICAL -> GlassTint.Error
@@ -602,7 +602,7 @@ internal fun SpendPacingCard(
                 Column {
                     Text("Actual Speed (7-day)", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(
-                        "${centsToDisplay(pacingResult.actualDailyVelocityCents.toInt())}/day",
+                        "${centsToDisplay(pacingResult.actualDailyVelocityCents)}/day",
                         style = MaterialTheme.typography.titleSmall,
                         color = statusColor,
                         fontWeight = FontWeight.Bold,
@@ -611,7 +611,7 @@ internal fun SpendPacingCard(
                 Column(horizontalAlignment = Alignment.End) {
                     Text("Target Speed", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(
-                        "${centsToDisplay(pacingResult.targetDailyVelocityCents.toInt())}/day",
+                        "${centsToDisplay(pacingResult.targetDailyVelocityCents)}/day",
                         style = MaterialTheme.typography.titleSmall,
                         color = GlassTokens.TextPrimary,
                         fontWeight = FontWeight.Bold,

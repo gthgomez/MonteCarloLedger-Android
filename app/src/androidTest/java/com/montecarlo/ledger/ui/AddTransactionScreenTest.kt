@@ -22,7 +22,7 @@ class AddTransactionScreenTest {
 
     private data class SavedTransaction(
         val description: String,
-        val amountCents: Int,
+        val amountCents: Long,
         val linkedOccurrenceId: Int?,
         val category: String,
         val date: String
@@ -76,7 +76,7 @@ class AddTransactionScreenTest {
             val result = saved.value
             assertNotNull(result)
             assertEquals("Rent", result!!.description)
-            assertEquals(-5_000, result.amountCents)
+            assertEquals(-5_000L, result.amountCents)
             assertEquals(44, result.linkedOccurrenceId)
             assertEquals("", result.category)
             assertEquals(today.toString(), result.date)
