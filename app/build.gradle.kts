@@ -4,12 +4,31 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+composeCompiler {
+    includeSourceInformation = false
+    includeTraceMarkers = false
+}
+
+configurations.matching { it.name == "composeMappingProducerClasspath" }.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("org.jetbrains.kotlin:compose-group-mapping")).using(module("androidx.annotation:annotation:1.7.0"))
+    }
+}
+
+tasks.matching { it.name.contains("ComposeMapping") }.configureEach {
+    enabled = false
+}
+
 android {
-    namespace = "com.example.app"
+    namespace = "com.montecarlo.ledger"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.app"
+        applicationId = "com.montecarlo.ledger"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
@@ -20,7 +39,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -34,6 +53,10 @@ android {
         compose = true
     }
 
+    lint {
+        // local.properties is machine-local and gitignored; PropertyEscape is not a product defect.
+        disable += "PropertyEscape"
+    }
 
     packaging {
         resources {
@@ -66,6 +89,10 @@ dependencies {
     // Shared DesignSystem library
     implementation("com.workspace:design")
 
+    // Glance Home Screen Widget
+    implementation("androidx.glance:glance-appwidget:1.1.0")
+    implementation("androidx.glance:glance-material3:1.1.0")
+
     // Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
@@ -84,6 +111,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.5.0")
     testImplementation("org.robolectric:robolectric:4.12.2")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.03.01"))

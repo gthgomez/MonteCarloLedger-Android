@@ -8,6 +8,9 @@ captures/
 
 # Local machine config and signing secrets
 local.properties
+**/local.properties
+DesignSystem/build/
+DesignSystem/.gradle/
 .env
 .env.*
 !.env.example
@@ -46,4 +49,13 @@ reference-montecarlo-ledger
 # Temporary development artifacts
 commitPlan.json
 runs/
+
+
+# Factory campaign run artifacts (briefs/reports stay local)
+plans/factory/
+handoff-*.md
+handoff-*.repro.json
+
+# Factory parallel worktrees
+.factory-wt/
 

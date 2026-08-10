@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MonteCarlo Ledger</string>
+    <string name="widget_description">Safe-to-Spend &amp; Bill Forecast Widget</string>
 </resources>
