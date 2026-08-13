@@ -482,4 +482,32 @@ class BackupExportTest {
         assertEquals(3, snapshot.schemaVersion)
         assertEquals("2026-07-19T12:00:00", snapshot.exportedAtIso)
     }
+
+    @Test
+    fun buildLedgerBackupJson_omitsAppLockPinMaterial() {
+        val json = buildLedgerBackupJson(
+            exportedAtIso = "2026-08-13T12:00:00",
+            uiState = AppUiState(bankBalanceCents = 1_000),
+            incomes = emptyList(),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            settings = listOf(
+                SettingsEntity("starting_balance", "1000"),
+                SettingsEntity("app_lock_enabled", "true"),
+                SettingsEntity("app_lock_pin_salt", "c2FsdA=="),
+                SettingsEntity("app_lock_pin_hash", "aGFzaA=="),
+                SettingsEntity("app_lock_pin_iterations", "120000"),
+                SettingsEntity("app_lock_failed_attempts", "2"),
+                SettingsEntity("app_lock_lockout_until", "999"),
+            ),
+            rules = emptyList(),
+            onboardingProgress = OnboardingProgress(),
+        )
+
+        assertTrue(json.contains("\"key\": \"starting_balance\""))
+        assertFalse(json.contains("app_lock_"))
+        assertFalse(json.contains("c2FsdA=="))
+        assertFalse(json.contains("aGFzaA=="))
+    }
 }

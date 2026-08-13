@@ -38,6 +38,7 @@ data class DebtPayoffSummary(
     val totalPaidCents: Long,
     val payoffDate: LocalDate,
     val monthlySchedule: List<MonthlyPayoffStep>,
+    val didNotConverge: Boolean = false,
 )
 
 data class DebtSimulationResult(
@@ -81,31 +82,38 @@ object DebtPayoffEngine {
                 var dueDate = today.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(today.lengthOfMonth()))
                 if (!dueDate.isAfter(today)) dueDate = dueDate.plusMonths(1)
                 while (!dueDate.isAfter(today.plusDays(90))) {
-                    updatedEvents.add(
-                        ForecastEvent(
-                            date = dueDate,
-                            description = "${debt.name} minimum payment",
-                            amount_cents = debt.minPaymentCents,
-                            type = "expense",
-                        ),
-                    )
+                    val alreadyOnTimeline = updatedEvents.any { event ->
+                        event.date == dueDate &&
+                            (event.type == "bill" || event.type == "expense") &&
+                            event.amount_cents == debt.minPaymentCents
+                    }
+                    if (!alreadyOnTimeline) {
+                        updatedEvents.add(
+                            ForecastEvent(
+                                date = dueDate,
+                                description = "${debt.name} minimum payment",
+                                amount_cents = debt.minPaymentCents,
+                                type = "expense",
+                            ),
+                        )
+                    }
                     val nextMonth = dueDate.plusMonths(1)
                     dueDate = nextMonth.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(nextMonth.lengthOfMonth()))
                 }
             }
-            var currentMonth = today.withDayOfMonth(1).plusMonths(1)
+            var extraDate = today
             val endDate = today.plusDays(90)
 
-            while (!currentMonth.isAfter(endDate)) {
+            while (!extraDate.isAfter(endDate)) {
                 updatedEvents.add(
                     ForecastEvent(
-                        date = currentMonth,
+                        date = extraDate,
                         description = "Extra Debt Payment",
                         amount_cents = extraMonthlyPaymentCents.coerceAtLeast(0L),
                         type = "expense",
                     )
                 )
-                currentMonth = currentMonth.plusMonths(1)
+                extraDate = extraDate.plusMonths(1)
             }
 
             val forecastSummary = ForecastEngine.calculateForecastSummary(
@@ -216,9 +224,22 @@ object DebtPayoffEngine {
                 debt.currentBalanceCents -= extraPayment
                 extraPool -= extraPayment
                 totalPaidCents += extraPayment
+
+                val lastIndex = schedule.indexOfLast {
+                    it.debtId == debt.item.id && it.monthNumber == monthCount
+                }
+                if (lastIndex >= 0) {
+                    val last = schedule[lastIndex]
+                    schedule[lastIndex] = last.copy(
+                        paymentCents = last.paymentCents + extraPayment,
+                        principalCents = last.principalCents + extraPayment,
+                        endingBalanceCents = debt.currentBalanceCents,
+                    )
+                }
             }
         }
 
+        val remaining = debtStates.any { it.currentBalanceCents > 0L }
         return DebtPayoffSummary(
             strategy = strategy,
             monthsToPayoff = monthCount,
@@ -226,6 +247,7 @@ object DebtPayoffEngine {
             totalPaidCents = totalPaidCents,
             payoffDate = currentDate,
             monthlySchedule = schedule,
+            didNotConverge = remaining,
         )
     }
 }

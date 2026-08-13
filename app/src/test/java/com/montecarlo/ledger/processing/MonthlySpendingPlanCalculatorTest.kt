@@ -17,7 +17,6 @@ class MonthlySpendingPlanCalculatorTest {
     fun compute_separatesVariableSpendFromPaidBills() {
         val events = listOf(
             ForecastEvent(today.withDayOfMonth(1), "Paycheck", 300_000, "income"),
-            ForecastEvent(today.withDayOfMonth(20), "Rent", 120_000, "bill"),
             ForecastEvent(today.withDayOfMonth(25), "Internet", 8_000, "bill"),
         )
         val transactions = listOf(
@@ -63,16 +62,64 @@ class MonthlySpendingPlanCalculatorTest {
 
         assertEquals(300_000, plan.expectedIncomeCents)
         assertEquals(300_000, plan.actualIncomeCents)
-        // Remaining bills = still on timeline (rent + internet if not suppressed).
-        // In this fixture events still list rent; real TimelineService would suppress paid rent.
-        assertEquals(128_000, plan.remainingBillsCents)
+        assertEquals(8_000, plan.remainingBillsCents)
         assertEquals(120_000, plan.paidBillsCents)
         // Variable = coffee only (paid rent excluded via bill category / paid occurrence)
         assertEquals(450, plan.variableSpendCents)
         assertEquals(0, plan.goalPlanCents)
-        // left = 300000 - 128000 - 450 - 0
+        // left = posted 300000 - paid rent 120000 - remaining 8000 - coffee 450
         assertEquals(171_550, plan.leftAfterPlanCents)
         assertFalse(plan.isOverPlan)
+    }
+
+    @Test
+    fun compute_usesPostedIncomeWhenPaycheckHasLeftTheTimeline() {
+        val events = listOf(
+            ForecastEvent(today.withDayOfMonth(25), "Internet", 8_000, "bill"),
+        )
+        val transactions = listOf(
+            TransactionEntity(
+                description = "Paycheck: Job",
+                amount_cents = 300_000,
+                date = "2026-04-01",
+                type = "income",
+            ),
+            TransactionEntity(
+                description = "Bill paid: Rent",
+                amount_cents = -120_000,
+                date = "2026-04-05",
+                type = "expense",
+                category = "bills",
+            ),
+            TransactionEntity(
+                description = "Coffee",
+                amount_cents = -450,
+                date = "2026-04-10",
+                type = "expense",
+                category = "food",
+            ),
+        )
+        val occurrences = listOf(
+            BillOccurrenceEntity(
+                id = 1,
+                payment_id = 1,
+                due_date = "2026-04-05",
+                amount_cents = 120_000,
+                is_paid = 1,
+            ),
+        )
+
+        val plan = MonthlySpendingPlanCalculator.compute(
+            monthlyEvents = events,
+            monthTransactions = transactions,
+            billOccurrences = occurrences,
+            goals = emptyList(),
+            today = today,
+        )
+
+        assertEquals(0, plan.expectedIncomeCents)
+        assertEquals(300_000, plan.actualIncomeCents)
+        assertEquals(171_550, plan.leftAfterPlanCents)
     }
 
     @Test
@@ -166,5 +213,20 @@ class MonthlySpendingPlanCalculatorTest {
         assertEquals(10_000, plan.goalPlanCents)
         // 200000 - 50000 - 0 - 10000
         assertEquals(140_000, plan.leftAfterPlanCents)
+    }
+
+    @Test
+    fun suggestedMonthlyGoalFunding_overdueDeadlineIsDueNow() {
+        val goals = listOf(
+            GoalEntity(
+                name = "Emergency",
+                targetAmountCents = 60_000,
+                currentAmountCents = 10_000,
+                deadline = "2026-03-01",
+                createdAt = "2026-01-01",
+            )
+        )
+        val monthly = MonthlySpendingPlanCalculator.suggestedMonthlyGoalFunding(goals, today)
+        assertEquals(50_000, monthly)
     }
 }

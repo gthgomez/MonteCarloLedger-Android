@@ -9,14 +9,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.montecarlo.ledger.AppTheme
 import com.montecarlo.ledger.MainViewModel
 import com.montecarlo.ledger.data.AppDatabase
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -35,12 +33,8 @@ class IncomeBillForecastEndToEndTest {
     @Before
     fun setUp() {
         val app = ApplicationProvider.getApplicationContext<Application>()
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                AppDatabase.getInstance(app).clearAllTables()
-            }
-        }
-        viewModel = MainViewModel(app)
+        val db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
+        viewModel = MainViewModel(app, db)
 
         composeRule.setContent {
             AppTheme {

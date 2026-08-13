@@ -73,7 +73,7 @@ class DashboardScreenTest {
         composeRule.onNodeWithText("What the app calculates by adding up all the paychecks, bills, and spending you've recorded.").assertIsDisplayed()
         composeRule.onNodeWithText("Where the 3-month estimate starts. Uses your confirmed bank balance if available, otherwise uses the app total.").assertIsDisplayed()
         composeRule.onAllNodesWithText("Scheduled bills in forecast: \$25.00").assertCountEquals(1)
-        composeRule.onAllNodesWithText("Okay to spend today: \$90.00").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Safe to spend: \$90.00").assertCountEquals(1)
     }
 
     @Test
@@ -114,7 +114,8 @@ class DashboardScreenTest {
         composeRule.onAllNodesWithText("App total").assertCountEquals(1)
         composeRule.onNodeWithText("\$119.00").assertIsDisplayed()
         composeRule.onAllNodesWithText("Starting point").assertCountEquals(1)
-        composeRule.onAllNodesWithText("Okay to spend today: \$75.00").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Provisional safe-to-spend").assertCountEquals(1)
+        composeRule.onAllNodesWithText("\$75.00").assertCountEquals(1)
     }
 
     @Test
@@ -325,7 +326,7 @@ class DashboardScreenTest {
         composeRule.onAllNodesWithText("App total").assertCountEquals(2)
         composeRule.onNodeWithContentDescription("How to read these numbers").performScrollTo().assertIsDisplayed()
         composeRule.onAllNodesWithText("Starting point").assertCountEquals(2)
-        composeRule.onNodeWithText("Okay to spend today").assertIsDisplayed()
+        composeRule.onNodeWithText("Safe to spend").assertIsDisplayed()
         composeRule.onAllNodesWithText("Log paycheck").assertCountEquals(0)
         composeRule.onAllNodesWithText("Add bill").assertCountEquals(0)
         composeRule.onAllNodesWithText("Record spending").assertCountEquals(0)

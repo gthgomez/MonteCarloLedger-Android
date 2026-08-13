@@ -51,4 +51,16 @@ class RecurrenceMathTest {
         assertEquals(LocalDate.of(2025, 4, 20), RecurrenceMath.previousDate(base, "annually"))
         assertEquals(null, RecurrenceMath.nextDate(base, "onetime"))
     }
+
+    @Test
+    fun annualFeb29RestoresOnTheNextLeapYear() {
+        val leapDay = LocalDate.of(2024, 2, 29)
+        val yearLater = RecurrenceMath.nextDate(leapDay, "annually", 29)
+        val fourYears = generateSequence(leapDay) { RecurrenceMath.nextDate(it, "annually", 29) }
+            .drop(4)
+            .first()
+
+        assertEquals(LocalDate.of(2025, 2, 28), yearLater)
+        assertEquals(LocalDate.of(2028, 2, 29), fourYears)
+    }
 }

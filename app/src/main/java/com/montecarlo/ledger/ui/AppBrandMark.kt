@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.montecarlo.ledger.GlassTokens
@@ -18,8 +19,14 @@ import com.montecarlo.ledger.GlassTokens
 @Composable
 fun AppBrandMark(
     modifier: Modifier = Modifier,
+    contentDescription: String? = "MonteCarlo Ledger",
 ) {
-    Canvas(modifier = modifier.semantics { contentDescription = "MonteCarlo Ledger" }) {
+    val semanticsModifier = if (contentDescription != null) {
+        Modifier.semantics { this.contentDescription = contentDescription }
+    } else {
+        Modifier.clearAndSetSemantics { }
+    }
+    Canvas(modifier = modifier.then(semanticsModifier)) {
         val width = size.width
         val height = size.height
         val centerX = width / 2f

@@ -513,6 +513,7 @@ internal fun parseBillCsv(
     csvText: String,
     sourceName: String = "CSV file",
     mapping: BillCsvColumnMapping? = null,
+    today: LocalDate = LocalDate.now(),
 ): BillCsvImportPreview {
     val lines = csvText
         .lineSequence()
@@ -564,7 +565,7 @@ internal fun parseBillCsv(
         val nextDate = when (normalizedFrequency) {
             "monthly" -> resolvedDueDay?.let {
                 PaymentSchedule.resolveNextPaymentDate(
-                    today = LocalDate.now(),
+                    today = today,
                     recurrence = frequency,
                     dueDay = it,
                     dueDate = dueDate,
@@ -572,7 +573,7 @@ internal fun parseBillCsv(
             }
             else -> dueDate?.let {
                 PaymentSchedule.resolveNextPaymentDate(
-                    today = LocalDate.now(),
+                    today = today,
                     recurrence = frequency,
                     dueDay = resolvedDueDay,
                     dueDate = it,

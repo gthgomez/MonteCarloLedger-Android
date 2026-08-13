@@ -24,7 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
+import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,7 +35,7 @@ internal fun ScheduleDatePickerField(
     onDateSelected: (String) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
-    val initialMillis = remember(dateText) { dateText.toDateMillisOrNull() }
+    val initialMillis = remember(dateText) { dateText.toUtcDateMillisOrNull() }
     val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
 
     OutlinedTextField(
@@ -59,7 +59,7 @@ internal fun ScheduleDatePickerField(
             onDismissRequest = { showPicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    pickerState.selectedDateMillis?.toLocalDateString()?.let(onDateSelected)
+                    pickerState.selectedDateMillis?.utcMillisToLocalDateString()?.let(onDateSelected)
                     showPicker = false
                 }) {
                     Text("OK")
@@ -76,14 +76,14 @@ internal fun ScheduleDatePickerField(
     }
 }
 
-private fun String.toDateMillisOrNull(): Long? {
+internal fun String.toUtcDateMillisOrNull(): Long? {
     val date = runCatching { LocalDate.parse(trim()) }.getOrNull() ?: return null
-    return date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    return date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 }
 
-private fun Long.toLocalDateString(): String {
+internal fun Long.utcMillisToLocalDateString(): String {
     return Instant.ofEpochMilli(this)
-        .atZone(ZoneId.systemDefault())
+        .atZone(ZoneOffset.UTC)
         .toLocalDate()
         .toString()
 }

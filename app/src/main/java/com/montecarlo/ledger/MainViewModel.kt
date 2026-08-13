@@ -34,19 +34,26 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.glance.appwidget.updateAll
+import com.montecarlo.ledger.widget.MonteCarloLedgerGlanceWidget
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel @JvmOverloads constructor(
+    application: Application,
+    database: AppDatabase = AppDatabase.getInstance(application),
+) : AndroidViewModel(application) {
 
-    private val repo: LedgerRepository = LedgerRepository(AppDatabase.getInstance(application))
+    private val repo: LedgerRepository = LedgerRepository(database)
 
     val allIncome: StateFlow<List<IncomeEntity>> = repo.allIncome
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -87,7 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allDebts: StateFlow<List<DebtEntity>> = repo.allDebts
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _uiState = MutableStateFlow(AppUiState())
+    private val _uiState = MutableStateFlow(AppUiState(isLoading = true))
     val uiState: StateFlow<AppUiState> = _uiState
 
     private val _reconciliationMismatch = MutableStateFlow(false)
@@ -104,6 +111,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _appLockThrottleState = MutableStateFlow(AppLockThrottle.ThrottleState())
     val appLockThrottleState: StateFlow<AppLockThrottle.ThrottleState> = _appLockThrottleState.asStateFlow()
+    private val externalActivityDepth = AtomicInteger(0)
 
     init {
         viewModelScope.launch {
@@ -138,6 +146,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 repo.payBillOccurrence(occurrenceId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: IllegalArgumentException) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             } catch (e: Throwable) {
@@ -152,6 +162,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 repo.skipBillOccurrence(occurrenceId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: IllegalArgumentException) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             } catch (e: Throwable) {
@@ -166,6 +178,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 repo.rescheduleBillOccurrence(occurrenceId, dueDate)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: IllegalArgumentException) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             } catch (e: Throwable) {
@@ -291,6 +305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _appLockThrottleState.value = AppLockThrottle.ThrottleState()
                 onResult(true, null)
             }.onFailure { throwable ->
+                if (throwable is CancellationException) throw throwable
                 onResult(false, throwable.message ?: "Unable to enable app lock.")
             }
         }
@@ -305,6 +320,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _appLockThrottleState.value = AppLockThrottle.ThrottleState()
                 onResult(true, null)
             }.onFailure { throwable ->
+                if (throwable is CancellationException) throw throwable
                 onResult(false, throwable.message ?: "Unable to disable app lock.")
             }
         }
@@ -313,6 +329,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun unlockApp(pin: String, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
             val result = runCatching { repo.verifyAppLockPin(pin) }.getOrElse { e ->
+                if (e is CancellationException) throw e
                 LedgerRepository.AppLockVerifyResult.Invalid(e.message ?: "Verification failed.")
             }
             when (result) {
@@ -349,6 +366,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun lockApp() {
         _appLockUnlocked.value = false
     }
+
+    fun beginExternalActivity() {
+        externalActivityDepth.incrementAndGet()
+    }
+
+    fun endExternalActivity() {
+        externalActivityDepth.updateAndGet { depth -> maxOf(0, depth - 1) }
+    }
+
+    fun shouldLockOnBackground(): Boolean = externalActivityDepth.get() == 0
 
     fun addAsset(name: String, type: String, balanceCents: Long) {
         viewModelScope.launch {
@@ -524,7 +551,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _reconciliationMismatch.value = mismatch
                 val driftCents = if (mismatch) ledgerBalanceCents - bankBalanceCents else 0L
                 val totalAssetBalance = pack.assets.sumOf { it.balanceCents }
-                val totalNetWorthCents = ledgerBalanceCents + totalAssetBalance
+                val totalDebtBalance = pack.debts.filter { it.isActive }.sumOf { it.balanceCents }
+                val totalNetWorthCents = ledgerBalanceCents + totalAssetBalance - totalDebtBalance
 
                 val dailyVelocityCents = kotlin.math.abs(flowSummary.outflowCents) / 30
                 val runwayDays = com.montecarlo.ledger.processing.BudgetPacingEngine.clampedRunwayDays(
@@ -638,6 +666,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pacingResult = pacingResult,
                     monteCarloDailyPercentiles = mc.dailyPercentiles,
                     monteCarloResult = mc,
+                )
+                refreshGlanceWidget()
+            }.catch { e ->
+                if (e is CancellationException) throw e
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = e.message ?: "Unable to update dashboard.",
                 )
             }.collect { }
         }
@@ -956,6 +991,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 onSaved()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: IllegalArgumentException) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             } catch (e: Throwable) {
@@ -966,23 +1003,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun importTransactions(transactions: List<TransactionEntity>) {
-        viewModelScope.launch {
+    fun importTransactions(transactions: List<TransactionEntity>, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
             repo.importTransactions(transactions)
         }
     }
 
-    fun importPayments(payments: List<PaymentEntity>) {
-        viewModelScope.launch {
+    fun importPayments(payments: List<PaymentEntity>, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
             repo.importPayments(payments)
         }
     }
 
-    fun restoreBackup(snapshot: LedgerBackupSnapshot) {
-        viewModelScope.launch {
+    fun restoreBackup(snapshot: LedgerBackupSnapshot, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
             repo.restoreBackup(snapshot)
             _reconciliationMismatch.value = false
             _reconciliationDetails.value = null
+        }
+    }
+
+    fun eraseAllData(onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) {
+            repo.eraseAllData()
+            _reconciliationMismatch.value = false
+            _reconciliationDetails.value = null
+            _appLockUnlocked.value = false
+            _appLockThrottleState.value = AppLockThrottle.ThrottleState()
+        }
+    }
+
+    private fun refreshGlanceWidget() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { MonteCarloLedgerGlanceWidget().updateAll(getApplication()) }
         }
     }
 }

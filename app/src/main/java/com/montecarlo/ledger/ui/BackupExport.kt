@@ -7,6 +7,7 @@ import com.montecarlo.ledger.data.CategoryBudgetEntity
 import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.GoalEntity
 import com.montecarlo.ledger.data.IncomeEntity
+import com.montecarlo.ledger.data.isAppLockSettingKey
 import com.montecarlo.ledger.data.OnboardingProgress
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
@@ -57,7 +58,7 @@ internal fun buildLedgerBackupJson(
     appendJsonBooleanField("firstGoalCompleted", onboardingProgress.firstGoalCompleted, indent = "    ")
     appendJsonBooleanField("reconciliationCompleted", onboardingProgress.reconciliationCompleted, indent = "    ", trailingComma = false)
     appendLine("  },")
-    appendJsonArray("settings", settings.map { it.toBackupJson() })
+    appendJsonArray("settings", settings.filterNot { isAppLockSettingKey(it.key) }.map { it.toBackupJson() })
     appendJsonArray("rules", rules.map { it.toBackupJson() })
     appendJsonArray("incomes", incomes.map { it.toBackupJson() })
     appendJsonArray("payments", payments.map { it.toBackupJson() })

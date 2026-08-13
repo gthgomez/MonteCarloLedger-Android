@@ -50,6 +50,26 @@ class PaymentScheduleTest {
     }
 
     @Test
+    fun pastDueDatesAdvanceToTheNextOccurrence() {
+        val today = LocalDate.of(2026, 4, 20)
+        val monthly = PaymentSchedule.resolveNextPaymentDate(
+            today = today,
+            recurrence = "Monthly",
+            dueDay = 15,
+            dueDate = LocalDate.of(2026, 4, 15),
+        )
+        val weekly = PaymentSchedule.resolveNextPaymentDate(
+            today = today,
+            recurrence = "Weekly",
+            dueDay = null,
+            dueDate = LocalDate.of(2026, 4, 6),
+        )
+
+        assertEquals("2026-05-15", monthly)
+        assertEquals("2026-04-20", weekly)
+    }
+
+    @Test
     fun recurrenceSummary_readsLikePolishedProductCopy() {
         assertEquals("Every week", PaymentSchedule.recurrenceSummary("Weekly"))
         assertEquals("Every 2 weeks", PaymentSchedule.recurrenceSummary("Bi-weekly"))

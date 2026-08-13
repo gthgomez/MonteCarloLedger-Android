@@ -42,11 +42,24 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         val widgetData = withContext(Dispatchers.IO) {
             runCatching {
                 val db = AppDatabase.getInstance(context)
+                val settings = db.settingsDao().getAllSettingsList().associate { it.key to it.value }
+                val lockEnabled = settings["app_lock_enabled"].toPersistedBoolean() &&
+                    !settings["app_lock_pin_salt"].isNullOrBlank() &&
+                    !settings["app_lock_pin_hash"].isNullOrBlank()
+                if (lockEnabled) {
+                    return@runCatching WidgetData(
+                        safeToSpendCents = 0L,
+                        nextBillLabel = "Unlock in the app",
+                        riskLabel = "Locked",
+                        loadFailed = false,
+                        locked = true,
+                    )
+                }
+
                 val txns = db.transactionDao().getAllTransactionsList()
                 val incomes = db.incomeDao().getAllIncomesList()
                 val payments = db.paymentDao().getAllPaymentsList()
                 val occurrences = db.billOccurrenceDao().getAllOccurrencesList()
-                val settings = db.settingsDao().getAllSettingsList().associate { it.key to it.value }
 
                 val bankBalanceCents = settings["bank_balance_cents"]?.toLongOrNull() ?: 0L
                 val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
@@ -74,12 +87,16 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
                     safeToSpendCents = safeToSpend,
                     nextBillLabel = nextBillLabel,
                     riskLabel = riskLabel,
+                    loadFailed = false,
+                    locked = false,
                 )
             }.getOrElse {
                 WidgetData(
                     safeToSpendCents = 0L,
-                    nextBillLabel = "Open app to setup",
-                    riskLabel = "Setup required",
+                    nextBillLabel = "Unable to refresh",
+                    riskLabel = "Open the app",
+                    loadFailed = true,
+                    locked = false,
                 )
             }
         }
@@ -90,6 +107,8 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
                     safeToSpendCents = widgetData.safeToSpendCents,
                     nextBillLabel = widgetData.nextBillLabel,
                     riskLabel = widgetData.riskLabel,
+                    loadFailed = widgetData.loadFailed,
+                    locked = widgetData.locked,
                 )
             }
         }
@@ -99,6 +118,8 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         val safeToSpendCents: Long,
         val nextBillLabel: String,
         val riskLabel: String,
+        val loadFailed: Boolean,
+        val locked: Boolean,
     )
 
     @Composable
@@ -106,6 +127,8 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         safeToSpendCents: Long,
         nextBillLabel: String,
         riskLabel: String,
+        loadFailed: Boolean,
+        locked: Boolean,
     ) {
         Column(
             modifier = GlanceModifier
@@ -141,7 +164,11 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
             Spacer(modifier = GlanceModifier.height(4.dp))
 
             Text(
-                text = centsToDisplay(safeToSpendCents),
+                text = when {
+                    locked -> "•••"
+                    loadFailed -> "—"
+                    else -> centsToDisplay(safeToSpendCents)
+                },
                 style = TextStyle(
                     color = ColorProvider(if (safeToSpendCents < 0) Color(0xFFEF4444) else Color(0xFF22D3EE)),
                     fontSize = 24.sp,

@@ -48,22 +48,27 @@ object OverdraftActionEngine {
                 .minByOrNull { it.date }
 
             if (nextPayday != null && upcomingBills.isNotEmpty()) {
-                val heaviestBill = upcomingBills.first()
-                val occurrence = billOccurrences.firstOrNull {
-                    it.due_date == heaviestBill.date.toString() && it.amount_cents == heaviestBill.amount_cents
-                }
+                val targetBill = upcomingBills
+                    .filter { it.date.isBefore(nextPayday.date) }
+                    .maxByOrNull { it.amount_cents }
 
-                val suggestedDate = nextPayday.date.plusDays(1)
-                recommendations.add(
-                    OverdraftRecommendation.RescheduleBill(
-                        occurrenceId = occurrence?.id,
-                        billName = heaviestBill.description,
-                        currentDueDate = heaviestBill.date,
-                        suggestedDueDate = suggestedDate,
-                        amountCents = heaviestBill.amount_cents,
-                        riskReductionPct = minOf(95.0, mcResult.probability_negative_pct * 0.8),
+                if (targetBill != null) {
+                    val occurrence = billOccurrences.firstOrNull {
+                        it.due_date == targetBill.date.toString() && it.amount_cents == targetBill.amount_cents
+                    }
+
+                    val suggestedDate = nextPayday.date.plusDays(1)
+                    recommendations.add(
+                        OverdraftRecommendation.RescheduleBill(
+                            occurrenceId = occurrence?.id,
+                            billName = targetBill.description,
+                            currentDueDate = targetBill.date,
+                            suggestedDueDate = suggestedDate,
+                            amountCents = targetBill.amount_cents,
+                            riskReductionPct = minOf(95.0, mcResult.probability_negative_pct * 0.8),
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -72,7 +77,8 @@ object OverdraftActionEngine {
         if (lowestWindow != null && lowestWindow.lowestBalanceCents < 0L) {
             val deficit = -lowestWindow.lowestBalanceCents
             val days = lowestWindow.days.coerceAtLeast(1)
-            val suggestedCap = (lowestWindow.startingBalanceCents / days).coerceAtLeast(0L)
+            val discretionaryCents = (lowestWindow.startingBalanceCents - lowestWindow.billCents).coerceAtLeast(0L)
+            val suggestedCap = discretionaryCents / days
 
             recommendations.add(
                 OverdraftRecommendation.CapDailySpend(

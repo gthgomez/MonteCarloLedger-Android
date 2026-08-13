@@ -33,7 +33,7 @@ object RecurrenceMath {
             "monthly" -> monthlyDate(date.plusMonths(1), dayOfMonth ?: date.dayOfMonth)
             "bimonthly" -> date.plusMonths(2).let { monthlyDate(it, dayOfMonth ?: date.dayOfMonth) }
             "quarterly" -> date.plusMonths(3).let { monthlyDate(it, dayOfMonth ?: date.dayOfMonth) }
-            "annually", "yearly" -> date.plusYears(1)
+            "annually", "yearly" -> yearlyDate(date.plusYears(1), dayOfMonth ?: date.dayOfMonth)
             "onetime" -> null
             else -> null
         }
@@ -68,7 +68,7 @@ object RecurrenceMath {
             "monthly" -> monthlyDate(date.minusMonths(1), dayOfMonth ?: date.dayOfMonth)
             "bimonthly" -> date.minusMonths(2).let { monthlyDate(it, dayOfMonth ?: date.dayOfMonth) }
             "quarterly" -> date.minusMonths(3).let { monthlyDate(it, dayOfMonth ?: date.dayOfMonth) }
-            "annually", "yearly" -> date.minusYears(1)
+            "annually", "yearly" -> yearlyDate(date.minusYears(1), dayOfMonth ?: date.dayOfMonth)
             "onetime" -> null
             else -> null
         }
@@ -81,5 +81,9 @@ object RecurrenceMath {
     private fun monthlyDate(baseDate: LocalDate, desiredDay: Int): LocalDate {
         val targetDay = desiredDay.coerceIn(1, baseDate.lengthOfMonth())
         return baseDate.withDayOfMonth(targetDay)
+    }
+
+    private fun yearlyDate(baseDate: LocalDate, desiredDay: Int): LocalDate {
+        return monthlyDate(baseDate, desiredDay)
     }
 }
