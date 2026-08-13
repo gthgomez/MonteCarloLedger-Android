@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -198,18 +203,40 @@ internal fun DashboardActionCenterCard(
                             }
                         }
                         is com.montecarlo.ledger.processing.OverdraftRecommendation.CapDailySpend -> {
-                            Text(
-                                "💡 Spending Pace: Cap daily spending at ${centsToDisplay(rec.suggestedDailyCapCents)}/day to cover the ${centsToDisplay(rec.deficitCents)} dip.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = GlassTokens.CyanBright
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Filled.Speed,
+                                    contentDescription = null,
+                                    tint = GlassTokens.CyanBright,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    "Spending pace: Cap daily spending at ${centsToDisplay(rec.suggestedDailyCapCents)}/day to cover the ${centsToDisplay(rec.deficitCents)} dip.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = GlassTokens.CyanBright,
+                                )
+                            }
                         }
                         is com.montecarlo.ledger.processing.OverdraftRecommendation.TransferFromAsset -> {
-                            Text(
-                                "🏦 Emergency Transfer: ${centsToDisplay(rec.suggestedTransferCents)} from ${rec.assetName} available to bridge shortfall.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = GlassTokens.CyanBright
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Filled.AccountBalance,
+                                    contentDescription = null,
+                                    tint = GlassTokens.CyanBright,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    "Emergency transfer: ${centsToDisplay(rec.suggestedTransferCents)} from ${rec.assetName} available to bridge shortfall.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = GlassTokens.CyanBright,
+                                )
+                            }
                         }
                     }
                 }

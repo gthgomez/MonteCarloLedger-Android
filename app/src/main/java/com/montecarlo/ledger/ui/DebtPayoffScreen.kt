@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.processing.DebtItem
 import com.montecarlo.ledger.processing.DebtPayoffEngine
+import com.montecarlo.ledger.processing.DebtPayoffSummary
 import com.montecarlo.ledger.processing.DebtSimulationResult
 import com.montecarlo.ledger.processing.ForecastEvent
 import com.montecarlo.ledger.processing.PayoffStrategy
@@ -209,7 +210,7 @@ fun DebtPayoffScreen(
                         Column {
                             Text("Baseline Payoff", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                             Text(
-                                "${simulationResult.baselineSummary.monthsToPayoff} months",
+                                payoffMonthsLabel(simulationResult.baselineSummary),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = GlassTokens.TextSecondary,
                             )
@@ -223,7 +224,7 @@ fun DebtPayoffScreen(
                         Column(horizontalAlignment = Alignment.End) {
                             Text("Accelerated Payoff", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                             Text(
-                                "${simulationResult.acceleratedSummary.monthsToPayoff} months",
+                                payoffMonthsLabel(simulationResult.acceleratedSummary),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = GlassTokens.CyanBright,
                                 fontWeight = FontWeight.Bold,
@@ -364,5 +365,13 @@ fun DebtPayoffScreen(
                 }
             }
         }
+    }
+}
+
+private fun payoffMonthsLabel(summary: DebtPayoffSummary): String {
+    return if (summary.didNotConverge) {
+        "Does not pay off in 30 years"
+    } else {
+        "${summary.monthsToPayoff} months"
     }
 }

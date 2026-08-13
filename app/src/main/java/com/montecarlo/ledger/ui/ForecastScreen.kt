@@ -330,7 +330,7 @@ private fun ForecastRowCard(row: BalanceForecastRow, tint: GlassTint, isNegative
     val accentColor = if (isNegative) GlassTokens.ErrorRed else GlassTokens.Cyan
     val today = java.time.LocalDate.now()
 
-    GlassCard(tint = tint, surfaceStyle = GlassSurfaceStyle.Quiet, cornerRadius = 12.dp) {
+    SolidListSurface {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -378,7 +378,7 @@ private fun ForecastRowCard(row: BalanceForecastRow, tint: GlassTint, isNegative
             ) {
                 Icon(
                     imageVector = if (isNegative) Icons.AutoMirrored.Filled.TrendingDown else Icons.AutoMirrored.Filled.TrendingUp,
-                    contentDescription = null,
+                    contentDescription = if (isNegative) "Negative balance trend" else "Positive balance trend",
                     tint = accentColor.copy(alpha = 0.7f),
                     modifier = Modifier.size(16.dp),
                 )

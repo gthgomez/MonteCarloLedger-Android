@@ -24,6 +24,7 @@ class ReminderWorker(
         val repo = LedgerRepository(AppDatabase.getInstance(applicationContext))
         val prefs = repo.reminderPreferences.first()
         if (!prefs.enabled) return Result.success()
+        val lockEnabled = repo.appLockPreferences.first().enabled
 
         val parts = mutableListOf<String>()
         val today = LocalDate.now()
@@ -40,15 +41,18 @@ class ReminderWorker(
                     val daysAway = java.time.temporal.ChronoUnit.DAYS.between(today, dueDate).toInt()
                     daysAway in 0..prefs.billReminderDaysBefore
                 }
-                .take(3)
 
             if (dueSoon.isNotEmpty()) {
-                val dueLabels = dueSoon.joinToString(" • ") { occurrence ->
-                    val due = runCatching { LocalDate.parse(occurrence.due_date) }.getOrNull()
-                    val label = due?.format(DateTimeFormatter.ofPattern("MMM d")) ?: occurrence.due_date
-                    "$label ${centsToDisplay(occurrence.amount_cents)}"
+                parts += if (lockEnabled) {
+                    "${dueSoon.size} bills due soon. Open the app to review."
+                } else {
+                    val dueLabels = dueSoon.take(3).joinToString(" • ") { occurrence ->
+                        val due = runCatching { LocalDate.parse(occurrence.due_date) }.getOrNull()
+                        val label = due?.format(DateTimeFormatter.ofPattern("MMM d")) ?: occurrence.due_date
+                        "$label ${centsToDisplay(occurrence.amount_cents)}"
+                    }
+                    "Bills due soon: $dueLabels"
                 }
-                parts += "Bills due soon: $dueLabels"
             }
         }
 

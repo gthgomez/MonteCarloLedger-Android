@@ -11,9 +11,10 @@ import kotlin.math.abs
 /**
  * Monthly spending plan (Simplifi-style):
  *
- * **Left this month = expected income − remaining bills − variable spend − goal plan**
+ * **Left this month = planned income − paid bills − remaining bills − variable spend − goal plan**
  *
- * - Expected income: scheduled income events for the calendar month.
+ * - Planned income: posted income this month plus remaining scheduled income
+ *   that is not already represented in those actuals.
  * - Remaining bills: unpaid bill events still on the timeline for the month.
  * - Paid bills: paid bill occurrences falling in the month (actuals).
  * - Variable spend: expense transactions this month that are not paid bills
@@ -91,8 +92,17 @@ object MonthlySpendingPlanCalculator {
 
         val goalPlanCents = suggestedMonthlyGoalFunding(goals, today)
 
+        val remainingScheduledIncomeCents = monthlyEvents
+            .filter { it.type.equals("income", ignoreCase = true) && !it.date.isBefore(today) }
+            .sumOf { it.amount_cents }
+        val pastDueIncomeOnTimelineCents = monthlyEvents
+            .filter { it.type.equals("income", ignoreCase = true) && it.date.isBefore(today) }
+            .sumOf { it.amount_cents }
+        val unpostedPastIncomeCents = (pastDueIncomeOnTimelineCents - actualIncomeCents).coerceAtLeast(0L)
+        val plannedIncomeCents = actualIncomeCents + remainingScheduledIncomeCents + unpostedPastIncomeCents
+
         val leftAfterPlanCents =
-            expectedIncomeCents - remainingBillsCents - variableSpendCents - goalPlanCents
+            plannedIncomeCents - paidBillsCents - remainingBillsCents - variableSpendCents - goalPlanCents
 
         return MonthlySpendingPlan(
             monthStart = monthStart,
@@ -117,7 +127,9 @@ object MonthlySpendingPlanCalculator {
             val remaining = (goal.targetAmountCents - goal.currentAmountCents).coerceAtLeast(0L)
             if (remaining == 0L) return@sumOf 0L
             val deadline = goal.deadline?.let { parseDateOrNull(it) }
-            if (deadline != null && !deadline.isBefore(today)) {
+            if (deadline != null && deadline.isBefore(today)) {
+                remaining
+            } else if (deadline != null) {
                 val months = ChronoUnit.MONTHS
                     .between(today.withDayOfMonth(1), deadline.withDayOfMonth(1))
                     .toInt()

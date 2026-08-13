@@ -139,11 +139,8 @@ internal fun LazyListScope.analysisInsightsSection(
         }
     } else {
         items(uiState.categorySpend) { spend ->
-            GlassCard(
+            SolidListSurface(
                 modifier = Modifier.heightIn(min = UiLayoutTokens.AnalysisListCardMinHeight),
-                tint = GlassTint.Neutral,
-                surfaceStyle = GlassSurfaceStyle.Quiet,
-                cornerRadius = 12.dp
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -214,11 +211,8 @@ internal fun LazyListScope.analysisInsightsSection(
         }
     } else {
         items(untracked) { candidate ->
-            GlassCard(
+            SolidListSurface(
                 modifier = Modifier.heightIn(min = UiLayoutTokens.AnalysisListCardMinHeight),
-                tint = GlassTint.Violet,
-                surfaceStyle = GlassSurfaceStyle.Quiet,
-                cornerRadius = 12.dp
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
@@ -272,11 +266,8 @@ internal fun LazyListScope.analysisInsightsSection(
         }
     } else {
         items(spendingPatterns) { candidate ->
-            GlassCard(
+            SolidListSurface(
                 modifier = Modifier.heightIn(min = UiLayoutTokens.AnalysisListCardMinHeight),
-                tint = GlassTint.Cyan,
-                surfaceStyle = GlassSurfaceStyle.Quiet,
-                cornerRadius = 12.dp
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
@@ -323,11 +314,8 @@ internal fun LazyListScope.analysisInsightsSection(
         }
     } else {
         items(uiState.adjustments.take(10)) { adj ->
-            GlassCard(
+            SolidListSurface(
                 modifier = Modifier.heightIn(min = UiLayoutTokens.AnalysisListCardMinHeight),
-                tint = GlassTint.Neutral,
-                surfaceStyle = GlassSurfaceStyle.Quiet,
-                cornerRadius = 12.dp
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(adj.description, style = MaterialTheme.typography.bodyMedium, color = GlassTokens.TextPrimary)

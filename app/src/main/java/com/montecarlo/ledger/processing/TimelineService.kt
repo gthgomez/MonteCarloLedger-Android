@@ -61,18 +61,22 @@ object TimelineService {
         val events = mutableListOf<ForecastEvent>()
         var currentDate = parseDateOrNull(income.next_date) ?: return emptyList()
         var firstOccurrence = true
-        val isOneTime = RecurrenceMath.normalizeFrequency(income.frequency) == "onetime"
 
-        // Unpaid one-time income past its date — surface it on today
-        if (isOneTime && currentDate < startDate) {
-            val amount = if (income.expectedAmountCents != null) income.expectedAmountCents else income.amount_cents
+        // Unpaid occurrences before the window still hit cash today (one-time and recurring).
+        while (currentDate < startDate) {
+            val amount = if (firstOccurrence && income.expectedAmountCents != null) {
+                income.expectedAmountCents
+            } else {
+                income.amount_cents
+            }
             events += ForecastEvent(
                 date = startDate,
                 description = income.name,
                 amount_cents = amount.toLong(),
                 type = "income",
             )
-            return events
+            firstOccurrence = false
+            currentDate = RecurrenceMath.nextDate(currentDate, income.frequency, income.day_of_month) ?: return events
         }
 
         while (currentDate < endDate) {
@@ -105,10 +109,9 @@ object TimelineService {
     ): List<ForecastEvent> {
         val events = mutableListOf<ForecastEvent>()
         var currentDate = parseDateOrNull(payment.next_date) ?: return emptyList()
-        val isOneTime = RecurrenceMath.normalizeFrequency(payment.frequency) == "onetime"
 
-        // Unpaid one-time bills past their due date are overdue — surface them on today
-        if (isOneTime && currentDate < startDate) {
+        // Unpaid bills before the window still hit cash today (one-time and recurring).
+        while (currentDate < startDate) {
             val key = Pair(payment.id, currentDate.toString())
             if (key !in suppressedSet) {
                 events += ForecastEvent(
@@ -123,7 +126,7 @@ object TimelineService {
                     ),
                 )
             }
-            return events
+            currentDate = RecurrenceMath.nextDate(currentDate, payment.frequency, payment.day_of_month) ?: return events
         }
 
         while (currentDate < endDate) {
@@ -160,10 +163,11 @@ object TimelineService {
             if (occurrence.is_paid != 0 || occurrence.is_user_modified == 0) return@mapNotNull null
             val payment = paymentById[occurrence.payment_id]?.takeIf { it.is_active != 0 } ?: return@mapNotNull null
             val dueDate = parseDateOrNull(occurrence.due_date) ?: return@mapNotNull null
-            if (dueDate < startDate || dueDate >= endDate) return@mapNotNull null
+            val displayDate = if (dueDate < startDate) startDate else dueDate
+            if (displayDate >= endDate) return@mapNotNull null
 
             ForecastEvent(
-                date = dueDate,
+                date = displayDate,
                 description = payment.name,
                 amount_cents = occurrence.amount_cents.toLong(),
                 type = "bill",

@@ -29,12 +29,25 @@ object PaymentSchedule {
     ): String? {
         return when (normalize(recurrence)) {
             "monthly" -> {
-                if (dueDate != null) return dueDate.toString()
-                val day = (dueDay ?: 1).coerceIn(1, 31)
-                val thisMonth = today.withDayOfMonth(day.coerceAtMost(today.lengthOfMonth()))
-                if (thisMonth >= today) thisMonth.toString() else thisMonth.plusMonths(1).toString()
+                val day = (dueDay ?: dueDate?.dayOfMonth ?: 1).coerceIn(1, 31)
+                var next = dueDate ?: run {
+                    val thisMonth = today.withDayOfMonth(day.coerceAtMost(today.lengthOfMonth()))
+                    if (thisMonth >= today) thisMonth else thisMonth.plusMonths(1)
+                }
+                while (next.isBefore(today)) {
+                    next = RecurrenceMath.nextDate(next, recurrence, day) ?: return next.toString()
+                }
+                next.toString()
             }
-            else -> dueDate?.toString()
+            "onetime" -> dueDate?.toString()
+            else -> {
+                var next = dueDate ?: return null
+                while (next.isBefore(today)) {
+                    next = RecurrenceMath.nextDate(next, recurrence, dueDay ?: next.dayOfMonth)
+                        ?: return next.toString()
+                }
+                next.toString()
+            }
         }
     }
 

@@ -91,7 +91,7 @@ class CsvImportTest {
             Streaming,12.99,Monthly,04/15/2026,no
         """.trimIndent()
 
-        val preview = parseBillCsv(csvText = csv, sourceName = "bills.csv")
+        val preview = parseBillCsv(csvText = csv, sourceName = "bills.csv", today = LocalDate.of(2026, 4, 1))
 
         assertEquals("bills.csv", preview.sourceName)
         assertEquals(2, preview.importedPayments.size)
@@ -122,7 +122,8 @@ class CsvImportTest {
                 dueDateIndex = 3,
                 dueDayIndex = 4,
                 autoIndex = 5,
-            )
+            ),
+            today = LocalDate.of(2026, 4, 1),
         )
 
         assertEquals(2, preview.importedPayments.size)

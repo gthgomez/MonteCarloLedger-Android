@@ -209,6 +209,31 @@ class TimelineServiceTest {
     }
 
     @Test
+    fun generateTimeline_surfacesOverdueMonthlyBillsOnToday() {
+        val today = LocalDate.of(2026, 8, 13)
+        val payment = PaymentEntity(
+            id = 11,
+            name = "Rent",
+            amount_cents = 150_000,
+            frequency = "monthly",
+            day_of_month = 1,
+            next_date = today.minusDays(5).toString(),
+            is_active = 1,
+            isAutoWithdraw = true,
+        )
+
+        val events = TimelineService.generateTimeline(
+            incomes = emptyList(),
+            payments = listOf(payment),
+            startDate = today,
+            daysAhead = 90,
+        )
+
+        assertTrue(events.any { it.type == "bill" && it.description == "Rent" && it.date == today })
+        assertTrue(events.any { it.type == "bill" && it.description == "Rent" && it.date == LocalDate.of(2026, 9, 1) })
+    }
+
+    @Test
     fun generateTimeline_usesExpectedIncomeAmountForFirstOccurrenceOnly() {
         val startDate = LocalDate.of(2026, 1, 1)
         val income = IncomeEntity(

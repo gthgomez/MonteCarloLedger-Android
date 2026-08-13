@@ -93,10 +93,12 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun insertTransaction(entity: TransactionEntity) {
         DomainRules.validateTransactionSign(entity.amount_cents, entity.type)
         val normalized = applyTransactionRules(entity).withReviewState(source = SOURCE_MANUAL)
-        db.transactionDao().insert(normalized)
-        applyTransactionToBankBalanceIfReconciled(normalized.amount_cents)
-        if (normalized.type == "expense") {
-            markOnboardingMilestone(OnboardingMilestone.FIRST_EXPENSE)
+        db.withTransaction {
+            db.transactionDao().insert(normalized)
+            applyTransactionToBankBalanceIfReconciled(normalized.amount_cents)
+            if (normalized.type == "expense") {
+                markOnboardingMilestone(OnboardingMilestone.FIRST_EXPENSE)
+            }
         }
     }
     /**
@@ -185,9 +187,11 @@ class LedgerRepository(private val db: AppDatabase) {
             review_status = REVIEW_APPROVED,
             reviewed_at = entity.reviewed_at ?: LocalDateTime.now().toString(),
         )
-        db.transactionDao().update(reviewed)
-        if (existing != null) {
-            applyTransactionToBankBalanceIfReconciled(reviewed.amount_cents - existing.amount_cents)
+        db.withTransaction {
+            db.transactionDao().update(reviewed)
+            if (existing != null) {
+                applyTransactionToBankBalanceIfReconciled(reviewed.amount_cents - existing.amount_cents)
+            }
         }
     }
     suspend fun approveTransactionReview(transactionId: Int) {
@@ -200,8 +204,10 @@ class LedgerRepository(private val db: AppDatabase) {
         )
     }
     suspend fun deleteTransaction(entity: TransactionEntity) {
-        db.transactionDao().delete(entity)
-        applyTransactionToBankBalanceIfReconciled(-entity.amount_cents)
+        db.withTransaction {
+            db.transactionDao().delete(entity)
+            applyTransactionToBankBalanceIfReconciled(-entity.amount_cents)
+        }
     }
 
     // Assets
@@ -375,43 +381,45 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     suspend fun syncBillOccurrences() {
-        val today = LocalDate.now()
-        // 30-day lookback: catches past-due unpaid bills (matches original timeline_service.py behaviour)
-        val lookback = today.minusDays(30)
-        val horizon = today.plusDays(90)
-        val payments = db.paymentDao().getActive().first()
-        for (payment in payments) {
-            var cursor = LocalDate.parse(payment.next_date)
-            val freq = RecurrenceMath.normalizeFrequency(payment.frequency)
-            val isOneTime = freq == "onetime"
-            val dayOfMonth = payment.day_of_month
-            db.billOccurrenceDao().deleteUnpaidForPaymentBetween(payment.id, lookback, horizon)
-            // Rewind cursor to cover the 30-day lookback window for recurring payments
-            if (!isOneTime) {
-                while (cursor.isAfter(lookback)) {
-                    val prev = RecurrenceMath.previousDate(cursor, payment.frequency, dayOfMonth) ?: break
-                    if (prev.isBefore(lookback)) break
-                    cursor = prev
-                }
-            }
-            while (!cursor.isAfter(horizon)) {
-                if (!cursor.isBefore(lookback)) {
-                    val already = db.billOccurrenceDao().countForPaymentOnScheduleDate(payment.id, cursor.toString())
-                    if (already == 0) {
-                        db.billOccurrenceDao().insert(
-                            BillOccurrenceEntity(
-                                payment_id = payment.id,
-                                due_date = cursor.toString(),
-                                amount_cents = payment.amount_cents,
-                                is_paid = 0,
-                                original_due_date = cursor.toString(),
-                                is_user_modified = 0,
-                                created_at = LocalDateTime.now().toString()
-                            )
-                        )
+        db.withTransaction {
+            val today = LocalDate.now()
+            // 30-day lookback: catches past-due unpaid bills (matches original timeline_service.py behaviour)
+            val lookback = today.minusDays(30)
+            val horizon = today.plusDays(90)
+            val payments = db.paymentDao().getActive().first()
+            for (payment in payments) {
+                var cursor = LocalDate.parse(payment.next_date)
+                val freq = RecurrenceMath.normalizeFrequency(payment.frequency)
+                val isOneTime = freq == "onetime"
+                val dayOfMonth = payment.day_of_month
+                db.billOccurrenceDao().deleteUnpaidForPaymentBetween(payment.id, lookback, horizon)
+                // Rewind cursor to cover the 30-day lookback window for recurring payments
+                if (!isOneTime) {
+                    while (cursor.isAfter(lookback)) {
+                        val prev = RecurrenceMath.previousDate(cursor, payment.frequency, dayOfMonth) ?: break
+                        if (prev.isBefore(lookback)) break
+                        cursor = prev
                     }
                 }
-                cursor = RecurrenceMath.nextDate(cursor, payment.frequency, dayOfMonth) ?: break
+                while (!cursor.isAfter(horizon)) {
+                    if (!cursor.isBefore(lookback)) {
+                        val already = db.billOccurrenceDao().countForPaymentOnScheduleDate(payment.id, cursor.toString())
+                        if (already == 0) {
+                            db.billOccurrenceDao().insert(
+                                BillOccurrenceEntity(
+                                    payment_id = payment.id,
+                                    due_date = cursor.toString(),
+                                    amount_cents = payment.amount_cents,
+                                    is_paid = 0,
+                                    original_due_date = cursor.toString(),
+                                    is_user_modified = 0,
+                                    created_at = LocalDateTime.now().toString()
+                                )
+                            )
+                        }
+                    }
+                    cursor = RecurrenceMath.nextDate(cursor, payment.frequency, dayOfMonth) ?: break
+                }
             }
         }
     }
@@ -656,8 +664,26 @@ class LedgerRepository(private val db: AppDatabase) {
         db.transactionRuleDao().delete(rule)
     }
 
+    suspend fun eraseAllData() {
+        db.withTransaction {
+            db.billOccurrenceDao().deleteAllBillOccurrences()
+            db.transactionDao().deleteAllTransactions()
+            db.paymentDao().deleteAllPayments()
+            db.incomeDao().deleteAllIncomes()
+            db.settingsDao().deleteAllSettings()
+            db.transactionRuleDao().deleteAll()
+            db.assetDao().deleteAllAssets()
+            db.goalDao().deleteAllGoals()
+            db.categoryBudgetDao().deleteAll()
+            db.debtDao().deleteAll()
+        }
+    }
+
     suspend fun restoreBackup(snapshot: LedgerBackupSnapshot) {
         db.withTransaction {
+            val preservedLockSettings = db.settingsDao().getAll().first()
+                .filter { isAppLockSettingKey(it.key) }
+
             // Full wipe so restore never mixes prior assets/goals with restored ledger rows.
             db.billOccurrenceDao().deleteAllBillOccurrences()
             db.transactionDao().deleteAllTransactions()
@@ -681,6 +707,7 @@ class LedgerRepository(private val db: AppDatabase) {
             snapshot.debts.forEach { db.debtDao().insert(it) }
 
             restoreSettings(snapshot)
+            preservedLockSettings.forEach { db.settingsDao().setValue(it) }
         }
     }
 
@@ -706,9 +733,11 @@ class LedgerRepository(private val db: AppDatabase) {
         ensureSetting(KEY_STARTING_BALANCE, "0")
         ensureSetting(KEY_SIMULATION_DAYS, "90")
 
-        settingsByKey.values.forEach { setting ->
-            db.settingsDao().setValue(setting)
-        }
+        settingsByKey.values
+            .filterNot { isAppLockSettingKey(it.key) }
+            .forEach { setting ->
+                db.settingsDao().setValue(setting)
+            }
     }
 
     private fun paymentKey(payment: PaymentEntity): String {
@@ -783,10 +812,12 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     private suspend fun writeBankBalanceCents(amountCents: Long) {
-        db.settingsDao().setValue(SettingsEntity(KEY_BANK_BALANCE, amountCents.toString()))
-        db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, amountCents.toString()))
-        db.settingsDao().setValue(SettingsEntity(KEY_BANK_BALANCE_RECONCILED, "true"))
-        db.settingsDao().setValue(SettingsEntity(KEY_LEGACY_RECONCILED, "true"))
+        db.withTransaction {
+            db.settingsDao().setValue(SettingsEntity(KEY_BANK_BALANCE, amountCents.toString()))
+            db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, amountCents.toString()))
+            db.settingsDao().setValue(SettingsEntity(KEY_BANK_BALANCE_RECONCILED, "true"))
+            db.settingsDao().setValue(SettingsEntity(KEY_LEGACY_RECONCILED, "true"))
+        }
     }
 
     private suspend fun applyTransactionToBankBalanceIfReconciled(deltaCents: Long) {

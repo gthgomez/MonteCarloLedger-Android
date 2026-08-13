@@ -16,9 +16,6 @@
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
 
-# --- Billing ---
--keep class com.android.billingclient.** { *; }
-
 # --- ViewModels ---
 -keep class * extends androidx.lifecycle.ViewModel { *; }
 

@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dashboard
@@ -40,8 +39,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -122,6 +119,7 @@ fun AppView(
     val reminderPreferences by viewModel.reminderPreferences.collectAsStateWithLifecycle()
     val appLockPreferences by viewModel.appLockPreferences.collectAsStateWithLifecycle()
     val appLockUnlocked by viewModel.appLockUnlocked.collectAsStateWithLifecycle()
+    AppLockSessionEffects(viewModel = viewModel, lockEnabled = appLockPreferences.enabled)
     var section by rememberSaveable { mutableStateOf(AppSection.Dashboard) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showRulesScreen by rememberSaveable { mutableStateOf(false) }
@@ -219,7 +217,6 @@ fun AppView(
                     hazeState = hazeState,
                     colorScheme = colorScheme,
                     isCompact = isCompact,
-                    isExpanded = isExpanded,
                 )
 
                 if (addKind == null && selectedIncome == null && selectedPayment == null && selectedTransaction == null && !showSettings && !showRulesScreen) {
@@ -272,7 +269,6 @@ private fun AppChrome(
     hazeState: HazeState,
     colorScheme: androidx.compose.material3.ColorScheme,
     isCompact: Boolean,
-    isExpanded: Boolean,
 ) {
     val title = when {
         selectedIncome != null -> "Edit Income"
@@ -300,6 +296,7 @@ private fun AppChrome(
     var showEncryptDialog by rememberSaveable { mutableStateOf(false) }
     var pendingBackupUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var showDecryptDialog by remember { mutableStateOf<android.net.Uri?>(null) }
+    var showPrivacyDialog by rememberSaveable { mutableStateOf(false) }
     val csvMimeTypes = arrayOf(
         "text/csv",
         "text/plain",
@@ -366,6 +363,7 @@ private fun AppChrome(
     val transactionImportLauncher = rememberLauncherForActivityResult(
         contract = OpenDocument(),
     ) { uri ->
+        viewModel.endExternalActivity()
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -392,6 +390,7 @@ private fun AppChrome(
     val billImportLauncher = rememberLauncherForActivityResult(
         contract = OpenDocument(),
     ) { uri ->
+        viewModel.endExternalActivity()
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -418,6 +417,7 @@ private fun AppChrome(
     val backupLauncher = rememberLauncherForActivityResult(
         contract = CreateDocument("application/json"),
     ) { uri ->
+        viewModel.endExternalActivity()
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -437,6 +437,7 @@ private fun AppChrome(
     val encryptedBackupLauncher = rememberLauncherForActivityResult(
         contract = CreateDocument("application/octet-stream"),
     ) { uri ->
+        viewModel.endExternalActivity()
         if (uri == null) return@rememberLauncherForActivityResult
         pendingBackupUri = uri
         showEncryptDialog = true
@@ -444,6 +445,7 @@ private fun AppChrome(
     val restoreLauncher = rememberLauncherForActivityResult(
         contract = OpenDocument(),
     ) { uri ->
+        viewModel.endExternalActivity()
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -467,6 +469,7 @@ private fun AppChrome(
     val encryptedRestoreLauncher = rememberLauncherForActivityResult(
         contract = OpenDocument(),
     ) { uri ->
+        viewModel.endExternalActivity()
         if (uri != null) {
             showDecryptDialog = uri
         }
@@ -503,28 +506,22 @@ private fun AppChrome(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false),
                         ) {
                             AppBrandMark(
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(28.dp),
+                                contentDescription = null,
                             )
-                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text(
-                                    "MonteCarlo Ledger",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = GlassTokens.TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    title,
-                                    color = GlassTokens.TextPrimary,
-                                    modifier = Modifier.semantics { heading() },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = GlassTokens.TextPrimary,
+                                modifier = Modifier.semantics { heading() },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -576,66 +573,22 @@ private fun AppChrome(
                     .hazeEffect(
                         state = hazeState,
                         style = dev.chrisbanes.haze.HazeStyle(
-                            backgroundColor = colorScheme.surfaceContainerLow.copy(alpha = 0.54f),
+                            backgroundColor = colorScheme.surfaceContainerLow.copy(alpha = 0.62f),
                             tint = dev.chrisbanes.haze.HazeTint(Color.Transparent),
-                            blurRadius = 24.dp,
+                            blurRadius = 14.dp,
                         )
                     )
             )
         },
-        floatingActionButton = {
-            if (selectedIncome == null && selectedPayment == null && selectedTransaction == null && addKind == null && !showSettings) {
-                if (isExpanded) {
-                    ExtendedFloatingActionButton(
-                        onClick = {
-                            onSetAddKind(AddKind.Transaction) // Default to transaction or a picker
-                        },
-                        icon = { Icon(Icons.Filled.Add, contentDescription = "Add Entry") },
-                        text = { Text("Add") },
-                        containerColor = colorScheme.primary.copy(alpha = 0.88f),
-                        contentColor = colorScheme.onPrimary,
-                        modifier = Modifier.border(
-                            width = 1.dp,
-                            color = Color.White.copy(alpha = 0.16f),
-                            shape = androidx.compose.foundation.shape.CircleShape
-                        )
-                    )
-                } else {
-                    FloatingActionButton(
-                        onClick = {
-                            onSetAddKind(AddKind.Transaction)
-                        },
-                        containerColor = colorScheme.primary.copy(alpha = 0.88f),
-                        contentColor = colorScheme.onPrimary,
-                        modifier = Modifier.border(
-                            width = 1.dp,
-                            color = Color.White.copy(alpha = 0.16f),
-                            shape = androidx.compose.foundation.shape.CircleShape
-                        )
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add Entry")
-                    }
-                }
-            }
-        },
         bottomBar = {
             if (isCompact) {
-                // NavBar: Transparent containerColor lets hazeEffect own the surface.
-                // Top-edge border drawn via drawWithContent provides glass separation from content.
+                // NavBar: solid surface preserves glass budget for content heroes (TopAppBar keeps subtle haze).
                 NavigationBar(
-                    containerColor = Color.Transparent,
+                    containerColor = colorScheme.surfaceContainerHigh,
                     modifier = Modifier
-                        .hazeEffect(
-                            state = hazeState,
-                            style = dev.chrisbanes.haze.HazeStyle(
-                                backgroundColor = colorScheme.surfaceContainerHigh.copy(alpha = 0.64f),
-                                tint = dev.chrisbanes.haze.HazeTint(Color.Transparent),
-                                blurRadius = 24.dp,
-                            )
-                        )
                         .drawWithContent {
                             drawContent()
-                            // 1dp top edge border separates frosted bar from content below
+                            // 1dp top edge border separates bar from content below
                             drawRect(
                                 color = GlassTokens.NavBorderTop,
                                 topLeft = Offset.Zero,
@@ -643,7 +596,7 @@ private fun AppChrome(
                             )
                         }
                 ) {
-                    AppSection.entries.forEach { item ->
+                    AppSection.primaryNav.forEach { item ->
                         NavigationBarItem(
                             selected = section == item && selectedIncome == null && selectedPayment == null && selectedTransaction == null && addKind == null,
                             onClick = {
@@ -685,14 +638,45 @@ private fun AppChrome(
                 showSettings -> {
                     SettingsScreen(
                         onDismiss = { onSetShowSettings(false) },
-                        onImportCsv = { transactionImportLauncher.launch(csvMimeTypes) },
-                        onImportBills = { billImportLauncher.launch(csvMimeTypes) },
-                        onBackup = { backupLauncher.launch("montecarlo-ledger-backup-${LocalDateTime.now().toLocalDate()}.json") },
-                        onRestore = { restoreLauncher.launch(jsonMimeTypes) },
-                        onBackupEncrypted = { encryptedBackupLauncher.launch("montecarlo-ledger-backup-${LocalDateTime.now().toLocalDate()}.mcl") },
-                        onRestoreEncrypted = { encryptedRestoreLauncher.launch(encryptedBackupMimeTypes) },
+                        onImportCsv = {
+                            viewModel.beginExternalActivity()
+                            transactionImportLauncher.launch(csvMimeTypes)
+                        },
+                        onImportBills = {
+                            viewModel.beginExternalActivity()
+                            billImportLauncher.launch(csvMimeTypes)
+                        },
+                        onBackup = {
+                            viewModel.beginExternalActivity()
+                            backupLauncher.launch("montecarlo-ledger-backup-${LocalDateTime.now().toLocalDate()}.json")
+                        },
+                        onRestore = {
+                            viewModel.beginExternalActivity()
+                            restoreLauncher.launch(jsonMimeTypes)
+                        },
+                        onBackupEncrypted = {
+                            viewModel.beginExternalActivity()
+                            encryptedBackupLauncher.launch("montecarlo-ledger-backup-${LocalDateTime.now().toLocalDate()}.mcl")
+                        },
+                        onRestoreEncrypted = {
+                            viewModel.beginExternalActivity()
+                            encryptedRestoreLauncher.launch(encryptedBackupMimeTypes)
+                        },
                         onShowReminders = { showReminderSettingsDialog = true },
                         onShowAppLock = { showAppLockSettingsDialog = true },
+                        onShowPrivacy = { showPrivacyDialog = true },
+                        onEraseAllData = {
+                            viewModel.eraseAllData { result ->
+                                val message = result.fold(
+                                    onSuccess = { "All local data erased" },
+                                    onFailure = { it.message ?: "Erase failed" },
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                if (result.isSuccess) {
+                                    onSetShowSettings(false)
+                                }
+                            }
+                        },
                         onShowTransactionRules = { onSetShowRulesScreen(true) },
                         appLockPreferences = appLockPreferences,
                         viewModel = viewModel,
@@ -722,6 +706,9 @@ private fun AppChrome(
                     },
                     onOpenReview = {
                         onSetSection(AppSection.Review)
+                    },
+                    onOpenDebtPayoff = {
+                        onSetSection(AppSection.DebtPayoff)
                     },
                     onEditTransaction = {
                         onSelectTransaction(it)
@@ -933,13 +920,12 @@ private fun AppChrome(
                 preview = preview,
                 onDismiss = { transactionCsvImportPreview = null },
                 onImport = { mappedPreview ->
-                    scope.launch {
-                        viewModel.importTransactions(mappedPreview.importedTransactions)
-                        Toast.makeText(
-                            context,
-                            "Imported ${mappedPreview.importedTransactions.size} transactions",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                    viewModel.importTransactions(mappedPreview.importedTransactions) { result ->
+                        val message = result.fold(
+                            onSuccess = { "Imported ${mappedPreview.importedTransactions.size} transactions" },
+                            onFailure = { it.message ?: "Import failed" },
+                        )
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         transactionCsvImportPreview = null
                     }
                 }
@@ -957,13 +943,12 @@ private fun AppChrome(
                 preview = preview,
                 onDismiss = { billCsvImportPreview = null },
                 onImport = { mappedPreview ->
-                    scope.launch {
-                        viewModel.importPayments(mappedPreview.importedPayments)
-                        Toast.makeText(
-                            context,
-                            "Imported ${mappedPreview.importedPayments.size} bills",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                    viewModel.importPayments(mappedPreview.importedPayments) { result ->
+                        val message = result.fold(
+                            onSuccess = { "Imported ${mappedPreview.importedPayments.size} bills" },
+                            onFailure = { it.message ?: "Import failed" },
+                        )
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         billCsvImportPreview = null
                     }
                 }
@@ -976,9 +961,12 @@ private fun AppChrome(
             snapshot = preview,
             onDismiss = { restoreBackupPreview = null },
             onRestore = {
-                scope.launch {
-                    viewModel.restoreBackup(preview)
-                    Toast.makeText(context, "Backup restored", Toast.LENGTH_SHORT).show()
+                viewModel.restoreBackup(preview) { result ->
+                    val message = result.fold(
+                        onSuccess = { "Backup restored" },
+                        onFailure = { it.message ?: "Restore failed" },
+                    )
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     restoreBackupPreview = null
                 }
             }
@@ -1004,6 +992,10 @@ private fun AppChrome(
                 }
             }
         )
+    }
+
+    if (showPrivacyDialog) {
+        PrivacyPolicyDialog(onDismiss = { showPrivacyDialog = false })
     }
 
     if (showAppLockSettingsDialog) {
@@ -1258,6 +1250,28 @@ private fun RestoreBackupDialog(
 }
 
 @Composable
+private fun PrivacyPolicyDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Privacy policy") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("MonteCarlo Ledger is local-only. Your ledger stays on this device.")
+                Text("The app does not use the INTERNET permission and does not send your data to our servers.")
+                Text("Standard export and encrypted backup use Android's file picker — you choose when and where files are saved.")
+                Text("App Lock PIN is stored as a salted hash on-device only. It is not included in plaintext or encrypted backup files.")
+                Text("Full policy URL: TODO_PRIVACY_URL")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
+}
+
+@Composable
 private fun ReminderSettingsDialog(
     preferences: ReminderPreferences,
     onDismiss: () -> Unit,
@@ -1477,7 +1491,7 @@ private fun AdaptiveNavigationRail(
                 )
             }
     ) {
-        AppSection.entries.forEach { item ->
+        AppSection.primaryNav.forEach { item ->
             NavigationRailItem(
                 selected = section == item,
                 onClick = { onSelectSection(item) },
@@ -1504,6 +1518,11 @@ private enum class AppSection(val label: String, val shortLabel: String, val tit
     Review("Review", "R", "Command Center"),
     Analysis("Forecast", "F", "Forecast"),
     DebtPayoff("Debt", "D", "Debt Payoff");
+
+    companion object {
+        /** Primary bottom/rail destinations — Debt Payoff is reached from Dashboard. */
+        val primaryNav: List<AppSection> = entries.filter { it != DebtPayoff }
+    }
 
     val icon: ImageVector
         get() = when (this) {

@@ -58,6 +58,7 @@ fun DashboardScreen(
     onCheckBalance: () -> Unit = viewModel::checkBalanceConsistency,
     onOpenAnalysis: () -> Unit = {},
     onOpenReview: () -> Unit = onOpenAnalysis,
+    onOpenDebtPayoff: () -> Unit = {},
     onEditTransaction: (TransactionEntity) -> Unit = {},
     hazeState: HazeState? = null
 ) {
@@ -79,6 +80,7 @@ fun DashboardScreen(
         onAddGoal = onAddGoal,
         onOpenAnalysis = onOpenAnalysis,
         onOpenReview = onOpenReview,
+        onOpenDebtPayoff = onOpenDebtPayoff,
         onEditTransaction = onEditTransaction,
         onApproveTransactionReview = viewModel::approveTransactionReview,
         onCreateReviewRule = viewModel::createRuleFromTransactionReview,
@@ -102,6 +104,7 @@ fun DashboardContent(
     onAddGoal: () -> Unit = {},
     onOpenAnalysis: () -> Unit = {},
     onOpenReview: () -> Unit = onOpenAnalysis,
+    onOpenDebtPayoff: () -> Unit = {},
     onEditTransaction: (TransactionEntity) -> Unit = {},
     onApproveTransactionReview: (Int) -> Unit = {},
     onCreateReviewRule: (Int, String) -> Unit = { _, _ -> },
@@ -175,6 +178,7 @@ fun DashboardContent(
                     onCheckBalance = onCheckBalance,
                     onOpenAnalysis = onOpenAnalysis,
                     onOpenReview = onOpenReview,
+                    onOpenDebtPayoff = onOpenDebtPayoff,
                     onEditTransaction = onEditTransaction,
                     onApproveTransactionReview = onApproveTransactionReview,
                     onCreateReviewRule = onCreateReviewRule,
@@ -198,6 +202,7 @@ fun DashboardContent(
                     onCheckBalance = onCheckBalance,
                     onOpenAnalysis = onOpenAnalysis,
                     onOpenReview = onOpenReview,
+                    onOpenDebtPayoff = onOpenDebtPayoff,
                     onEditTransaction = onEditTransaction,
                     onApproveTransactionReview = onApproveTransactionReview,
                     onCreateReviewRule = onCreateReviewRule,
@@ -222,6 +227,7 @@ fun DashboardContent(
                     onCheckBalance = onCheckBalance,
                     onOpenAnalysis = onOpenAnalysis,
                     onOpenReview = onOpenReview,
+                    onOpenDebtPayoff = onOpenDebtPayoff,
                     onEditTransaction = onEditTransaction,
                     onApproveTransactionReview = onApproveTransactionReview,
                     onCreateReviewRule = onCreateReviewRule,
@@ -251,6 +257,7 @@ private fun DashboardCompactBody(
     onCheckBalance: () -> Unit,
     onOpenAnalysis: () -> Unit,
     onOpenReview: () -> Unit,
+    onOpenDebtPayoff: () -> Unit,
     onEditTransaction: (TransactionEntity) -> Unit,
     onApproveTransactionReview: (Int) -> Unit,
     onCreateReviewRule: (Int, String) -> Unit,
@@ -261,30 +268,6 @@ private fun DashboardCompactBody(
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter)) {
-            item {
-                DashboardActionCenterCard(
-                    state = uiState.actionCenter,
-                    onPrimaryAction = {
-                        handleDashboardPrimaryAction(
-                            action = it,
-                            uiState = uiState,
-                            onAddIncome = onAddIncome,
-                            onAddPayment = onAddPayment,
-                            onAddTransaction = onAddTransaction,
-                            onCheckBalance = onCheckBalance,
-                            onOpenAnalysis = onOpenAnalysis,
-                            onOpenReview = onOpenReview,
-                            onEditTransaction = onEditTransaction,
-                        )
-                    },
-                    onApplyRecommendation = onApplyRecommendation,
-                )
-            }
-            item {
-                SpendPacingCard(pacingResult = uiState.pacingResult)
-            }
-        }
         if (uiState.bankLedgerMismatch) {
             item {
                 BalanceDriftBanner(
@@ -307,6 +290,63 @@ private fun DashboardCompactBody(
                 )
             }
         }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter)) {
+            item {
+                DashboardActionCenterCard(
+                    state = uiState.actionCenter,
+                    onPrimaryAction = {
+                        handleDashboardPrimaryAction(
+                            action = it,
+                            uiState = uiState,
+                            onAddIncome = onAddIncome,
+                            onAddPayment = onAddPayment,
+                            onAddTransaction = onAddTransaction,
+                            onCheckBalance = onCheckBalance,
+                            onOpenAnalysis = onOpenAnalysis,
+                            onOpenReview = onOpenReview,
+                            onEditTransaction = onEditTransaction,
+                        )
+                    },
+                    onApplyRecommendation = onApplyRecommendation,
+                )
+            }
+        }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.Balance)) {
+            item {
+                BalanceCard(
+                    reconciled = reconciled,
+                    bankBalanceCents = bankBalanceCents,
+                    ledgerBalanceCents = ledgerBalanceCents,
+                    uiState = uiState,
+                    showForecastCards = showForecastCards,
+                    onboardingProgress = onboardingProgress,
+                    actionCenterVisible = uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter),
+                    hazeState = hazeState,
+                    onCheckBalance = onCheckBalance,
+                    onAddIncome = onAddIncome,
+                    onAddPayment = onAddPayment,
+                    onAddTransaction = onAddTransaction,
+                    onAddGoal = onAddGoal,
+                )
+            }
+        }
+        if (showForecastCards) {
+            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MonteCarlo)) {
+                item {
+                    MonteCarloCard(uiState = uiState)
+                }
+            }
+            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.PlanAhead)) {
+                item {
+                    PlanAheadCard(uiState = uiState)
+                }
+            }
+        }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter)) {
+            item {
+                SpendPacingCard(pacingResult = uiState.pacingResult)
+            }
+        }
         if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ReviewInbox)) {
             item {
                 TransactionReviewInboxCard(
@@ -317,14 +357,14 @@ private fun DashboardCompactBody(
                 )
             }
         }
-        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MoneyBuckets)) {
-            item {
-                MoneyBucketsCard(buckets = uiState.moneyBuckets)
-            }
-        }
         if (uiState.categoryBudgetRows.any { it.overLimit }) {
             item {
                 OverLimitCategoriesCard(rows = uiState.categoryBudgetRows)
+            }
+        }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MoneyBuckets)) {
+            item {
+                MoneyBucketsCard(buckets = uiState.moneyBuckets)
             }
         }
         if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.TrustLayer)) {
@@ -334,23 +374,10 @@ private fun DashboardCompactBody(
         }
         if (onboardingProgress.isComplete) {
             if (showForecastCards) {
-                item { SetupCompleteCard(uiState = uiState) }
-            }
-            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.Balance)) {
                 item {
-                    BalanceCard(
-                        reconciled = reconciled,
-                        bankBalanceCents = bankBalanceCents,
-                        ledgerBalanceCents = ledgerBalanceCents,
+                    SetupCompleteCard(
                         uiState = uiState,
-                        showForecastCards = showForecastCards,
-                        onboardingProgress = onboardingProgress,
-                        hazeState = hazeState,
-                        onCheckBalance = onCheckBalance,
-                        onAddIncome = onAddIncome,
-                        onAddPayment = onAddPayment,
-                        onAddTransaction = onAddTransaction,
-                        onAddGoal = onAddGoal,
+                        actionCenterVisible = uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter),
                     )
                 }
             }
@@ -363,7 +390,10 @@ private fun DashboardCompactBody(
             }
             if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.NetWorth)) {
                 item {
-                    NetWorthCard(uiState = uiState)
+                    NetWorthCard(
+                        uiState = uiState,
+                        onOpenDebtPayoff = onOpenDebtPayoff,
+                    )
                 }
             }
             if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.Goal)) {
@@ -373,24 +403,12 @@ private fun DashboardCompactBody(
             }
         }
         if (showForecastCards) {
-            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.PlanAhead)) {
-                item {
-                    PlanAheadCard(uiState = uiState)
-                }
-            }
-            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MonteCarlo)) {
-                item {
-                    MonteCarloCard(uiState = uiState)
-                }
-            }
             item {
                 UpcomingBillsHeader()
             }
             items(uiState.upcomingBills) { bill ->
-                GlassCard(
+                SolidListSurface(
                     modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
-                    tint = GlassTint.Violet,
-                    surfaceStyle = GlassSurfaceStyle.Quiet,
                 ) {
                     Text(bill, style = MaterialTheme.typography.bodyLarge, color = GlassTokens.TextPrimary)
                 }
@@ -407,10 +425,8 @@ private fun DashboardLoadingBody(modifier: Modifier) {
     ) {
         repeat(4) {
             item {
-                GlassCard(
+                SolidListSurface(
                     modifier = Modifier.fillMaxWidth().height(160.dp).shimmerEffect(),
-                    tint = GlassTint.Neutral,
-                    surfaceStyle = GlassSurfaceStyle.Standard
                 ) {}
             }
         }
@@ -434,6 +450,7 @@ private fun DashboardGridBody(
     onCheckBalance: () -> Unit,
     onOpenAnalysis: () -> Unit,
     onOpenReview: () -> Unit,
+    onOpenDebtPayoff: () -> Unit,
     onEditTransaction: (TransactionEntity) -> Unit,
     onApproveTransactionReview: (Int) -> Unit,
     onCreateReviewRule: (Int, String) -> Unit,
@@ -447,30 +464,6 @@ private fun DashboardGridBody(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter)) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                DashboardActionCenterCard(
-                    state = uiState.actionCenter,
-                    onPrimaryAction = {
-                        handleDashboardPrimaryAction(
-                            action = it,
-                            uiState = uiState,
-                            onAddIncome = onAddIncome,
-                            onAddPayment = onAddPayment,
-                            onAddTransaction = onAddTransaction,
-                            onCheckBalance = onCheckBalance,
-                            onOpenAnalysis = onOpenAnalysis,
-                            onOpenReview = onOpenReview,
-                            onEditTransaction = onEditTransaction,
-                        )
-                    },
-                    onApplyRecommendation = onApplyRecommendation,
-                )
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SpendPacingCard(pacingResult = uiState.pacingResult)
-            }
-        }
         if (uiState.bankLedgerMismatch) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 BalanceDriftBanner(
@@ -493,6 +486,63 @@ private fun DashboardGridBody(
                 )
             }
         }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter)) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                DashboardActionCenterCard(
+                    state = uiState.actionCenter,
+                    onPrimaryAction = {
+                        handleDashboardPrimaryAction(
+                            action = it,
+                            uiState = uiState,
+                            onAddIncome = onAddIncome,
+                            onAddPayment = onAddPayment,
+                            onAddTransaction = onAddTransaction,
+                            onCheckBalance = onCheckBalance,
+                            onOpenAnalysis = onOpenAnalysis,
+                            onOpenReview = onOpenReview,
+                            onEditTransaction = onEditTransaction,
+                        )
+                    },
+                    onApplyRecommendation = onApplyRecommendation,
+                )
+            }
+        }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.Balance)) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                BalanceCard(
+                    reconciled = reconciled,
+                    bankBalanceCents = bankBalanceCents,
+                    ledgerBalanceCents = ledgerBalanceCents,
+                    uiState = uiState,
+                    showForecastCards = showForecastCards,
+                    onboardingProgress = onboardingProgress,
+                    actionCenterVisible = uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter),
+                    hazeState = hazeState,
+                    onCheckBalance = onCheckBalance,
+                    onAddIncome = onAddIncome,
+                    onAddPayment = onAddPayment,
+                    onAddTransaction = onAddTransaction,
+                    onAddGoal = onAddGoal,
+                )
+            }
+        }
+        if (showForecastCards) {
+            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MonteCarlo)) {
+                item {
+                    MonteCarloCard(uiState = uiState)
+                }
+            }
+            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.PlanAhead)) {
+                item {
+                    PlanAheadCard(uiState = uiState)
+                }
+            }
+        }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ActionCenter)) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SpendPacingCard(pacingResult = uiState.pacingResult)
+            }
+        }
         if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.ReviewInbox)) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 TransactionReviewInboxCard(
@@ -503,14 +553,14 @@ private fun DashboardGridBody(
                 )
             }
         }
-        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MoneyBuckets)) {
-            item {
-                MoneyBucketsCard(buckets = uiState.moneyBuckets)
-            }
-        }
         if (uiState.categoryBudgetRows.any { it.overLimit }) {
             item {
                 OverLimitCategoriesCard(rows = uiState.categoryBudgetRows)
+            }
+        }
+        if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MoneyBuckets)) {
+            item {
+                MoneyBucketsCard(buckets = uiState.moneyBuckets)
             }
         }
         if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.TrustLayer)) {
@@ -528,7 +578,10 @@ private fun DashboardGridBody(
             }
             if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.NetWorth)) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    NetWorthCard(uiState = uiState)
+                    NetWorthCard(
+                        uiState = uiState,
+                        onOpenDebtPayoff = onOpenDebtPayoff,
+                    )
                 }
             }
             if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.Goal)) {
@@ -539,38 +592,9 @@ private fun DashboardGridBody(
                     GoalCard(goal = goal)
                 }
             }
-        } else {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.Balance)) {
-                    BalanceCard(
-                        reconciled = reconciled,
-                        bankBalanceCents = bankBalanceCents,
-                        ledgerBalanceCents = ledgerBalanceCents,
-                        uiState = uiState,
-                        showForecastCards = showForecastCards,
-                        onboardingProgress = onboardingProgress,
-                        hazeState = hazeState,
-                        onCheckBalance = onCheckBalance,
-                        onAddIncome = onAddIncome,
-                        onAddPayment = onAddPayment,
-                        onAddTransaction = onAddTransaction,
-                        onAddGoal = onAddGoal,
-                    )
-                }
-            }
         }
         if (showForecastCards) {
-            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.PlanAhead)) {
-                item {
-                    PlanAheadCard(uiState = uiState)
-                }
-            }
-            if (uiState.dashboardConfig.visibleWidgets.contains(DashboardWidget.MonteCarlo)) {
-                item {
-                    MonteCarloCard(uiState = uiState)
-                }
-            }
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 UpcomingBillsCard(upcomingBills = uiState.upcomingBills)
             }
         }
@@ -606,6 +630,7 @@ private fun BalanceCard(
     uiState: AppUiState,
     showForecastCards: Boolean,
     onboardingProgress: OnboardingProgress,
+    actionCenterVisible: Boolean,
     hazeState: HazeState?,
     onCheckBalance: () -> Unit,
     onAddIncome: () -> Unit,
@@ -625,12 +650,14 @@ private fun BalanceCard(
                     append("App balance ${centsToDollarInputString(ledgerBalanceCents)}. ")
                     if (showForecastCards) {
                         append(if (reconciled) "Forecast starts from your bank balance. " else "Forecast starts from your app balance until you confirm. ")
-                        if (!reconciled) {
-                            append("Safe to spend is provisional until you confirm bank balance.")
-                        } else if (uiState.safeToSpendCents < 0) {
-                            append("Balance could dip short over the forecast window.")
-                        } else {
-                            append("Safe to spend ${centsToDollarInputString(uiState.safeToSpendCents)}.")
+                        if (!actionCenterVisible) {
+                            if (!reconciled) {
+                                append("Safe to spend is provisional until you confirm bank balance.")
+                            } else if (uiState.safeToSpendCents < 0) {
+                                append("Balance could dip short over the forecast window.")
+                            } else {
+                                append("Safe to spend ${centsToDollarInputString(uiState.safeToSpendCents)}.")
+                            }
                         }
                     } else {
                         append("Add a paycheck or a bill to start the forecast. ")
@@ -642,10 +669,15 @@ private fun BalanceCard(
         hazeState = hazeState,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Row(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AppBrandMark(modifier = Modifier.size(44.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -662,13 +694,17 @@ private fun BalanceCard(
                         )
                     }
                 }
-                IconButton(onClick = { showHelpDialog = true }) {
+                IconButton(
+                    onClick = { showHelpDialog = true },
+                    modifier = Modifier.minimumIconButtonTouchTarget(),
+                ) {
                     Icon(
                         Icons.Default.Info,
                         contentDescription = "How to read these numbers",
                         tint = GlassTokens.TextSecondary
                     )
                 }
+            }
             Text(
                 if (reconciled) {
                     "This is the bank balance you confirmed."
@@ -747,7 +783,7 @@ private fun BalanceCard(
                 onClick = onCheckBalance,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (showForecastCards) {
+            if (showForecastCards && !actionCenterVisible) {
                 when {
                     !reconciled -> {
                         Text(
@@ -776,8 +812,18 @@ private fun BalanceCard(
                 }
                 
                 Spacer(modifier = Modifier.height(12.dp))
+            } else if (showForecastCards && !reconciled) {
+                Text(
+                    "Confirm your bank balance to unlock a trusted safe-to-spend number.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GlassTokens.TextSecondary,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            } else if (showForecastCards) {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
-                // Runway Bar
+            if (showForecastCards) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Financial Runway", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextSecondary)
@@ -974,7 +1020,10 @@ private fun PlanAheadCard(uiState: AppUiState) {
 }
 
 @Composable
-private fun NetWorthCard(uiState: AppUiState) {
+private fun NetWorthCard(
+    uiState: AppUiState,
+    onOpenDebtPayoff: () -> Unit,
+) {
     val totalAssets = uiState.assets.sumOf { it.balanceCents }
     val netWorth = uiState.totalNetWorthCents
 
@@ -1027,6 +1076,12 @@ private fun NetWorthCard(uiState: AppUiState) {
                         color = GlassTokens.PositiveGreen
                     )
                 }
+            }
+            TextButton(
+                onClick = onOpenDebtPayoff,
+                modifier = Modifier.testTag(DashboardTestTags.DEBT_PAYOFF_LINK),
+            ) {
+                Text("Debt payoff simulator")
             }
         }
     }
@@ -1115,7 +1170,12 @@ private fun MonteCarloCard(uiState: AppUiState) {
         AlertDialog(
             onDismissRequest = { showHelp = false },
             title = { Text("How the 3-month estimate works", color = GlassTokens.TextPrimary) },
-            text = { Text("We run your upcoming income and bills through 500 different scenarios. Each scenario adds random variation to your income (±8%) and occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below $0 at any point in the next 90 days.", color = GlassTokens.TextSecondary) },
+            text = {
+                Text(
+                    "We run your upcoming income and bills through 500 different scenarios in the app (the home-screen widget uses a lighter 100-run sample). Each scenario adds random variation to your income (±8%) and occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below \$0 at any point in the next 90 days.\n\nThese estimates are for planning only and are not financial advice.",
+                    color = GlassTokens.TextSecondary,
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { showHelp = false }) { Text("Got it") }
             }
@@ -1300,7 +1360,10 @@ private fun OnboardingProgressCard(
 }
 
 @Composable
-private fun SetupCompleteCard(uiState: AppUiState) {
+private fun SetupCompleteCard(
+    uiState: AppUiState,
+    actionCenterVisible: Boolean,
+) {
     val dailyBudget = uiState.dailyBudgetCents
     val safeToSpend = uiState.safeToSpendCents
     val nextPayday = uiState.nextPaydayLabel
@@ -1310,8 +1373,8 @@ private fun SetupCompleteCard(uiState: AppUiState) {
 
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        tint = if (overPlan) GlassTint.Error else GlassTint.Cyan,
-        surfaceStyle = GlassSurfaceStyle.Hero,
+        tint = if (overPlan && !actionCenterVisible) GlassTint.Error else GlassTint.Cyan,
+        surfaceStyle = if (actionCenterVisible) GlassSurfaceStyle.Standard else GlassSurfaceStyle.Hero,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
@@ -1321,6 +1384,29 @@ private fun SetupCompleteCard(uiState: AppUiState) {
                 modifier = Modifier.semantics { heading() }
             )
             when {
+                actionCenterVisible && !reconciled -> {
+                    Text(
+                        "Upcoming bills total ${centsToDisplay(billBurden)}. " +
+                            "Numbers below use your app total until you confirm bank balance.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassTokens.TextSecondary,
+                    )
+                }
+                actionCenterVisible && overPlan -> {
+                    val trouble = uiState.firstNegativeDateLabel?.let { " around $it" }.orEmpty()
+                    Text(
+                        "Upcoming bills total ${centsToDisplay(billBurden)}$trouble.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassTokens.TextSecondary,
+                    )
+                }
+                actionCenterVisible -> {
+                    Text(
+                        "Upcoming bills (${centsToDisplay(billBurden)}) before your next payday.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassTokens.TextSecondary,
+                    )
+                }
                 !reconciled -> {
                     Text(
                         "Confirm your bank balance to unlock a trusted safe-to-spend figure. " +
@@ -1352,30 +1438,37 @@ private fun SetupCompleteCard(uiState: AppUiState) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        when {
-                            !reconciled -> "Provisional safe-to-spend"
-                            overPlan -> "Could dip short by"
-                            else -> "Safe to spend"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = GlassTokens.TextDim
-                    )
-                    Text(
-                        if (overPlan) {
-                            "${centsToDisplay(-safeToSpend)}"
-                        } else {
-                            "${centsToDisplay(safeToSpend)}"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        color = if (overPlan) GlassTokens.ErrorRed else GlassTokens.PositiveGreen
-                    )
+                if (!actionCenterVisible) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            when {
+                                !reconciled -> "Provisional safe-to-spend"
+                                overPlan -> "Could dip short by"
+                                else -> "Safe to spend"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = GlassTokens.TextDim
+                        )
+                        Text(
+                            if (overPlan) {
+                                "${centsToDisplay(-safeToSpend)}"
+                            } else {
+                                "${centsToDisplay(safeToSpend)}"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = if (overPlan) GlassTokens.ErrorRed else GlassTokens.PositiveGreen
+                        )
+                    }
                 }
                 Column(
+                    modifier = if (actionCenterVisible) Modifier.fillMaxWidth() else Modifier,
                     verticalArrangement = Arrangement.spacedBy(2.dp),
-                    horizontalAlignment = androidx.compose.ui.Alignment.End
+                    horizontalAlignment = if (actionCenterVisible) {
+                        androidx.compose.ui.Alignment.Start
+                    } else {
+                        androidx.compose.ui.Alignment.End
+                    }
                 ) {
                     Text("Daily budget", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(

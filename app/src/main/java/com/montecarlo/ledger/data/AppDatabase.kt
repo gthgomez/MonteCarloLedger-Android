@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryBudgetEntity::class,
         DebtEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -60,6 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_9_10,
                         MIGRATION_10_11,
                         MIGRATION_11_12,
+                        MIGRATION_12_13,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -216,8 +217,45 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_11_12_FOR_TEST: Migration
             get() = MIGRATION_11_12
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Rebuild so both paths match Room v13: 9→10 used UNIQUE on the column,
+                // while DBs created at 10–12 had no uniqueness at all.
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `category_budgets_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `limitCents` INTEGER NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `createdAt` TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `category_budgets_new` (`id`, `category`, `limitCents`, `enabled`, `createdAt`)
+                    SELECT `id`, `category`, `limitCents`, `enabled`, `createdAt`
+                    FROM `category_budgets`
+                    WHERE `id` IN (
+                        SELECT MIN(`id`) FROM `category_budgets` GROUP BY lower(`category`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `category_budgets`")
+                db.execSQL("ALTER TABLE `category_budgets_new` RENAME TO `category_budgets`")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_category_budgets_category` ON `category_budgets` (`category`)"
+                )
+            }
+        }
+
         @VisibleForTesting
         val MIGRATION_10_11_FOR_TEST: Migration
             get() = MIGRATION_10_11
+
+        @VisibleForTesting
+        val MIGRATION_12_13_FOR_TEST: Migration
+            get() = MIGRATION_12_13
     }
 }

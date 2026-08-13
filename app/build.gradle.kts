@@ -4,6 +4,18 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Room DatabaseVerifier embeds SQLite JDBC, which extracts a native lib into a temp dir that
+// must be readable/writable/executable. Windows C:\WINDOWS\TEMP\ often fails that check.
+// org.sqlite.tmpdir must be a JVM system property (not a Gradle project property).
+val sqliteTmpDir = rootProject.layout.projectDirectory.dir(".tmp/sqlite").asFile
+sqliteTmpDir.mkdirs()
+System.setProperty("org.sqlite.tmpdir", sqliteTmpDir.absolutePath)
+tasks.configureEach {
+    if (this is JavaForkOptions) {
+        systemProperty("org.sqlite.tmpdir", sqliteTmpDir.absolutePath)
+    }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
@@ -84,7 +96,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.exifinterface:exifinterface:1.3.6")
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
 
     // Shared DesignSystem library
     implementation("com.workspace:design")

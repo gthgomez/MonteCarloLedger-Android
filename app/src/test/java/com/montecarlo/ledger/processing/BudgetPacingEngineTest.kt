@@ -115,4 +115,21 @@ class BudgetPacingEngineTest {
         assertTrue(result.runwayDays < 7.0)
         assertEquals(PacingStatus.CRITICAL, result.pacingStatus)
     }
+
+    @Test
+    fun calculatePacing_last7DaysWindowIsSevenCalendarDays() {
+        val inside = TransactionEntity(1, "In window", -7_000, today.minusDays(6).toString(), "expense")
+        val outside = TransactionEntity(2, "Too old", -70_000, today.minusDays(7).toString(), "expense")
+
+        val result = BudgetPacingEngine.calculatePacing(
+            safeToSpendCents = 140_000L,
+            daysToPayday = 14,
+            transactions = listOf(inside, outside),
+            today = today,
+        )
+
+        assertEquals(7_000L, result.spendingLast7DaysCents)
+        assertEquals(1_000L, result.actualDailyVelocityCents)
+        assertEquals(PacingStatus.ON_TRACK, result.pacingStatus)
+    }
 }

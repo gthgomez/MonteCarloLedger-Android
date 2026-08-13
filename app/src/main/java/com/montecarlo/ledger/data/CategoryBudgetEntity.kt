@@ -3,7 +3,10 @@ package com.montecarlo.ledger.data
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "category_budgets")
+@Entity(
+    tableName = "category_budgets",
+    indices = [Index(value = ["category"], unique = true)],
+)
 data class CategoryBudgetEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val category: String,

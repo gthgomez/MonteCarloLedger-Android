@@ -5,14 +5,17 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -37,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.processing.MonteCarloResult
 import com.montecarlo.ledger.util.centsToDisplay
+import com.montecarlo.ledger.util.centsToDisplayWhole
 
 data class FanChartPoint(
     val dayIndex: Int,
@@ -45,6 +49,34 @@ data class FanChartPoint(
     val medianCents: Long,
     val best90Cents: Long,
 )
+
+// Chart-card risk framing: Error ≥10%, watch (Cyan) at 5–<10%, calm (Teal) below 5%.
+private const val FAN_CHART_RISK_ERROR_THRESHOLD_PCT = 10.0
+private const val FAN_CHART_RISK_WATCH_THRESHOLD_PCT = 5.0
+
+private fun fanChartRiskTint(probabilityNegativePct: Double): GlassTint = when {
+    probabilityNegativePct >= FAN_CHART_RISK_ERROR_THRESHOLD_PCT -> GlassTint.Error
+    probabilityNegativePct >= FAN_CHART_RISK_WATCH_THRESHOLD_PCT -> GlassTint.Cyan
+    else -> GlassTint.Teal
+}
+
+private fun fanChartRiskColor(probabilityNegativePct: Double): Color = when {
+    probabilityNegativePct >= FAN_CHART_RISK_ERROR_THRESHOLD_PCT -> GlassTokens.ErrorRed
+    probabilityNegativePct >= FAN_CHART_RISK_WATCH_THRESHOLD_PCT -> GlassTokens.CyanBright
+    else -> GlassTokens.PositiveGreen
+}
+
+private fun fanChartYAxisTicks(minVal: Long, maxVal: Long): List<Long> {
+    val midVal = minVal + (maxVal - minVal) / 2
+    return buildList {
+        add(maxVal)
+        if (minVal < 0L && 0L in minVal..maxVal && 0L != midVal) add(0L)
+        add(midVal)
+        add(minVal)
+    }.distinct().sortedDescending()
+}
+
+private fun fanChartAxisLabel(cents: Long): String = centsToDisplayWhole(cents)
 
 @Composable
 fun LegendBadge(label: String, color: Color) {
@@ -85,14 +117,17 @@ fun MonteCarloFanChart(
     val chartSummary = remember(points, result) {
         val first = points.first()
         val last = points.last()
-        "90-Day stochastic forecast chart starting at ${centsToDisplay(first.medianCents)} and ending at ${centsToDisplay(last.medianCents)}. Risk of overdraft: ${result?.probability_negative_pct ?: 0.0}%."
+        val riskPct = result?.probability_negative_pct ?: 0.0
+        "Next 90 days cash projection from ${centsToDisplay(first.medianCents)} to ${centsToDisplay(last.medianCents)}. Chance of going negative: ${String.format("%.1f", riskPct)}%."
     }
+
+    val chartTint = result?.let { fanChartRiskTint(it.probability_negative_pct) } ?: GlassTint.Teal
 
     GlassCard(
         modifier = modifier
             .fillMaxWidth()
             .semantics { contentDescription = chartSummary },
-        tint = if (result != null && result.probability_negative_pct > 0) GlassTint.Error else GlassTint.Teal,
+        tint = chartTint,
         surfaceStyle = GlassSurfaceStyle.Standard,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -103,22 +138,26 @@ fun MonteCarloFanChart(
             ) {
                 Column {
                     Text(
-                        "90-Day Cash Trajectory & Risk Band",
+                        "Next 90 days",
                         style = MaterialTheme.typography.titleMedium,
                         color = GlassTokens.TextPrimary,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Monte Carlo 500-Run Stochastic Projection",
+                        if (result != null) {
+                            "Projected cash range · ${String.format("%.1f", result.probability_negative_pct)}% chance of going negative"
+                        } else {
+                            "Projected cash range"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = GlassTokens.TextDim,
                     )
                 }
 
                 if (result != null) {
-                    val riskColor = if (result.probability_negative_pct > 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen
+                    val riskColor = fanChartRiskColor(result.probability_negative_pct)
                     Text(
-                        "${String.format("%.1f", result.probability_negative_pct)}% Overdraft Risk",
+                        "${String.format("%.1f", result.probability_negative_pct)}%",
                         style = MaterialTheme.typography.titleSmall,
                         color = riskColor,
                         fontWeight = FontWeight.Bold,
@@ -137,14 +176,35 @@ fun MonteCarloFanChart(
                 LegendBadge(label = "10th (Worst)", color = GlassTokens.ErrorRed)
             }
 
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(190.dp)
+                    .height(190.dp),
             ) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .width(52.dp)
+                        .fillMaxHeight(),
+                ) {
+                    val yAxisTicks = fanChartYAxisTicks(minVal, maxVal)
+                    yAxisTicks.forEach { tickValue ->
+                        val normalized = (tickValue - minVal).toFloat() / valRange
+                        val offsetFromTop = maxHeight * (1f - normalized)
+                        Text(
+                            text = fanChartAxisLabel(tickValue),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = GlassTokens.TextDim,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(y = offsetFromTop - 8.dp),
+                        )
+                    }
+                }
+
                 Canvas(
                     modifier = Modifier
-                        .matchParentSize()
+                        .weight(1f)
+                        .fillMaxHeight()
                         .pointerInput(points) {
                             detectTapGestures { offset ->
                                 val stepX = size.width / (points.size - 1).coerceAtLeast(1)
@@ -169,6 +229,17 @@ fun MonteCarloFanChart(
                     fun getY(value: Long): Float {
                         val normalized = (value - minVal) / valRange
                         return height - (normalized * height)
+                    }
+
+                    val yAxisTicks = fanChartYAxisTicks(minVal, maxVal)
+                    yAxisTicks.forEach { tickValue ->
+                        val tickY = getY(tickValue)
+                        drawLine(
+                            color = GlassTokens.TextDim.copy(alpha = 0.25f),
+                            start = Offset(0f, tickY),
+                            end = Offset(width, tickY),
+                            strokeWidth = 1f,
+                        )
                     }
 
                     // Zero line
@@ -266,27 +337,44 @@ fun MonteCarloFanChart(
                 "Selected Day ${pt.dayIndex}, ${pt.dateLabel}. 10th percentile worst: ${centsToDisplay(pt.worst10Cents)}, 50th percentile typical: ${centsToDisplay(pt.medianCents)}, 90th percentile best: ${centsToDisplay(pt.best90Cents)}."
             } ?: "No day selected. Drag or tap on the chart to inspect daily cash projections."
 
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics(mergeDescendants = true) {
                         contentDescription = selectedPointDescription
                     },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (selectedPoint != null) {
                     Text(
-                        "Day ${selectedPoint.dayIndex} (${selectedPoint.dateLabel}):",
+                        "Day ${selectedPoint.dayIndex} (${selectedPoint.dateLabel})",
                         style = MaterialTheme.typography.bodySmall,
                         color = GlassTokens.TextSecondary,
                     )
-                    Text(
-                        "10th: ${centsToDisplay(selectedPoint.worst10Cents)} | 50th: ${centsToDisplay(selectedPoint.medianCents)} | 90th: ${centsToDisplay(selectedPoint.best90Cents)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GlassTokens.TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "10th: ${centsToDisplay(selectedPoint.worst10Cents)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GlassTokens.TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "50th: ${centsToDisplay(selectedPoint.medianCents)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GlassTokens.TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "90th: ${centsToDisplay(selectedPoint.best90Cents)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GlassTokens.TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 } else {
                     Text(
                         "Drag or tap on the chart to inspect daily cash projections.",

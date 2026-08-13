@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +29,7 @@ import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardWidget
 import com.montecarlo.ledger.MainViewModel
 import com.montecarlo.ledger.util.centsToDisplay
+import com.montecarlo.ledger.util.dollarsToCents
 import com.workspace.design.ConfirmDeleteDialog
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -45,6 +48,8 @@ fun SettingsScreen(
     onRestoreEncrypted: () -> Unit,
     onShowReminders: () -> Unit,
     onShowAppLock: () -> Unit,
+    onShowPrivacy: () -> Unit = {},
+    onEraseAllData: () -> Unit = {},
     onShowTransactionRules: () -> Unit = {},
     appLockPreferences: com.montecarlo.ledger.data.AppLockPreferences,
     viewModel: MainViewModel,
@@ -123,8 +128,8 @@ fun SettingsScreen(
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                val cents = (balance.toDoubleOrNull() ?: 0.0) * 100
-                                viewModel.addAsset(name, type, cents.toLong())
+                                val cents = dollarsToCents(balance)
+                                viewModel.addAsset(name, type, cents)
                                 showAddAssetDialog = false
                             },
                             enabled = name.isNotBlank() && balance.isNotBlank()
@@ -196,8 +201,8 @@ fun SettingsScreen(
 
             item {
                 SettingsCard(
-                    title = "Import from Cloud",
-                    description = "Restore from an encrypted backup file.",
+                    title = "Restore encrypted backup",
+                    description = "Restore from a password-protected local backup file.",
                     icon = Icons.Default.CloudDownload,
                     onClick = onRestoreEncrypted
                 )
@@ -241,6 +246,38 @@ fun SettingsScreen(
                     icon = Icons.Default.Lock,
                     onClick = onShowAppLock
                 )
+            }
+
+            item {
+                SettingsCard(
+                    title = "Privacy policy",
+                    description = "Local-only storage, no network access, and how exports work.",
+                    icon = Icons.Default.PrivacyTip,
+                    onClick = onShowPrivacy
+                )
+            }
+
+            item {
+                var showEraseConfirm by remember { mutableStateOf(false) }
+                SettingsCard(
+                    title = "Erase all local data",
+                    description = "Permanently delete all ledger data on this device.",
+                    icon = Icons.Default.DeleteForever,
+                    onClick = { showEraseConfirm = true },
+                    actionLabel = "Erase",
+                    actionColor = GlassTokens.ErrorRed,
+                )
+                if (showEraseConfirm) {
+                    ConfirmDeleteDialog(
+                        title = "Erase all local data?",
+                        message = "This permanently deletes incomes, bills, transactions, goals, assets, and settings on this device. Export a backup first if you want to keep a copy. This cannot be undone.",
+                        onConfirm = {
+                            onEraseAllData()
+                            showEraseConfirm = false
+                        },
+                        onDismiss = { showEraseConfirm = false },
+                    )
+                }
             }
 
             item {
@@ -411,7 +448,9 @@ private fun SettingsCard(
     title: String,
     description: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    actionLabel: String = "Open",
+    actionColor: Color = GlassTokens.CyanBright,
 ) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
@@ -440,7 +479,7 @@ private fun SettingsCard(
             }
 
             TextButton(onClick = onClick) {
-                Text("Open")
+                Text(actionLabel, color = actionColor)
             }
         }
     }

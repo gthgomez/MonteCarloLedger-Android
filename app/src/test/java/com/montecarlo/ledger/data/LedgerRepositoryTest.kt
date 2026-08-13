@@ -866,4 +866,148 @@ class LedgerRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun restoreBackup_preservesLocalAppLockAndIgnoresSnapshotPinMaterial() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+            db.settingsDao().setValue(SettingsEntity("app_lock_enabled", "true"))
+            db.settingsDao().setValue(SettingsEntity("app_lock_pin_salt", "local-salt"))
+            db.settingsDao().setValue(SettingsEntity("app_lock_pin_hash", "local-hash"))
+            db.settingsDao().setValue(SettingsEntity("app_lock_pin_iterations", "120000"))
+            db.settingsDao().setValue(SettingsEntity("app_lock_failed_attempts", "0"))
+            db.settingsDao().setValue(SettingsEntity("app_lock_lockout_until", "0"))
+            db.settingsDao().setValue(SettingsEntity("bank_balance_cents", "100"))
+
+            val snapshot = LedgerBackupSnapshot(
+                schemaVersion = 3,
+                exportedAtIso = "2026-08-13T12:00:00",
+                bankBalanceCents = 50_00,
+                isBalanceReconciled = false,
+                onboardingProgress = OnboardingProgress(),
+                settings = listOf(
+                    SettingsEntity("app_lock_enabled", "false"),
+                    SettingsEntity("app_lock_pin_salt", "remote-salt"),
+                    SettingsEntity("app_lock_pin_hash", "remote-hash"),
+                    SettingsEntity("app_lock_pin_iterations", "1"),
+                    SettingsEntity("starting_balance", "5000"),
+                ),
+                incomes = emptyList(),
+                payments = emptyList(),
+                transactions = emptyList(),
+                billOccurrences = emptyList(),
+            )
+
+            repo.restoreBackup(snapshot)
+
+            val settings = db.settingsDao().getAll().first().associateBy { it.key }
+            assertEquals("true", settings["app_lock_enabled"]?.value)
+            assertEquals("local-salt", settings["app_lock_pin_salt"]?.value)
+            assertEquals("local-hash", settings["app_lock_pin_hash"]?.value)
+            assertEquals("120000", settings["app_lock_pin_iterations"]?.value)
+            assertEquals("5000", settings["starting_balance"]?.value)
+            assertFalse(settings.values.any { it.value == "remote-salt" || it.value == "remote-hash" })
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun restoreBackup_replacesDebts() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+            db.debtDao().insert(
+                DebtEntity(
+                    name = "Old card",
+                    balanceCents = 99L,
+                    aprBasisPoints = 100,
+                    minimumPaymentCents = 10L,
+                    dueDayOfMonth = 1,
+                    isActive = true,
+                )
+            )
+
+            val snapshot = LedgerBackupSnapshot(
+                schemaVersion = 3,
+                exportedAtIso = "2026-08-13T12:00:00",
+                bankBalanceCents = 0,
+                isBalanceReconciled = false,
+                onboardingProgress = OnboardingProgress(),
+                incomes = emptyList(),
+                payments = emptyList(),
+                transactions = emptyList(),
+                billOccurrences = emptyList(),
+                debts = listOf(
+                    DebtEntity(
+                        id = 5L,
+                        name = "Visa",
+                        balanceCents = 250_000L,
+                        aprBasisPoints = 1_850,
+                        minimumPaymentCents = 10_000L,
+                        dueDayOfMonth = 15,
+                        linkedPaymentId = null,
+                        isActive = true,
+                    )
+                ),
+            )
+
+            repo.restoreBackup(snapshot)
+
+            val restored = db.debtDao().getAll().first()
+            assertEquals(1, restored.size)
+            assertEquals("Visa", restored.single().name)
+            assertEquals(250_000L, restored.single().balanceCents)
+            assertEquals(1_850, restored.single().aprBasisPoints)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun eraseAllData_wipesAllTablesAndSettingsIncludingAppLock() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+            db.incomeDao().insertIncome(
+                IncomeEntity(
+                    name = "Salary",
+                    amount_cents = 5_000_00,
+                    frequency = "monthly",
+                    day_of_month = 1,
+                    next_date = LocalDate.now().toString(),
+                )
+            )
+            db.transactionDao().insert(
+                TransactionEntity(
+                    description = "Coffee",
+                    amount_cents = -500,
+                    date = LocalDate.now().toString(),
+                    type = "expense",
+                    category = "food",
+                )
+            )
+            db.settingsDao().setValue(SettingsEntity("app_lock_enabled", "true"))
+            db.settingsDao().setValue(SettingsEntity("app_lock_pin_salt", "local-salt"))
+            db.settingsDao().setValue(SettingsEntity("bank_balance_cents", "1000"))
+
+            repo.eraseAllData()
+
+            assertTrue(db.incomeDao().getAllIncomes().first().isEmpty())
+            assertTrue(db.transactionDao().getAll().first().isEmpty())
+            assertTrue(db.settingsDao().getAll().first().isEmpty())
+        } finally {
+            db.close()
+        }
+    }
 }

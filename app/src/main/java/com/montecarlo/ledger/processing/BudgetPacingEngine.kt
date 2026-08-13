@@ -42,7 +42,7 @@ object BudgetPacingEngine {
         val daysUntil = maxOf(1, daysToPayday)
         val targetVelocity = if (safeToSpendCents > 0) safeToSpendCents / daysUntil else 0L
 
-        val sevenDaysAgo = today.minusDays(7)
+        val sevenDaysAgo = today.minusDays(6)
         val spendingLast7Days = transactions
             .filter { transaction ->
                 val date = runCatching { LocalDate.parse(transaction.date) }.getOrNull()
@@ -61,8 +61,8 @@ object BudgetPacingEngine {
         val status = when {
             safeToSpendCents <= 0L -> PacingStatus.CRITICAL
             runwayDays < 7.0 && daysUntil > 0 -> PacingStatus.CRITICAL
-            targetVelocity > 0L && actualVelocity > (targetVelocity * 1.40).toLong() -> PacingStatus.CRITICAL
-            targetVelocity > 0L && actualVelocity > (targetVelocity * 1.15).toLong() -> PacingStatus.WARNING
+            targetVelocity > 0L && actualVelocity > (targetVelocity * 140L) / 100L -> PacingStatus.CRITICAL
+            targetVelocity > 0L && actualVelocity > (targetVelocity * 115L) / 100L -> PacingStatus.WARNING
             else -> PacingStatus.ON_TRACK
         }
 

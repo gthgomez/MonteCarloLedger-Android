@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -232,6 +233,69 @@ class MigrationTest {
         debtCursor.moveToFirst()
         assertEquals(0, debtCursor.getInt(0))
         debtCursor.close()
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate12To13_dedupesCategoryBudgetsAndAddsUniqueIndex() {
+        val db12 = helper.createDatabase(TEST_DB, 12)
+        db12.execSQL(
+            """
+            INSERT INTO category_budgets (id, category, limitCents, enabled, createdAt)
+            VALUES (1, 'dining', 10000, 1, '2026-01-01')
+            """.trimIndent()
+        )
+        db12.execSQL(
+            """
+            INSERT INTO category_budgets (id, category, limitCents, enabled, createdAt)
+            VALUES (2, 'Dining', 20000, 1, '2026-02-01')
+            """.trimIndent()
+        )
+        db12.execSQL(
+            """
+            INSERT INTO category_budgets (id, category, limitCents, enabled, createdAt)
+            VALUES (3, 'groceries', 80000, 1, '2026-03-01')
+            """.trimIndent()
+        )
+        db12.close()
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            TEST_DB, 13, true,
+            AppDatabase.MIGRATION_12_13_FOR_TEST
+        )
+
+        val countCursor = migratedDb.query("SELECT COUNT(*) FROM category_budgets")
+        countCursor.moveToFirst()
+        assertEquals(2, countCursor.getInt(0))
+        countCursor.close()
+
+        val diningCursor = migratedDb.query(
+            "SELECT id, category, limitCents FROM category_budgets WHERE lower(category) = 'dining'"
+        )
+        assertTrue("one dining row should survive de-dupe", diningCursor.moveToFirst())
+        assertEquals(1, diningCursor.getInt(0))
+        assertEquals(10000, diningCursor.getInt(2))
+        assertFalse("duplicate dining row should be removed", diningCursor.moveToNext())
+        diningCursor.close()
+
+        val indexCursor = migratedDb.query(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='index_category_budgets_category'"
+        )
+        assertTrue("unique category index should exist after 12→13", indexCursor.moveToFirst())
+        indexCursor.close()
+
+        try {
+            migratedDb.execSQL(
+                """
+                INSERT INTO category_budgets (category, limitCents, enabled, createdAt)
+                VALUES ('groceries', 1, 1, '2026-08-13')
+                """.trimIndent()
+            )
+            throw AssertionError("unique index should reject a duplicate category")
+        } catch (_: Exception) {
+            // Expected unique constraint violation
+        }
+
         migratedDb.close()
     }
 }
