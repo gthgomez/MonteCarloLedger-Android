@@ -28,8 +28,9 @@ import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import java.time.LocalDate
+import com.montecarlo.ledger.util.DollarParseResult
 import com.montecarlo.ledger.util.centsToDisplay
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.parseDollars
 
 private data class TransactionTypeOption(
     val value: String,
@@ -70,7 +71,10 @@ fun AddTransactionScreen(
     var showAdvancedTypes by remember { mutableStateOf(false) }
 
     val amountCents = remember(amountDollars) {
-        dollarsToCents(amountDollars)
+        when (val result = parseDollars(amountDollars)) {
+            is DollarParseResult.Valid -> result.cents
+            else -> 0L
+        }
     }
 
     val billLinkOptions = remember(payments, billOccurrences, amountCents, type) {
@@ -224,10 +228,15 @@ fun AddTransactionScreen(
                 text = "Save",
                 onClick = {
                     localErrorMessage = ""
-                    val rawCents = dollarsToCents(amountDollars)
+                    val parsed = parseDollars(amountDollars)
                     if (description.isBlank()) {
                         localErrorMessage = "Description is required."
                         return@AppPrimaryButton
+                    }
+                    val rawCents = when (parsed) {
+                        is DollarParseResult.Valid -> parsed.cents
+                        DollarParseResult.Empty -> 0L
+                        DollarParseResult.Invalid -> -1L
                     }
                     if (rawCents <= 0L) {
                         localErrorMessage = "Enter a valid amount greater than zero."

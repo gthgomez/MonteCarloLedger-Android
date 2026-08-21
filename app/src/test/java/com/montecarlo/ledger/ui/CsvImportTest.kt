@@ -136,4 +136,49 @@ class CsvImportTest {
         assertEquals(1_299, preview.importedPayments[1].amount_cents)
         assertEquals(false, preview.importedPayments[1].isAutoWithdraw)
     }
+
+    @Test
+    fun parseTransactionCsv_unsignedSingleAmountColumnDefaultsToExpense() {
+        val csv = """
+            Date,Details,Amount
+            2026-04-03,Coffee,4.75
+            2026-04-05,Salary deposit,1200.00
+        """.trimIndent()
+
+        val preview = parseTransactionCsv(csvText = csv)
+
+        // No sign and no direction columns: spending is assumed unless the
+        // description looks like income ("deposit" hint here).
+        assertEquals(-475, preview.importedTransactions[0].amount_cents)
+        assertEquals("expense", preview.importedTransactions[0].type)
+        assertEquals(120_000, preview.importedTransactions[1].amount_cents)
+        assertEquals("income", preview.importedTransactions[1].type)
+    }
+
+    @Test
+    fun parseTransactionCsv_handlesEuropeanDecimalComma() {
+        // EU-style exports quote amounts containing commas.
+        val csv = "Date,Description,Amount\n" +
+            "2026-04-03,Groceries,\"-1.234,56\"\n" +
+            "2026-04-04,Cafe,\"12,50\"\n"
+
+        val preview = parseTransactionCsv(csvText = csv)
+
+        assertEquals(-123_456L, preview.importedTransactions[0].amount_cents)
+        assertEquals(-1_250L, preview.importedTransactions[1].amount_cents)
+    }
+
+    @Test
+    fun parseTransactionCsv_quotedFieldWithEmbeddedNewlineStaysOneRow() {
+        val csv = "Date,Description,Amount\n" +
+            "2026-04-03,\"Paid in two parts:\nsecond part followed\",10.00\n" +
+            "2026-04-04,Other,20.00\n"
+
+        val preview = parseTransactionCsv(csvText = csv)
+
+        // The multiline memo must not split into a ghost row or truncate others.
+        assertEquals(2, preview.importedTransactions.size)
+        assertTrue(preview.importedTransactions[0].description.contains("second part"))
+        assertEquals(0, preview.skippedRows)
+    }
 }

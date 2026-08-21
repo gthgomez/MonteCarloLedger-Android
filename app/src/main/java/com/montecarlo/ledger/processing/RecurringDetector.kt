@@ -1,10 +1,11 @@
 package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.data.RecurringCandidate
+import com.montecarlo.ledger.domain.Categories
+import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.data.TransactionEntity
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 
 object RecurringDetector {
     fun detect(transactions: List<TransactionEntity>): List<RecurringCandidate> {
@@ -14,7 +15,7 @@ object RecurringDetector {
 
         return grouped.mapNotNull { (pattern, items) ->
             if (items.size < 3) return@mapNotNull null
-            val dates = items.mapNotNull { runCatching { LocalDate.parse(it.date) }.getOrNull() }.sorted()
+            val dates = items.mapNotNull { LedgerDate.parseIsoOrNull(it.date) }.sorted()
             if (dates.size < 3) return@mapNotNull null
 
             val gaps = dates.zipWithNext().map { (a, b) -> ChronoUnit.DAYS.between(a, b).toInt() }
@@ -47,13 +48,7 @@ object RecurringDetector {
             .take(8)
     }
 
-    private fun normalizePattern(value: String): String {
-        return value.trim()
-            .lowercase(Locale.ROOT)
-            .replace(Regex("\\s+"), " ")
-    }
+    private fun normalizePattern(value: String): String = Categories.normalize(value)
 
-    private fun normalizeCategory(value: String): String {
-        return value.trim().lowercase(Locale.ROOT)
-    }
+    private fun normalizeCategory(value: String): String = Categories.normalize(value)
 }

@@ -3,9 +3,10 @@ package com.montecarlo.ledger.processing
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.GoalEntity
 import com.montecarlo.ledger.data.TransactionEntity
+import com.montecarlo.ledger.domain.Categories
+import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -61,7 +62,7 @@ object MonthlySpendingPlanCalculator {
         val paidBillsCents = billOccurrences
             .filter { it.is_paid != 0 }
             .mapNotNull { occurrence ->
-                val due = parseDateOrNull(occurrence.due_date) ?: return@mapNotNull null
+                val due = LedgerDate.parseIsoOrNull(occurrence.due_date) ?: return@mapNotNull null
                 if (due.isBefore(monthStart) || !due.isBefore(monthEndExclusive)) return@mapNotNull null
                 occurrence.amount_cents
             }
@@ -82,7 +83,7 @@ object MonthlySpendingPlanCalculator {
             monthTransactions
                 .filter {
                     it.type.equals("expense", ignoreCase = true) &&
-                        it.category.trim().lowercase(Locale.ROOT) in BILL_CATEGORIES
+                        Categories.isBillCategory(it.category)
                 }
                 .sumOf { it.amount_cents }
         )
@@ -126,7 +127,7 @@ object MonthlySpendingPlanCalculator {
         return goals.sumOf { goal ->
             val remaining = (goal.targetAmountCents - goal.currentAmountCents).coerceAtLeast(0L)
             if (remaining == 0L) return@sumOf 0L
-            val deadline = goal.deadline?.let { parseDateOrNull(it) }
+            val deadline = goal.deadline?.let { LedgerDate.parseIsoOrNull(it) }
             if (deadline != null && deadline.isBefore(today)) {
                 remaining
             } else if (deadline != null) {
@@ -142,8 +143,4 @@ object MonthlySpendingPlanCalculator {
         }
     }
 
-    private fun parseDateOrNull(value: String): LocalDate? =
-        runCatching { LocalDate.parse(value.trim()) }.getOrNull()
-
-    private val BILL_CATEGORIES = setOf("bills", "bill", "utilities", "rent", "subscriptions")
 }

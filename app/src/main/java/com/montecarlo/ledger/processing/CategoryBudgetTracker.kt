@@ -2,8 +2,9 @@ package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.data.CategoryBudgetEntity
 import com.montecarlo.ledger.data.TransactionEntity
-import java.time.LocalDate
+import com.montecarlo.ledger.domain.Categories
 import java.util.Locale
+import java.time.LocalDate
 import kotlin.math.abs
 
 /**
@@ -72,8 +73,7 @@ object CategoryBudgetTracker {
         }
     }
 
-    private fun normalizeCategory(category: String): String =
-        category.trim().lowercase(Locale.ROOT)
+    private fun normalizeCategory(category: String): String = Categories.normalize(category)
 
     private fun parseDateOrNull(value: String): LocalDate? =
         runCatching { LocalDate.parse(value.trim()) }.getOrNull()

@@ -28,8 +28,9 @@ import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardWidget
 import com.montecarlo.ledger.MainViewModel
+import com.montecarlo.ledger.util.DollarParseResult
 import com.montecarlo.ledger.util.centsToDisplay
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.parseDollars
 import com.workspace.design.ConfirmDeleteDialog
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -94,6 +95,7 @@ fun SettingsScreen(
                 var name by remember { mutableStateOf("") }
                 var balance by remember { mutableStateOf("") }
                 var type by remember { mutableStateOf("Stock") }
+                var addAssetError by remember { mutableStateOf("") }
                 val types = listOf("Cash", "Stock", "Crypto", "Property", "Other")
 
                 AlertDialog(
@@ -109,10 +111,13 @@ fun SettingsScreen(
                             )
                             OutlinedTextField(
                                 value = balance,
-                                onValueChange = { balance = it },
+                                onValueChange = { balance = it; addAssetError = "" },
                                 label = { Text("Current Balance ($)") },
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            if (addAssetError.isNotBlank()) {
+                                Text(addAssetError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
                             Text("Type", style = MaterialTheme.typography.labelSmall)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 types.forEach { t ->
@@ -128,9 +133,13 @@ fun SettingsScreen(
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                val cents = dollarsToCents(balance)
-                                viewModel.addAsset(name, type, cents)
-                                showAddAssetDialog = false
+                                when (val parsed = parseDollars(balance)) {
+                                    is DollarParseResult.Valid -> {
+                                        viewModel.addAsset(name, type, parsed.cents)
+                                        showAddAssetDialog = false
+                                    }
+                                    else -> addAssetError = "Enter a valid balance amount."
+                                }
                             },
                             enabled = name.isNotBlank() && balance.isNotBlank()
                         ) {

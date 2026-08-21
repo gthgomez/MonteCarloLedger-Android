@@ -13,6 +13,7 @@ import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
 import com.montecarlo.ledger.data.CategoryRulePresets
 import com.montecarlo.ledger.data.CategorySpend
+import com.montecarlo.ledger.domain.Categories
 import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.FlowSummary
 import com.montecarlo.ledger.data.GoalEntity
@@ -33,6 +34,7 @@ import com.montecarlo.ledger.processing.OverdraftActionEngine
 import com.montecarlo.ledger.processing.RecurringDetector
 import com.montecarlo.ledger.processing.TimelineService
 import com.montecarlo.ledger.ui.formatDateDisplay
+import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.centsToDisplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,7 +42,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 
 /**
  * Pure-ish derivation pipeline for the dashboard: turns one consistent snapshot of
@@ -178,7 +179,7 @@ class DashboardDeriver {
 
         // Pacing Sparkline Calculation
         val currentMonthTxns = pack.txns.filter {
-            val d = runCatching { LocalDate.parse(it.date) }.getOrNull()
+            val d = LedgerDate.parseIsoOrNull(it.date)
             d != null && d.month == today.month && d.year == today.year && it.type == "expense"
         }
         val currentMonthPacing = (1..today.dayOfMonth).map { day ->
@@ -282,7 +283,7 @@ class DashboardDeriver {
 
     private fun List<TransactionEntity>.recentTransactionsSince(since: LocalDate): List<TransactionEntity> {
         return filter { transaction ->
-            val parsedDate = runCatching { LocalDate.parse(transaction.date) }.getOrNull()
+            val parsedDate = LedgerDate.parseIsoOrNull(transaction.date)
             parsedDate != null && !parsedDate.isBefore(since)
         }
     }
@@ -306,34 +307,34 @@ class DashboardDeriver {
         today: LocalDate,
     ): List<TransactionReviewItem> {
         val recentCutoff = today.minusDays(14)
-        val recurringByPattern = recurringCandidates.associateBy { it.pattern.lowercase(Locale.ROOT) }
+        val recurringByPattern = recurringCandidates.associateBy { Categories.normalize(it.pattern) }
         return transactions.asSequence()
             .filter { it.review_status == "pending" || it.type == "expense" }
             .filter { transaction ->
-                val parsedDate = runCatching { LocalDate.parse(transaction.date) }.getOrNull()
+                val parsedDate = LedgerDate.parseIsoOrNull(transaction.date)
                 transaction.review_status == "pending" ||
-                    transaction.category.equals("uncategorized", ignoreCase = true) ||
+                    Categories.isUncategorized(transaction.category) ||
                     (transaction.reviewed_at == null && parsedDate != null && !parsedDate.isBefore(recentCutoff))
             }
             .sortedWith(
                 compareByDescending<TransactionEntity> { it.review_status == "pending" }
                     .thenByDescending { it.category.equals("uncategorized", ignoreCase = true) }
-                    .thenByDescending { runCatching { LocalDate.parse(it.date) }.getOrNull() ?: LocalDate.MIN }
+                    .thenByDescending { LedgerDate.parseIsoOrNull(it.date) ?: LocalDate.MIN }
                     .thenByDescending { kotlin.math.abs(it.amount_cents) }
             )
             .take(6)
             .map { transaction ->
-                val normalizedDescription = transaction.description.trim().lowercase(Locale.ROOT)
+                val normalizedDescription = Categories.normalize(transaction.description)
                 val recurringMatch = recurringByPattern[normalizedDescription]
                 val suggestedCategory = when {
-                    !transaction.category.equals("uncategorized", ignoreCase = true) -> transaction.category
+                    !Categories.isUncategorized(transaction.category) -> transaction.category
                     recurringMatch != null && !recurringMatch.category.equals("uncategorized", ignoreCase = true) -> recurringMatch.category
                     else -> inferCategory(transaction.description)
                 }
                 val reason = when {
                     transaction.source == "csv_import" -> "Imported transaction"
                     transaction.review_status == "pending" -> "New activity"
-                    transaction.category.equals("uncategorized", ignoreCase = true) -> "Needs category"
+                    Categories.isUncategorized(transaction.category) -> "Needs category"
                     recurringMatch != null -> "Recurring pattern"
                     else -> "New activity"
                 }

@@ -3,8 +3,8 @@ package com.montecarlo.ledger.processing
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
+import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
-import java.util.Locale
 
 object TimelineService {
 
@@ -59,7 +59,7 @@ object TimelineService {
         endDate: LocalDate,
     ): List<ForecastEvent> {
         val events = mutableListOf<ForecastEvent>()
-        var currentDate = parseDateOrNull(income.next_date) ?: return emptyList()
+        var currentDate = LedgerDate.parseIsoOrNull(income.next_date) ?: return emptyList()
         var firstOccurrence = true
 
         // Unpaid occurrences before the window still hit cash today (one-time and recurring).
@@ -108,7 +108,7 @@ object TimelineService {
         suppressedSet: Set<Pair<Int, String>> = emptySet(),
     ): List<ForecastEvent> {
         val events = mutableListOf<ForecastEvent>()
-        var currentDate = parseDateOrNull(payment.next_date) ?: return emptyList()
+        var currentDate = LedgerDate.parseIsoOrNull(payment.next_date) ?: return emptyList()
 
         // Unpaid bills before the window still hit cash today (one-time and recurring).
         while (currentDate < startDate) {
@@ -162,7 +162,7 @@ object TimelineService {
         return occurrences.mapNotNull { occurrence ->
             if (occurrence.is_paid != 0 || occurrence.is_user_modified == 0) return@mapNotNull null
             val payment = paymentById[occurrence.payment_id]?.takeIf { it.is_active != 0 } ?: return@mapNotNull null
-            val dueDate = parseDateOrNull(occurrence.due_date) ?: return@mapNotNull null
+            val dueDate = LedgerDate.parseIsoOrNull(occurrence.due_date) ?: return@mapNotNull null
             val displayDate = if (dueDate < startDate) startDate else dueDate
             if (displayDate >= endDate) return@mapNotNull null
 
@@ -178,9 +178,5 @@ object TimelineService {
                 ),
             )
         }
-    }
-
-    private fun parseDateOrNull(value: String): LocalDate? {
-        return runCatching { LocalDate.parse(value) }.getOrNull()
     }
 }
