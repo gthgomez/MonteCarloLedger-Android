@@ -1160,6 +1160,13 @@ private fun MonteCarloCard(uiState: AppUiState) {
                 color = if (uiState.probabilityNegativePct > 25) GlassTokens.ErrorRed
                 else GlassTokens.TextSecondary
             )
+            uiState.monteCarloBasisLabel?.takeIf { it.isNotBlank() }?.let { basis ->
+                Text(
+                    basis,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GlassTokens.TextDim
+                )
+            }
             uiState.projectedTroubleDateLabel?.let {
                 Text("Most likely low point: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
             }
