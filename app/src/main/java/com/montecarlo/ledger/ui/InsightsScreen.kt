@@ -123,6 +123,33 @@ internal fun LazyListScope.analysisInsightsSection(
         )
     }
 
+    if (uiState.forecastInsights.isNotEmpty()) {
+        item {
+            Text(
+                "Why your 3-month estimate looks like this",
+                style = MaterialTheme.typography.labelLarge,
+                color = GlassTokens.TextSecondary,
+                modifier = Modifier.semantics { heading() }
+            )
+        }
+        item {
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                tint = GlassTint.Teal,
+                surfaceStyle = GlassSurfaceStyle.Standard,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    uiState.forecastInsights.forEach { insight ->
+                        Column {
+                            Text(insight.label, style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary)
+                            Text(insight.detail, style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (uiState.categorySpend.isEmpty()) {
         item {
             GlassCard(

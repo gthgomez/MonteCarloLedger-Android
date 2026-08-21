@@ -60,6 +60,8 @@ data class AppUiState(
     val monteCarloResult: com.montecarlo.ledger.processing.MonteCarloResult? = null,
     /** Honest provenance for the simulation ranges (calibrated from history vs defaults). */
     val monteCarloBasisLabel: String? = null,
+    /** Plain-language explanations of what drives the 3-month estimate. */
+    val forecastInsights: List<com.montecarlo.ledger.processing.ForecastInsight> = emptyList(),
 )
 
 enum class DashboardWidget {

@@ -2,6 +2,8 @@ package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.domain.Categories
+import com.montecarlo.ledger.util.LedgerDate
+import com.montecarlo.ledger.util.centsToDisplay
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.Locale
@@ -203,4 +205,128 @@ object MonteCarloCalibrator {
 
     private fun monthsBetween(from: YearMonth, to: YearMonth): Int =
         (to.year - from.year) * 12 + (to.monthValue - from.monthValue)
+}
+
+/**
+ * A single human-readable observation about why the 3-month estimate looks the way
+ * it does. Closes the loop between statistical calibration and user understanding:
+ * the bands stop being decoration when the app can say what drives them.
+ */
+data class ForecastInsight(
+    val label: String,
+    val detail: String,
+)
+
+/**
+ * Derives plain-language insights from the same history that calibrated the engine.
+ *
+ * Deterministic and side-effect free; ordered most-relevant first and capped so the
+ * UI never renders a wall of caveats.
+ */
+object MonteCarloInsights {
+
+    private const val MAX_INSIGHTS = 4
+    private const val MIN_CATEGORY_SHARE = 0.10
+
+    fun generate(
+        transactions: List<TransactionEntity>,
+        today: LocalDate,
+        calibration: MonteCarloCalibration,
+        recurringPatterns: Set<String> = RecurringDetector.detect(transactions)
+            .map { Categories.normalize(it.pattern) }
+            .toSet(),
+    ): List<ForecastInsight> {
+        if (transactions.isEmpty()) return emptyList()
+
+        val insights = mutableListOf<ForecastInsight>()
+
+        if (!calibration.isCalibrated) {
+            val logged = calibration.monthsCovered
+            insights += ForecastInsight(
+                label = "Using default assumptions",
+                detail = if (logged == 0) {
+                    "Log a few weeks of spending to start personalizing your 3-month estimate."
+                } else {
+                    "$logged month(s) logged so far — ${MonteCarloCalibration.MIN_CALIBRATED_MONTHS} months personalizes every band below."
+                }
+            )
+        }
+
+        val dated = transactions.mapNotNull { txn ->
+            val date = LedgerDate.parseIsoOrNull(txn.date) ?: return@mapNotNull null
+            txn to YearMonth.from(date)
+        }
+        val expenseItems = dated.filter { it.first.type == "expense" && abs(it.first.amount_cents) > 0L }
+        val totalExpense = expenseItems.sumOf { abs(it.first.amount_cents) }.toDouble()
+
+        if (totalExpense > 0.0) {
+            val shares = expenseItems
+                .groupBy { Categories.normalize(it.first.category) }
+                .mapValues { (_, items) -> items.sumOf { abs(it.first.amount_cents) } }
+                .filterKeys { it != Categories.UNCATEGORIZED }
+
+            // Volatility driver: highest-variance well-represented category.
+            val driver = calibration.expenseCategoryVariation.entries
+                .filter { (shares[it.key]?.toDouble() ?: 0.0) / totalExpense >= MIN_CATEGORY_SHARE }
+                .maxByOrNull { it.value.first }
+            if (driver != null && driver.value.first >= 15) {
+                insights += ForecastInsight(
+                    label = "\"${driver.key.replaceFirstChar { it.uppercase() }}\" drives your forecast swings",
+                    detail = "Swings roughly ±${driver.value.first}% month to month — the largest source of uncertainty in your estimate."
+                )
+            }
+
+            // Steady anchor: lowest-variance well-represented category.
+            val anchor = calibration.expenseCategoryVariation.entries
+                .filter { (shares[it.key]?.toDouble() ?: 0.0) / totalExpense >= MIN_CATEGORY_SHARE }
+                .minByOrNull { it.value.first }
+            if (anchor != null && anchor.value.first <= 6) {
+                insights += ForecastInsight(
+                    label = "\"${anchor.key.replaceFirstChar { it.uppercase() }}\" is a steady anchor",
+                    detail = "Holding within ±${anchor.value.first}% month to month — a reliable baseline for planning."
+                )
+            }
+
+            // Surprise cadence: how often irregular charges actually land.
+            val irregular = expenseItems
+                .filter { Categories.normalize(it.first.description) !in recurringPatterns }
+                .map { abs(it.first.amount_cents) }
+                .sorted()
+            if (irregular.size >= 3 && calibration.surpriseProbability > 0.05) {
+                val spikeThreshold = percentileOf(irregular, 0.75)
+                if (spikeThreshold > 0L) {
+                    val spikedMonths = expenseItems
+                        .filter { abs(it.first.amount_cents) >= spikeThreshold && Categories.normalize(it.first.description) !in recurringPatterns }
+                        .map { it.second }
+                        .toSet()
+                    val typical = percentileOf(irregular, 0.5)
+                    insights += ForecastInsight(
+                        label = "Unexpected charges are part of your pattern",
+                        detail = "They landed in ${spikedMonths.size} of the last ${calibration.monthsCovered} months, typically around ${centsToDisplay(typical)} each."
+                    )
+                }
+            }
+
+            // Income stability only when we have income history to speak about.
+            if (calibration.incomeVariationMax > 0) {
+                insights += ForecastInsight(
+                    label = "Income swings ±${calibration.incomeVariationMax}%",
+                    detail = "Your paycheck amounts vary month to month; the estimate accounts for that."
+                )
+            } else if (dated.none { it.first.type == "income" }) {
+                insights += ForecastInsight(
+                    label = "Income not calibrated yet",
+                    detail = "Record a couple of paychecks and the bands will reflect how steady yours really is."
+                )
+            }
+        }
+
+        return insights.take(MAX_INSIGHTS)
+    }
+
+    private fun percentileOf(sortedValues: List<Long>, fraction: Double): Long {
+        if (sortedValues.isEmpty()) return 0L
+        val index = (fraction * (sortedValues.size - 1)).toInt().coerceIn(0, sortedValues.lastIndex)
+        return sortedValues[index]
+    }
 }
