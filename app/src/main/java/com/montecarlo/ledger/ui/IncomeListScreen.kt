@@ -41,7 +41,8 @@ import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.MainViewModel
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.util.centsToDisplay
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.DollarParseResult
+import com.montecarlo.ledger.util.parseDollars
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +73,10 @@ fun IncomeListScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    val rawCents = dollarsToCents(paydayAmount)
+                    val rawCents = when (val parsed = parseDollars(paydayAmount)) {
+                        is DollarParseResult.Valid -> parsed.cents
+                        else -> 0L
+                    }
                     val cents = if (rawCents > 0L) rawCents
                                 else income.expectedAmountCents ?: income.amount_cents
                     viewModel.processPayday(income, cents)

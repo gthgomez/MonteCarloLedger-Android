@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.LocalDateTime
+import com.montecarlo.ledger.domain.Categories
 import com.montecarlo.ledger.domain.DomainRules
 import com.montecarlo.ledger.processing.CategoryRuleEngine
 import com.montecarlo.ledger.processing.RecurrenceMath
@@ -13,6 +14,7 @@ import com.montecarlo.ledger.data.LedgerBackupSnapshot
 import com.montecarlo.ledger.security.SecretHash
 import com.montecarlo.ledger.security.SecurityUtils
 import java.util.Locale
+import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.toPersistedBoolean
 
 class LedgerRepository(private val db: AppDatabase) {
@@ -87,6 +89,12 @@ class LedgerRepository(private val db: AppDatabase) {
         }
     }
 
+    // Accounts (v1 groundwork: primary pipeline still uses bank_balance settings)
+    val allAccounts: Flow<List<AccountEntity>> = db.accountDao().getAll()
+    suspend fun insertAccount(account: AccountEntity): Long = db.accountDao().insert(account)
+    suspend fun updateAccount(account: AccountEntity) = db.accountDao().update(account)
+    suspend fun deleteAccount(account: AccountEntity) = db.accountDao().delete(account)
+    suspend fun getDefaultAccount(): AccountEntity? = db.accountDao().getDefault()
     // Transactions
     val allTransactions: Flow<List<TransactionEntity>> = db.transactionDao().getAll()
     val allTransactionRules: Flow<List<TransactionRuleEntity>> = db.transactionRuleDao().getAll()
@@ -243,9 +251,9 @@ class LedgerRepository(private val db: AppDatabase) {
     // Category Budgets (soft watchlists)
     val allCategoryBudgets: Flow<List<CategoryBudgetEntity>> = db.categoryBudgetDao().getAll()
     suspend fun upsertCategoryBudget(budget: CategoryBudgetEntity) {
-        val normalized = budget.copy(category = budget.category.trim().lowercase(Locale.ROOT))
+        val normalized = budget.copy(category = Categories.normalize(budget.category))
         val existing = db.categoryBudgetDao().getAll().first()
-            .firstOrNull { it.category.trim().lowercase(Locale.ROOT) == normalized.category }
+            .firstOrNull { Categories.normalize(it.category) == normalized.category }
         if (existing != null) {
             db.categoryBudgetDao().update(normalized.copy(id = existing.id))
         } else {
@@ -381,8 +389,8 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     suspend fun rescheduleBillOccurrence(id: Int, dueDate: String) {
-        val parsedDueDate = runCatching { LocalDate.parse(dueDate.trim()) }
-            .getOrElse { throw IllegalArgumentException("Enter a valid due date.") }
+        val parsedDueDate = LedgerDate.parseIsoOrNull(dueDate)
+            ?: throw IllegalArgumentException("Enter a valid due date.")
         val occurrence = db.billOccurrenceDao().getById(id)
             ?: throw IllegalArgumentException("Occurrence not found.")
         db.billOccurrenceDao().update(
@@ -806,7 +814,7 @@ class LedgerRepository(private val db: AppDatabase) {
         val allTxns = db.transactionDao().getAll().first()
         val targetTxns = allTxns.filter { txn ->
             val desc = normalizeRuleText(txn.description)
-            desc.contains(normalizedMatch) && (txn.category.equals("uncategorized", ignoreCase = true) || txn.category.isBlank())
+            desc.contains(normalizedMatch) && Categories.isUncategorized(txn.category)
         }
 
         db.withTransaction {
@@ -849,17 +857,8 @@ class LedgerRepository(private val db: AppDatabase) {
         )
     }
 
-    private fun normalizeRuleText(value: String): String {
-        return value.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
-    }
+    private fun normalizeRuleText(value: String): String = Categories.normalize(value)
 
-    private fun normalizeTransactionCategory(value: String): String {
-        val normalized = value.trim()
-        return if (normalized.isBlank() || normalized.equals("uncategorized", ignoreCase = true)) {
-            "uncategorized"
-        } else {
-            normalized
-        }
-    }
+    private fun normalizeTransactionCategory(value: String): String = Categories.normalizeOrUncategorized(value)
 
 }

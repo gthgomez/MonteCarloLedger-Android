@@ -58,6 +58,8 @@ data class AppUiState(
     val pacingResult: com.montecarlo.ledger.processing.BudgetPacingResult? = null,
     val monteCarloDailyPercentiles: List<com.montecarlo.ledger.processing.DailyPercentilePoint> = emptyList(),
     val monteCarloResult: com.montecarlo.ledger.processing.MonteCarloResult? = null,
+    /** Honest provenance for the simulation ranges (calibrated from history vs defaults). */
+    val monteCarloBasisLabel: String? = null,
 )
 
 enum class DashboardWidget {

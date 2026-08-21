@@ -32,9 +32,11 @@ import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.domain.DomainRules
 import java.time.LocalDate
+import com.montecarlo.ledger.util.DollarParseResult
+import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.centsToDisplay
 import com.montecarlo.ledger.util.centsToDollarInputString
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.parseDollars
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -109,7 +111,10 @@ fun EditIncomeScreen(
                     }
                 }
                 EditPayType.FLAT, EditPayType.PER_PROJECT -> {
-                    dollarsToCents(flatAmount)
+                    when (val parsed = parseDollars(flatAmount)) {
+                        is DollarParseResult.Valid -> parsed.cents
+                        else -> 0L
+                    }
                 }
             }
         }
@@ -288,12 +293,18 @@ fun EditIncomeScreen(
                 onClick = {
                     val cents = computedCents
                     val validation = DomainRules.validateIncomeSign(cents)
-                    val nextPayday = runCatching { LocalDate.parse(nextPaydayIso) }.getOrNull()
-                    val expectedAmount = dollarsToCents(expectedAmountDollars).takeIf { expectedAmountDollars.isNotBlank() }
+                    val nextPayday = LedgerDate.parseIsoOrNull(nextPaydayIso)
+                    val expectedParsed = parseDollars(expectedAmountDollars)
+                    val expectedAmount = when {
+                        expectedParsed is DollarParseResult.Valid -> expectedParsed.cents
+                        else -> null
+                    }
                     if (payType == EditPayType.HOURLY && (hourlyRate.toDoubleOrNull() ?: 0.0) <= 0) {
                         errorMessage = "Enter a valid hourly rate"
                     } else if (payType == EditPayType.HOURLY && (hoursPerWeek.toDoubleOrNull() ?: 0.0) <= 0) {
                         errorMessage = "Enter hours worked per week"
+                    } else if (expectedParsed is DollarParseResult.Invalid) {
+                        errorMessage = "Enter a valid expected amount"
                     } else if (validation.isFailure || cents <= 0) {
                         errorMessage = validation.exceptionOrNull()?.message ?: "Invalid income amount"
                     } else if (nextPayday == null) {

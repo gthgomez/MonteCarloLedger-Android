@@ -298,4 +298,27 @@ class MigrationTest {
 
         migratedDb.close()
     }
-}
+
+    @Test
+    fun migrate13To14_createsAccountsAndSeedsDefaultFromBankBalance() {
+        val db13 = helper.createDatabase(TEST_DB, 13)
+
+        db13.execSQL(
+            """
+            INSERT INTO settings (key, value) VALUES ('bank_balance_cents', '42500')
+            """.trimIndent()
+        )
+        db13.close()
+
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 14, true, AppDatabase.MIGRATION_13_14_FOR_TEST)
+
+        val cursor = migratedDb.query("SELECT name, type, balanceCents, isDefault FROM accounts")
+        assertTrue("default account row should be seeded", cursor.moveToFirst())
+        assertEquals("Primary account", cursor.getString(0))
+        assertEquals("checking", cursor.getString(1))
+        assertEquals(42500L, cursor.getLong(2))
+        assertEquals(1, cursor.getInt(3))
+        assertFalse(cursor.moveToNext())
+        cursor.close()
+        migratedDb.close()
+    }

@@ -13,9 +13,21 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.TransactionEntity
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
-/** Current export schema: includes assets, goals, and income.payType. */
-internal const val BACKUP_SCHEMA_VERSION = 3
+/** Current export schema: serializer-based writer, same field layout as v3 plus version bump. */
+internal const val BACKUP_SCHEMA_VERSION = 4
+
+private val BACKUP_JSON = Json { prettyPrint = true }
 
 internal fun buildLedgerBackupJson(
     exportedAtIso: String,
@@ -31,243 +43,222 @@ internal fun buildLedgerBackupJson(
     goals: List<GoalEntity> = uiState.goals,
     categoryBudgets: List<CategoryBudgetEntity> = emptyList(),
     debts: List<DebtEntity> = uiState.debts,
-): String = buildString {
-    appendLine("{")
-    appendLine("  \"schemaVersion\": $BACKUP_SCHEMA_VERSION,")
-    appendJsonStringField("exportedAt", exportedAtIso, indent = "  ")
-    appendLine("  \"summary\": {")
-    appendJsonNumberField("bankBalanceCents", uiState.bankBalanceCents, indent = "    ")
-    appendJsonNumberField("ledgerBalanceCents", uiState.ledgerBalanceCents, indent = "    ")
-    appendJsonBooleanField("isBalanceReconciled", uiState.isBalanceReconciled, indent = "    ")
-    appendJsonNumberField("safeToSpendCents", uiState.safeToSpendCents, indent = "    ")
-    appendJsonNumberField("incomeContributionCents", uiState.incomeContributionCents, indent = "    ")
-    appendJsonNumberField("dailyBudgetCents", uiState.dailyBudgetCents, indent = "    ")
-    appendJsonNumberField("upcomingBillBurdenCents", uiState.upcomingBillBurdenCents, indent = "    ")
-    appendJsonNumberField("monteCarlo10thCents", uiState.monteCarlo10thCents, indent = "    ")
-    appendJsonNumberField("monteCarlo50thCents", uiState.monteCarlo50thCents, indent = "    ")
-    appendJsonNumberField("monteCarlo90thCents", uiState.monteCarlo90thCents, indent = "    ")
-    appendJsonNumberField("probabilityNegativePct", uiState.probabilityNegativePct, indent = "    ")
-    appendJsonStringField("projectedTroubleDateLabel", uiState.projectedTroubleDateLabel, indent = "    ")
-    appendJsonStringField("firstNegativeDateLabel", uiState.firstNegativeDateLabel, indent = "    ")
-    appendJsonStringField("lowestBalanceDateLabel", uiState.lowestBalanceDateLabel, indent = "    ", trailingComma = false)
-    appendLine("  },")
-    appendLine("  \"onboarding\": {")
-    appendJsonBooleanField("firstIncomeCompleted", onboardingProgress.firstIncomeCompleted, indent = "    ")
-    appendJsonBooleanField("firstBillCompleted", onboardingProgress.firstBillCompleted, indent = "    ")
-    appendJsonBooleanField("firstExpenseCompleted", onboardingProgress.firstExpenseCompleted, indent = "    ")
-    appendJsonBooleanField("firstGoalCompleted", onboardingProgress.firstGoalCompleted, indent = "    ")
-    appendJsonBooleanField("reconciliationCompleted", onboardingProgress.reconciliationCompleted, indent = "    ", trailingComma = false)
-    appendLine("  },")
-    appendJsonArray("settings", settings.filterNot { isAppLockSettingKey(it.key) }.map { it.toBackupJson() })
-    appendJsonArray("rules", rules.map { it.toBackupJson() })
-    appendJsonArray("incomes", incomes.map { it.toBackupJson() })
-    appendJsonArray("payments", payments.map { it.toBackupJson() })
-    appendJsonArray("transactions", transactions.map { it.toBackupJson() })
-    appendJsonArray("billOccurrences", billOccurrences.map { it.toBackupJson() })
-    appendJsonArray("assets", assets.map { it.toBackupJson() })
-    appendJsonArray("goals", goals.map { it.toBackupJson() })
-    appendJsonArray("categoryBudgets", categoryBudgets.map { it.toBackupJson() })
-    appendJsonArray("debts", debts.map { it.toBackupJson() }, trailingComma = false)
-    appendLine("}")
-}
-
-private fun SettingsEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonStringField("key", key, indent = "    ")
-    appendJsonStringField("value", value, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun IncomeEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("name", name, indent = "    ")
-    appendJsonNumberField("amount_cents", amount_cents, indent = "    ")
-    appendJsonStringField("frequency", frequency, indent = "    ")
-    appendJsonNumberField("day_of_month", day_of_month, indent = "    ")
-    appendJsonStringField("next_date", next_date, indent = "    ")
-    appendJsonNumberField("expectedAmountCents", expectedAmountCents, indent = "    ")
-    appendJsonStringField("payType", payType, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun PaymentEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("name", name, indent = "    ")
-    appendJsonNumberField("amount_cents", amount_cents, indent = "    ")
-    appendJsonStringField("frequency", frequency, indent = "    ")
-    appendJsonNumberField("day_of_month", day_of_month, indent = "    ")
-    appendJsonStringField("next_date", next_date, indent = "    ")
-    appendJsonBooleanField("is_active", is_active == 1, indent = "    ")
-    appendJsonBooleanField("isAutoWithdraw", isAutoWithdraw, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun TransactionEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("description", description, indent = "    ")
-    appendJsonNumberField("amount_cents", amount_cents, indent = "    ")
-    appendJsonStringField("date", date, indent = "    ")
-    appendJsonStringField("type", type, indent = "    ")
-    appendJsonStringField("category", category, indent = "    ")
-    appendJsonStringField("source", source, indent = "    ")
-    appendJsonStringField("review_status", review_status, indent = "    ")
-    appendJsonStringField("reviewed_at", reviewed_at, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun TransactionRuleEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("match_text", match_text, indent = "    ")
-    appendJsonStringField("category", category, indent = "    ")
-    appendJsonNumberField("is_active", is_active, indent = "    ")
-    appendJsonNumberField("priority", priority, indent = "    ")
-    appendJsonStringField("created_at", created_at, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun BillOccurrenceEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonNumberField("payment_id", payment_id, indent = "    ")
-    appendJsonStringField("due_date", due_date, indent = "    ")
-    appendJsonNumberField("amount_cents", amount_cents, indent = "    ")
-    appendJsonBooleanField("is_paid", is_paid == 1, indent = "    ")
-    appendJsonNumberField("transaction_id", transaction_id, indent = "    ")
-    appendJsonStringField("created_at", created_at, indent = "    ")
-    appendJsonStringField("original_due_date", original_due_date, indent = "    ")
-    appendJsonBooleanField("is_user_modified", is_user_modified == 1, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun AssetEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("name", name, indent = "    ")
-    appendJsonStringField("type", type, indent = "    ")
-    appendJsonNumberField("balanceCents", balanceCents, indent = "    ")
-    appendJsonStringField("lastUpdated", lastUpdated, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun GoalEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("name", name, indent = "    ")
-    appendJsonNumberField("targetAmountCents", targetAmountCents, indent = "    ")
-    appendJsonNumberField("currentAmountCents", currentAmountCents, indent = "    ")
-    appendJsonStringField("deadline", deadline, indent = "    ")
-    appendJsonStringField("createdAt", createdAt, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun CategoryBudgetEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("category", category, indent = "    ")
-    appendJsonNumberField("limitCents", limitCents, indent = "    ")
-    appendJsonNumberField("enabled", enabled, indent = "    ")
-    appendJsonStringField("createdAt", createdAt, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun DebtEntity.toBackupJson(): String = buildString {
-    appendLine("{")
-    appendJsonNumberField("id", id, indent = "    ")
-    appendJsonStringField("name", name, indent = "    ")
-    appendJsonNumberField("balanceCents", balanceCents, indent = "    ")
-    appendJsonNumberField("aprBasisPoints", aprBasisPoints, indent = "    ")
-    appendJsonNumberField("minimumPaymentCents", minimumPaymentCents, indent = "    ")
-    appendJsonNumberField("dueDayOfMonth", dueDayOfMonth, indent = "    ")
-    appendJsonNumberField("linkedPaymentId", linkedPaymentId, indent = "    ")
-    appendJsonBooleanField("isActive", isActive, indent = "    ", trailingComma = false)
-    append("  }")
-}
-
-private fun StringBuilder.appendJsonArray(name: String, values: List<String>, trailingComma: Boolean = true) {
-    append("  \"")
-    append(jsonEscape(name))
-    append("\": [\n")
-    values.forEachIndexed { index, value ->
-        append(value)
-        if (index < values.lastIndex) append(",")
-        append("\n")
+): String {
+    val root = buildJsonObject {
+        put("schemaVersion", BACKUP_SCHEMA_VERSION)
+        put("exportedAt", exportedAtIso)
+        put("summary", buildJsonObject {
+            put("bankBalanceCents", uiState.bankBalanceCents)
+            put("ledgerBalanceCents", uiState.ledgerBalanceCents)
+            put("isBalanceReconciled", uiState.isBalanceReconciled)
+            put("safeToSpendCents", uiState.safeToSpendCents)
+            put("incomeContributionCents", uiState.incomeContributionCents)
+            put("dailyBudgetCents", uiState.dailyBudgetCents)
+            put("upcomingBillBurdenCents", uiState.upcomingBillBurdenCents)
+            put("monteCarlo10thCents", uiState.monteCarlo10thCents)
+            put("monteCarlo50thCents", uiState.monteCarlo50thCents)
+            put("monteCarlo90thCents", uiState.monteCarlo90thCents)
+            put("probabilityNegativePct", uiState.probabilityNegativePct)
+            uiState.projectedTroubleDateLabel?.let { put("projectedTroubleDateLabel", it) }
+            uiState.firstNegativeDateLabel?.let { put("firstNegativeDateLabel", it) }
+            uiState.lowestBalanceDateLabel?.let { put("lowestBalanceDateLabel", it) }
+        })
+        put("onboarding", buildJsonObject {
+            put("firstIncomeCompleted", onboardingProgress.firstIncomeCompleted)
+            put("firstBillCompleted", onboardingProgress.firstBillCompleted)
+            put("firstExpenseCompleted", onboardingProgress.firstExpenseCompleted)
+            put("firstGoalCompleted", onboardingProgress.firstGoalCompleted)
+            put("reconciliationCompleted", onboardingProgress.reconciliationCompleted)
+        })
+        put("settings", JsonArray(settings.filterNot { isAppLockSettingKey(it.key) }.map { it.toJsonElement() }))
+        put("rules", JsonArray(rules.map { it.toJsonElement() }))
+        put("incomes", JsonArray(incomes.map { it.toJsonElement() }))
+        put("payments", JsonArray(payments.map { it.toJsonElement() }))
+        put("transactions", JsonArray(transactions.map { it.toJsonElement() }))
+        put("billOccurrences", JsonArray(billOccurrences.map { it.toJsonElement() }))
+        put("assets", JsonArray(assets.map { it.toJsonElement() }))
+        put("goals", JsonArray(goals.map { it.toJsonElement() }))
+        put("categoryBudgets", JsonArray(categoryBudgets.map { it.toJsonElement() }))
+        put("debts", JsonArray(debts.map { it.toJsonElement() }))
     }
-    append("  ]")
-    if (trailingComma) append(",")
-    appendLine()
+    return BACKUP_JSON.encodeToString(JsonElement.serializer(), root)
 }
 
-private fun StringBuilder.appendJsonStringField(
-    name: String,
-    value: String?,
-    indent: String,
-    trailingComma: Boolean = true,
-) {
-    append(indent)
-    append("\"")
-    append(jsonEscape(name))
-    append("\": ")
-    append("\"")
-    append(jsonEscape(value.orEmpty()))
-    append("\"")
-    if (trailingComma) append(",")
-    appendLine()
-}
-
-private fun StringBuilder.appendJsonNumberField(
-    name: String,
-    value: Number?,
-    indent: String,
-    trailingComma: Boolean = true,
-) {
-    append(indent)
-    append("\"")
-    append(jsonEscape(name))
-    append("\": ")
-    append(value?.toString() ?: "null")
-    if (trailingComma) append(",")
-    appendLine()
-}
-
-private fun StringBuilder.appendJsonBooleanField(
-    name: String,
-    value: Boolean,
-    indent: String,
-    trailingComma: Boolean = true,
-) {
-    append(indent)
-    append("\"")
-    append(jsonEscape(name))
-    append("\": ")
-    append(value.toString())
-    if (trailingComma) append(",")
-    appendLine()
-}
-
-private fun jsonEscape(value: String): String {
-    val out = StringBuilder(value.length + 8)
-    value.forEach { ch ->
-        when (ch) {
-            '\\' -> out.append("\\\\")
-            '"' -> out.append("\\\"")
-            '\b' -> out.append("\\b")
-            '\u000C' -> out.append("\\f")
-            '\n' -> out.append("\\n")
-            '\r' -> out.append("\\r")
-            '\t' -> out.append("\\t")
-            else -> {
-                if (ch < ' ') {
-                    out.append("\\u")
-                    out.append(ch.code.toString(16).padStart(4, '0'))
-                } else {
-                    out.append(ch)
-                }
-            }
-        }
+internal fun parseBackupJsonToElement(jsonText: String): JsonObject =
+    Json.parseToJsonElement(jsonText).let { element ->
+        element as? JsonObject
+            ?: throw IllegalArgumentException("Backup root must be a JSON object.")
     }
-    return out.toString()
+
+// ── entity encoders ──────────────────────────────────────────────
+
+private fun SettingsEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("key", key)
+    put("value", value)
 }
+
+private fun IncomeEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("amount_cents", amount_cents)
+    put("frequency", frequency)
+    putNullableInt("day_of_month", day_of_month)
+    put("next_date", next_date)
+    putNullableLong("expectedAmountCents", expectedAmountCents)
+    put("payType", payType)
+}
+
+private fun PaymentEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("amount_cents", amount_cents)
+    put("frequency", frequency)
+    putNullableInt("day_of_month", day_of_month)
+    put("next_date", next_date)
+    put("is_active", is_active == 1)
+    put("isAutoWithdraw", isAutoWithdraw)
+}
+
+private fun TransactionEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("description", description)
+    put("amount_cents", amount_cents)
+    put("date", date)
+    put("type", type)
+    put("category", category)
+    put("source", source)
+    put("review_status", review_status)
+    putNullableString("reviewed_at", reviewed_at)
+}
+
+private fun TransactionRuleEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("match_text", match_text)
+    put("category", category)
+    put("is_active", is_active)
+    put("priority", priority)
+    put("created_at", created_at)
+}
+
+private fun BillOccurrenceEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("payment_id", payment_id)
+    put("due_date", due_date)
+    put("amount_cents", amount_cents)
+    put("is_paid", is_paid == 1)
+    putNullableInt("transaction_id", transaction_id)
+    putNullableString("created_at", created_at)
+    putNullableString("original_due_date", original_due_date)
+    put("is_user_modified", is_user_modified == 1)
+}
+
+private fun AssetEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("type", type)
+    put("balanceCents", balanceCents)
+    put("lastUpdated", lastUpdated)
+}
+
+private fun GoalEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("targetAmountCents", targetAmountCents)
+    put("currentAmountCents", currentAmountCents)
+    putNullableString("deadline", deadline)
+    put("createdAt", createdAt)
+}
+
+private fun CategoryBudgetEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("category", category)
+    put("limitCents", limitCents)
+    put("enabled", enabled)
+    put("createdAt", createdAt)
+}
+
+private fun DebtEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("balanceCents", balanceCents)
+    put("aprBasisPoints", aprBasisPoints)
+    put("minimumPaymentCents", minimumPaymentCents)
+    put("dueDayOfMonth", dueDayOfMonth)
+    putNullableInt("linkedPaymentId", linkedPaymentId)
+    put("isActive", isActive)
+}
+
+// -- shared primitives -------------------------------------------
+
+internal fun JsonObject.intOr(name: String): Int =
+    (this[name] as? JsonPrimitive)?.content?.toIntOrNull()
+        ?: throw IllegalArgumentException("Missing required int field: `$name")
+
+internal fun JsonObject.longOr(name: String): Long =
+    (this[name] as? JsonPrimitive)?.content?.toLongOrNull()
+        ?: throw IllegalArgumentException("Missing required long field: `$name")
+
+internal fun JsonObject.intOrFallback(name: String, fallback: Int): Int =
+    (this[name] as? JsonPrimitive)?.content?.toIntOrNull() ?: fallback
+
+internal fun JsonObject.longOrFallback(name: String, fallback: Long): Long =
+    (this[name] as? JsonPrimitive)?.content?.toLongOrNull() ?: fallback
+
+internal fun JsonObject.optBool(name: String, fallback: Boolean): Boolean =
+    (this[name] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: fallback
+
+internal fun JsonObject.str(name: String): String =
+    (this[name] as? JsonPrimitive)?.contentOrNull
+        ?: throw IllegalArgumentException("Missing required string field: `$name")
+internal fun JsonObject.optStr(name: String, fallback: String = ""): String =
+    (this[name] as? JsonPrimitive)?.contentOrNull ?: fallback
+
+internal fun JsonObject.intOrThrow(name: String): Int =
+    (this[name] as? JsonPrimitive)?.content?.toIntOrNull()
+        ?: throw IllegalArgumentException("Missing required int field: $name")
+
+internal fun JsonObject.longOrThrow(name: String): Long =
+    (this[name] as? JsonPrimitive)?.content?.toLongOrNull()
+        ?: throw IllegalArgumentException("Missing required long field: $name")
+
+internal fun JsonObject.boolOrThrow(name: String): Boolean =
+    (this[name] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+        ?: throw IllegalArgumentException("Missing required boolean field: $name")
+
+internal fun JsonObject.nullableInt(name: String): Int? =
+    when (val v = this[name]) {
+        null, is JsonNull -> null
+        is JsonPrimitive -> v.contentOrNull?.toIntOrNull()
+            ?: throw IllegalArgumentException("Invalid int field: $name")
+        else -> throw IllegalArgumentException("Invalid int field: $name")
+    }
+
+internal fun JsonObject.nullableLong(name: String): Long? =
+    when (val v = this[name]) {
+        null, is JsonNull -> null
+        is JsonPrimitive -> v.contentOrNull?.toLongOrNull()
+            ?: throw IllegalArgumentException("Invalid long field: $name")
+        else -> throw IllegalArgumentException("Invalid long field: $name")
+    }
+
+internal fun JsonObject.nullableString(name: String): String? =
+    when (val v = this[name]) {
+        null, is JsonNull -> null
+        is JsonPrimitive -> v.contentOrNull
+        else -> throw IllegalArgumentException("Invalid string field: $name")
+    }
+
+internal fun JsonObject.array(name: String): List<JsonObject> =
+    ((this[name] as? JsonArray) ?: JsonArray(emptyList())).map { element ->
+        element as? JsonObject
+            ?: throw IllegalArgumentException("Expected a JSON object in array '$name'.")
+    }
+
+private fun JsonObjectBuilder.putNullableInt(name: String, value: Int?) =
+    put(name, value?.let { JsonPrimitive(it) } ?: JsonNull)
+
+private fun JsonObjectBuilder.putNullableLong(name: String, value: Long?) =
+    put(name, value?.let { JsonPrimitive(it) } ?: JsonNull)
+
+private fun JsonObjectBuilder.putNullableString(name: String, value: String?) =
+    put(name, value?.let { JsonPrimitive(it) } ?: JsonNull)

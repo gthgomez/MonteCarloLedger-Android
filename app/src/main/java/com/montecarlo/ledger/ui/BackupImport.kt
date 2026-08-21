@@ -12,214 +12,145 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.TransactionEntity
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
 
 internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
-    val root = JSONObject(jsonText)
-    val schemaVersion = root.optInt("schemaVersion", 0)
-    require(schemaVersion in 1..3) {
+    val root = parseBackupJsonToElement(jsonText)
+    val schemaVersion = root.intOrThrow("schemaVersion")
+    require(schemaVersion in 1..BACKUP_SCHEMA_VERSION) {
         "Unsupported backup schema version: $schemaVersion"
     }
 
-    val summary = root.optJSONObject("summary") ?: JSONObject()
-    val onboarding = root.optJSONObject("onboarding") ?: JSONObject()
+    val summary = (root["summary"] as? JsonObject) ?: JsonObject(emptyMap())
+    val onboarding = (root["onboarding"] as? JsonObject) ?: JsonObject(emptyMap())
 
     return LedgerBackupSnapshot(
         schemaVersion = schemaVersion,
-        exportedAtIso = root.optString("exportedAt").takeIf { it.isNotBlank() },
-        bankBalanceCents = summary.optLong("bankBalanceCents", 0L),
-        isBalanceReconciled = summary.optBoolean("isBalanceReconciled", false),
+        exportedAtIso = root.nullableString("exportedAt")?.takeIf { it.isNotBlank() },
+        bankBalanceCents = summary.nullableLong( "bankBalanceCents") ?: 0L,
+        isBalanceReconciled = summary.optBool( "isBalanceReconciled", false),
         onboardingProgress = OnboardingProgress(
-            firstIncomeCompleted = onboarding.optBoolean("firstIncomeCompleted", false),
-            firstBillCompleted = onboarding.optBoolean("firstBillCompleted", false),
-            firstExpenseCompleted = onboarding.optBoolean("firstExpenseCompleted", false),
-            firstGoalCompleted = onboarding.optBoolean("firstGoalCompleted", false),
-            reconciliationCompleted = onboarding.optBoolean("reconciliationCompleted", false),
+            firstIncomeCompleted = onboarding.optBool( "firstIncomeCompleted", false),
+            firstBillCompleted = onboarding.optBool( "firstBillCompleted", false),
+            firstExpenseCompleted = onboarding.optBool( "firstExpenseCompleted", false),
+            firstGoalCompleted = onboarding.optBool( "firstGoalCompleted", false),
+            reconciliationCompleted = onboarding.optBool( "reconciliationCompleted", false),
         ),
-        settings = root.optJSONArray("settings").toSettingsEntities(),
-        rules = root.optJSONArray("rules").toRuleEntities(),
-        incomes = root.optJSONArray("incomes").toIncomeEntities(),
-        payments = root.optJSONArray("payments").toPaymentEntities(),
-        transactions = root.optJSONArray("transactions").toTransactionEntities(),
-        billOccurrences = root.optJSONArray("billOccurrences").toBillOccurrenceEntities(),
-        assets = root.optJSONArray("assets").toAssetEntities(),
-        goals = root.optJSONArray("goals").toGoalEntities(),
-        categoryBudgets = root.optJSONArray("categoryBudgets").toCategoryBudgetEntities(),
-        debts = root.optJSONArray("debts").toDebtEntities(),
+        settings = root.array("settings").map { it.toSettingsEntity() },
+        rules = root.array("rules").map { it.toRuleEntity() },
+        incomes = root.array("incomes").map { it.toIncomeEntity() },
+        payments = root.array("payments").map { it.toPaymentEntity() },
+        transactions = root.array("transactions").map { it.toTransactionEntity() },
+        billOccurrences = root.array("billOccurrences").map { it.toBillOccurrenceEntity() },
+        assets = root.array("assets").map { it.toAssetEntity() },
+        goals = root.array("goals").map { it.toGoalEntity() },
+        categoryBudgets = root.array("categoryBudgets").map { it.toCategoryBudgetEntity() },
+        debts = root.array("debts").map { it.toDebtEntity() },
     )
 }
 
-private fun JSONArray?.toIncomeEntities(): List<IncomeEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toIncomeEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toPaymentEntities(): List<PaymentEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toPaymentEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toTransactionEntities(): List<TransactionEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toTransactionEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toBillOccurrenceEntities(): List<BillOccurrenceEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toBillOccurrenceEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toSettingsEntities(): List<SettingsEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toSettingsEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toRuleEntities(): List<TransactionRuleEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toRuleEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toAssetEntities(): List<AssetEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toAssetEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toGoalEntities(): List<GoalEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toGoalEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONObject.toIncomeEntity(): IncomeEntity =
+private fun JsonObject.toIncomeEntity(): IncomeEntity =
     IncomeEntity(
-        id = optInt("id", 0),
-        name = getString("name"),
-        amount_cents = optLong("amount_cents", 0L),
-        frequency = getString("frequency"),
-        day_of_month = if (isNull("day_of_month")) null else optInt("day_of_month"),
-        next_date = getString("next_date"),
-        expectedAmountCents = if (isNull("expectedAmountCents")) null else optLong("expectedAmountCents"),
-        payType = optString("payType").ifBlank { "FLAT" },
+        id = intOr("id"),
+        name = str("name"),
+        amount_cents = longOr("amount_cents"),
+        frequency = str("frequency"),
+        day_of_month = nullableInt("day_of_month"),
+        next_date = str("next_date"),
+        expectedAmountCents = nullableLong("expectedAmountCents"),
+        payType = optStr("payType").ifBlank { "FLAT" },
     )
 
-private fun JSONObject.toPaymentEntity(): PaymentEntity =
+private fun JsonObject.toPaymentEntity(): PaymentEntity =
     PaymentEntity(
-        id = optInt("id", 0),
-        name = getString("name"),
-        amount_cents = optLong("amount_cents", 0L),
-        frequency = getString("frequency"),
-        day_of_month = if (isNull("day_of_month")) null else optInt("day_of_month"),
-        next_date = getString("next_date"),
-        is_active = if (optBoolean("is_active", true)) 1 else 0,
-        isAutoWithdraw = optBoolean("isAutoWithdraw", false),
+        id = intOr("id"),
+        name = str("name"),
+        amount_cents = longOr("amount_cents"),
+        frequency = str("frequency"),
+        day_of_month = nullableInt("day_of_month"),
+        next_date = str("next_date"),
+        is_active = if (optBool("is_active", true)) 1 else 0,
+        isAutoWithdraw = optBool("isAutoWithdraw", false),
     )
 
-private fun JSONObject.toTransactionEntity(): TransactionEntity =
+private fun JsonObject.toTransactionEntity(): TransactionEntity =
     TransactionEntity(
-        id = optInt("id", 0),
-        description = getString("description"),
-        amount_cents = optLong("amount_cents", 0L),
-        date = getString("date"),
-        type = getString("type"),
-        category = optString("category").ifBlank { "uncategorized" },
-        source = optString("source").ifBlank { "manual" },
-        review_status = optString("review_status").ifBlank { "approved" },
-        reviewed_at = if (isNull("reviewed_at")) null else optString("reviewed_at").ifBlank { null },
+        id = intOr("id"),
+        description = str("description"),
+        amount_cents = longOr("amount_cents"),
+        date = str("date"),
+        type = str("type"),
+        category = optStr("category").ifBlank { "uncategorized" },
+        source = optStr("source").ifBlank { "manual" },
+        review_status = optStr("review_status").ifBlank { "approved" },
+        reviewed_at = nullableString("reviewed_at")?.ifBlank { null },
     )
 
-private fun JSONObject.toBillOccurrenceEntity(): BillOccurrenceEntity =
+private fun JsonObject.toBillOccurrenceEntity(): BillOccurrenceEntity =
     BillOccurrenceEntity(
-        id = optInt("id", 0),
-        payment_id = optInt("payment_id", 0),
-        due_date = getString("due_date"),
-        amount_cents = optLong("amount_cents", 0L),
-        is_paid = if (optBoolean("is_paid", false)) 1 else 0,
-        transaction_id = if (isNull("transaction_id")) null else optInt("transaction_id"),
-        created_at = if (isNull("created_at")) null else optString("created_at"),
-        original_due_date = if (isNull("original_due_date")) null else optString("original_due_date"),
-        is_user_modified = if (optBoolean("is_user_modified", false)) 1 else 0,
+        id = intOr("id"),
+        payment_id = intOr("payment_id"),
+        due_date = str("due_date"),
+        amount_cents = longOr("amount_cents"),
+        is_paid = if (optBool("is_paid", false)) 1 else 0,
+        transaction_id = nullableInt("transaction_id"),
+        created_at = nullableString("created_at"),
+        original_due_date = nullableString("original_due_date"),
+        is_user_modified = if (optBool("is_user_modified", false)) 1 else 0,
     )
 
-private fun JSONObject.toSettingsEntity(): SettingsEntity =
+private fun JsonObject.toSettingsEntity(): SettingsEntity =
     SettingsEntity(
-        key = getString("key"),
-        value = getString("value"),
+        key = str("key"),
+        value = str("value"),
     )
 
-private fun JSONObject.toRuleEntity(): TransactionRuleEntity =
+private fun JsonObject.toRuleEntity(): TransactionRuleEntity =
     TransactionRuleEntity(
-        id = optInt("id", 0),
-        match_text = getString("match_text"),
-        category = getString("category"),
-        is_active = optInt("is_active", 1),
-        priority = optInt("priority", 0),
-        created_at = optString("created_at"),
+        id = intOr("id"),
+        match_text = str("match_text"),
+        category = str("category"),
+        is_active = intOrFallback("is_active", 1),
+        priority = intOrFallback("priority", 0),
+        created_at = optStr("created_at"),
     )
 
-private fun JSONObject.toAssetEntity(): AssetEntity =
+private fun JsonObject.toAssetEntity(): AssetEntity =
     AssetEntity(
-        id = optLong("id", 0L),
-        name = getString("name"),
-        type = optString("type").ifBlank { "Other" },
-        balanceCents = optLong("balanceCents", 0L),
-        lastUpdated = optString("lastUpdated").ifBlank { "" },
+        id = longOrFallback("id", 0L),
+        name = str("name"),
+        type = optStr("type").ifBlank { "Other" },
+        balanceCents = longOrFallback("balanceCents", 0L),
+        lastUpdated = optStr("lastUpdated"),
     )
 
-private fun JSONObject.toGoalEntity(): GoalEntity =
+private fun JsonObject.toGoalEntity(): GoalEntity =
     GoalEntity(
-        id = optInt("id", 0),
-        name = getString("name"),
-        targetAmountCents = optLong("targetAmountCents", 0L),
-        currentAmountCents = optLong("currentAmountCents", 0L),
-        deadline = if (isNull("deadline") || optString("deadline").isBlank()) null else optString("deadline"),
-        createdAt = optString("createdAt").ifBlank { "" },
+        id = intOr("id"),
+        name = str("name"),
+        targetAmountCents = longOr("targetAmountCents"),
+        currentAmountCents = longOr("currentAmountCents"),
+        deadline = nullableString("deadline")?.ifBlank { null },
+        createdAt = optStr("createdAt"),
     )
 
-private fun JSONArray?.toCategoryBudgetEntities(): List<CategoryBudgetEntity> =
-    this?.let { array ->
-        List(array.length()) { index ->
-            array.getJSONObject(index).toCategoryBudgetEntity()
-        }
-    } ?: emptyList()
-
-private fun JSONArray?.toDebtEntities(): List<DebtEntity> =
-    this?.let { array ->
-        List(array.length()) { index -> array.getJSONObject(index).toDebtEntity() }
-    } ?: emptyList()
-
-private fun JSONObject.toDebtEntity(): DebtEntity =
+private fun JsonObject.toDebtEntity(): DebtEntity =
     DebtEntity(
-        id = optLong("id", 0L),
-        name = getString("name"),
-        balanceCents = optLong("balanceCents", 0L),
-        aprBasisPoints = optInt("aprBasisPoints", 0),
-        minimumPaymentCents = optLong("minimumPaymentCents", 0L),
-        dueDayOfMonth = optInt("dueDayOfMonth", 1),
-        linkedPaymentId = if (isNull("linkedPaymentId")) null else optInt("linkedPaymentId"),
-        isActive = optBoolean("isActive", true),
+        id = longOrFallback("id", 0L),
+        name = str("name"),
+        balanceCents = longOr("balanceCents"),
+        aprBasisPoints = intOrFallback("aprBasisPoints", 0),
+        minimumPaymentCents = longOrFallback("minimumPaymentCents", 0L),
+        dueDayOfMonth = intOrFallback("dueDayOfMonth", 1),
+        linkedPaymentId = nullableInt("linkedPaymentId"),
+        isActive = optBool("isActive", true),
     )
 
-private fun JSONObject.toCategoryBudgetEntity(): CategoryBudgetEntity =
+private fun JsonObject.toCategoryBudgetEntity(): CategoryBudgetEntity =
     CategoryBudgetEntity(
-        id = optInt("id", 0),
-        category = getString("category"),
-        limitCents = optLong("limitCents", 0L),
-        enabled = optInt("enabled", 1),
-        createdAt = optString("createdAt").ifBlank { "" },
+        id = intOr("id"),
+        category = str("category"),
+        limitCents = longOr("limitCents"),
+        enabled = intOrFallback("enabled", 1),
+        createdAt = optStr("createdAt"),
     )

@@ -2,7 +2,7 @@ package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.data.CategoryRulePresets
 import com.montecarlo.ledger.data.TransactionRuleEntity
-import java.util.Locale
+import com.montecarlo.ledger.domain.Categories
 
 enum class RuleSource {
     USER_EXACT,
@@ -68,6 +68,5 @@ object CategoryRuleEngine {
         return CategorizationResult("uncategorized", RuleSource.FALLBACK)
     }
 
-    internal fun normalize(value: String): String =
-        value.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+    internal fun normalize(value: String): String = Categories.normalize(value)
 }

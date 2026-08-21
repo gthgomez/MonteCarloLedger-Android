@@ -33,8 +33,10 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.domain.DomainRules
 import com.montecarlo.ledger.processing.PaymentSchedule
 import java.time.LocalDate
+import com.montecarlo.ledger.util.DollarParseResult
+import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.centsToDollarInputString
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.parseDollars
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,9 +159,12 @@ fun EditPaymentScreen(
             AppPrimaryButton(
                 text = "Save",
                 onClick = {
-                    val cents = dollarsToCents(amountDollars)
+                    val cents = when (val parsed = parseDollars(amountDollars)) {
+                        is DollarParseResult.Valid -> parsed.cents
+                        else -> 0L
+                    }
                     val validation = DomainRules.validatePaymentSign(cents)
-                    val dueDate = runCatching { LocalDate.parse(dueDateText.trim()) }.getOrNull()
+                    val dueDate = LedgerDate.parseIsoOrNull(dueDateText)
                     val dueDay = dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth
                     if (validation.isFailure) {
                         errorMessage = validation.exceptionOrNull()?.message ?: "Invalid amount"

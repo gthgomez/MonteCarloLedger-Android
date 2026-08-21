@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.data.TransactionEntity
+import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
 
 enum class PacingStatus {
@@ -45,7 +46,7 @@ object BudgetPacingEngine {
         val sevenDaysAgo = today.minusDays(6)
         val spendingLast7Days = transactions
             .filter { transaction ->
-                val date = runCatching { LocalDate.parse(transaction.date) }.getOrNull()
+                val date = LedgerDate.parseIsoOrNull(transaction.date)
                 date != null && !date.isBefore(sevenDaysAgo) && !date.isAfter(today) && transaction.type == "expense"
             }
             .sumOf { kotlin.math.abs(it.amount_cents).toLong() }

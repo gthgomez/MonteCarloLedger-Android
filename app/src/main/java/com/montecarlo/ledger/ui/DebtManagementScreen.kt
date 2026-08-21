@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.PaymentEntity
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.DollarParseResult
+import com.montecarlo.ledger.util.parseDollars
 import com.montecarlo.ledger.util.centsToDisplay
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -147,17 +148,19 @@ private fun DebtEditorDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val balanceCents = dollarsToCents(balance)
-                val minimumCents = dollarsToCents(minimum)
+                val balanceParsed = parseDollars(balance)
+                val minimumParsed = parseDollars(minimum)
+                val balanceCents = when (val p = balanceParsed) { is DollarParseResult.Valid -> p.cents; else -> 0L }
+                val minimumCents = when (val p = minimumParsed) { is DollarParseResult.Valid -> p.cents; else -> 0L }
                 val aprBasisPoints = runCatching {
                     BigDecimal(apr.trim()).movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValueExact()
                 }.getOrNull()
                 val day = dueDay.toIntOrNull()
                 when {
                     name.isBlank() -> error = "Debt name is required"
-                    balanceCents <= 0L -> error = "Balance must be greater than zero"
+                    balanceParsed is DollarParseResult.Invalid || balanceCents <= 0L -> error = "Enter a valid balance greater than zero"
                     aprBasisPoints == null || aprBasisPoints !in 0..99_999 -> error = "APR must be between 0% and 999.99%"
-                    minimumCents <= 0L -> error = "Minimum payment must be greater than zero"
+                    minimumParsed is DollarParseResult.Invalid || minimumCents <= 0L -> error = "Enter a valid minimum payment greater than zero"
                     day !in 1..31 -> error = "Due day must be between 1 and 31"
                     else -> onSave(DebtEntity(initial?.id ?: 0L, name.trim(), balanceCents, aprBasisPoints, minimumCents, day!!, linkedPaymentId, initial?.isActive ?: true))
                 }

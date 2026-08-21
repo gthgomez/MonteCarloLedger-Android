@@ -26,8 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.data.TransactionEntity
+import com.montecarlo.ledger.util.DollarParseResult
 import com.montecarlo.ledger.util.centsToDollarInputString
-import com.montecarlo.ledger.util.dollarsToCents
+import com.montecarlo.ledger.util.parseDollars
 import java.time.LocalDate
 import kotlin.math.abs
 
@@ -139,9 +140,12 @@ fun EditTransactionScreen(
             AppPrimaryButton(
                 text = "Save",
                 onClick = {
-                    val rawCents = dollarsToCents(amountDollars)
+                    val rawCents = when (val parsed = parseDollars(amountDollars)) {
+                        is DollarParseResult.Valid -> parsed.cents
+                        else -> 0L
+                    }
                     if (rawCents <= 0) {
-                        errorMessage = "Amount must be greater than zero."
+                        errorMessage = "Enter a valid amount greater than zero."
                     } else if (description.isBlank()) {
                         errorMessage = "Description cannot be empty."
                     } else {

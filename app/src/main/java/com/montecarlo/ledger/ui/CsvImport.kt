@@ -28,12 +28,12 @@ import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.processing.PaymentSchedule
+import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.centsToDisplay
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.util.Locale
 import kotlin.math.abs
 
@@ -404,15 +404,11 @@ internal fun parseTransactionCsv(
     sourceName: String = "CSV file",
     mapping: TransactionCsvColumnMapping? = null,
 ): CsvImportPreview {
-    val lines = csvText
-        .lineSequence()
-        .map { it.trimEnd('\r') }
-        .filter { it.isNotBlank() }
-        .toList()
+    val records = parseCsvRecords(csvText)
 
-    require(lines.isNotEmpty()) { "CSV file is empty." }
+    require(records.isNotEmpty()) { "CSV file is empty." }
 
-    val headers = parseCsvLine(lines.first())
+    val headers = records.first()
     val normalizedHeaders = headers.map { normalizeHeader(it) }
 
     val detectedMapping = detectTransactionCsvColumnMapping(normalizedHeaders)
@@ -438,14 +434,14 @@ internal fun parseTransactionCsv(
     val transactions = mutableListOf<TransactionEntity>()
     var skippedRows = 0
 
-    lines.drop(1).forEach { line -> 
-        val columns = parseCsvLine(line)
+    records.drop(1).forEach { columns -> 
         if (columns.all { it.isBlank() }) return@forEach
 
         val date = columns.getOrNull(dateIndex)?.let { parseDateOrNull(it) }
         val description = columns.getOrNull(descriptionIndex)?.trim().orEmpty()
         val amountCents = resolveAmountCents(
             columns = columns,
+            description = description,
             amountIndex = amountIndex,
             debitIndex = debitIndex,
             creditIndex = creditIndex,
@@ -476,7 +472,7 @@ internal fun parseTransactionCsv(
         mapping = effectiveMapping,
         importedTransactions = transactions,
         skippedRows = skippedRows,
-        totalRows = lines.size - 1,
+        totalRows = records.size - 1,
     )
 }
 
@@ -496,15 +492,11 @@ internal fun parseBillCsv(
     mapping: BillCsvColumnMapping? = null,
     today: LocalDate = LocalDate.now(),
 ): BillCsvImportPreview {
-    val lines = csvText
-        .lineSequence()
-        .map { it.trimEnd('\r') }
-        .filter { it.isNotBlank() }
-        .toList()
+    val records = parseCsvRecords(csvText)
 
-    require(lines.isNotEmpty()) { "CSV file is empty." }
+    require(records.isNotEmpty()) { "CSV file is empty." }
 
-    val headers = parseCsvLine(lines.first())
+    val headers = records.first()
     val normalizedHeaders = headers.map { normalizeHeader(it) }
     val detectedMapping = detectBillCsvColumnMapping(normalizedHeaders)
     val effectiveMapping = BillCsvColumnMapping(
@@ -530,8 +522,7 @@ internal fun parseBillCsv(
     var duplicateRows = 0
     val seenRows = mutableSetOf<String>()
 
-    lines.drop(1).forEach { line ->
-        val columns = parseCsvLine(line)
+    records.drop(1).forEach { columns -> 
         if (columns.all { it.isBlank() }) return@forEach
 
         val name = columns.getOrNull(resolvedNameIndex)?.trim().orEmpty()
@@ -605,7 +596,7 @@ internal fun parseBillCsv(
         mapping = effectiveMapping,
         importedPayments = payments,
         skippedRows = skippedRows,
-        totalRows = lines.size - 1,
+        totalRows = records.size - 1,
         duplicateRows = duplicateRows,
     )
 }
@@ -623,6 +614,7 @@ private fun detectBillCsvColumnMapping(headers: List<String>): BillCsvColumnMapp
 
 private fun resolveAmountCents(
     columns: List<String>,
+    description: String,
     amountIndex: Int?,
     debitIndex: Int?,
     creditIndex: Int?,
@@ -634,8 +626,17 @@ private fun resolveAmountCents(
     amountRaw?.let { raw ->
         val amount = parseMoneyCents(raw)
         val hasExplicitSign = raw.contains('-') || raw.contains('(') || raw.contains(')')
-        if (amount != null && (hasExplicitSign || (debitRaw.isNullOrBlank() && creditRaw.isNullOrBlank()))) {
+        if (amount != null && hasExplicitSign) {
             return amount
+        }
+        if (amount != null && debitRaw.isNullOrBlank() && creditRaw.isNullOrBlank()) {
+            if (debitIndex == null && creditIndex == null) {
+                // Single unsigned Amount column: banks emit spending as positive
+                // numbers. Classify by description hint, defaulting to expense.
+                return if (isLikelyIncome(description)) abs(amount) else -abs(amount)
+            }
+            // Direction columns exist but are empty on this row — fall through and
+            // let the row be skipped rather than guessing.
         }
     }
 
@@ -650,15 +651,53 @@ private fun resolveAmountCents(
     return null
 }
 
+private val INCOME_HINTS = setOf(
+    "salary", "payroll", "paycheck", "direct deposit", "deposit",
+    "refund", "interest", "dividend", "income", "payment received",
+)
+
+private fun isLikelyIncome(description: String): Boolean {
+    val normalized = description.lowercase(Locale.US).trim()
+    return INCOME_HINTS.any { normalized.contains(it) }
+}
+
+internal fun normalizeDecimalSeparators(value: String): String {
+    val hasDot = value.contains('.')
+    val hasComma = value.contains(',')
+    if (!hasDot && !hasComma) return value
+    return when {
+        hasDot && hasComma ->
+            if (value.lastIndexOf(',') > value.lastIndexOf('.')) {
+                // "1.234,56" EU style: dots are thousands, comma is the decimal mark.
+                value.replace(".", "").replace(',', '.')
+            } else {
+                // "1,234.56" US style: commas are thousands.
+                value.replace(",", "")
+            }
+        hasComma -> {
+            val singleComma = value.count { it == ',' } == 1
+            val digitsAfterLastComma = value.length - value.lastIndexOf(',') - 1
+            if (singleComma && digitsAfterLastComma in 1..2) {
+                // "12,50" decimal comma.
+                value.replace(',', '.')
+            } else {
+                // "1,234" thousands grouping (US bias matches date handling).
+                value.replace(",", "")
+            }
+        }
+        else -> value
+    }
+}
+
 private fun parseMoneyCents(raw: String?): Long? {
-    val cleaned = raw?.trim().orEmpty()
+    var cleaned = raw?.trim().orEmpty()
         .replace("$", "")
         .replace("€", "")
         .replace("£", "")
-        .replace(",", "")
         .replace(" ", "")
 
     if (cleaned.isBlank()) return null
+    cleaned = normalizeDecimalSeparators(cleaned)
 
     val normalized = if (cleaned.startsWith("(") && cleaned.endsWith(")")) {
         "-${cleaned.substring(1, cleaned.length - 1)}"
@@ -667,7 +706,7 @@ private fun parseMoneyCents(raw: String?): Long? {
     }
 
     val value = runCatching { BigDecimal(normalized) }.getOrNull() ?: return null
-    return value.movePointRight(2).setScale(0, RoundingMode.HALF_UP).toLong()
+    return value.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()
 }
 
 private fun parseIntOrNull(raw: String?): Int? {
@@ -702,56 +741,53 @@ private fun normalizeFrequencyKey(frequency: String): String {
     return frequency.lowercase(Locale.US).replace(" ", "").replace("-", "")
 }
 
-private fun parseDateOrNull(raw: String): LocalDate? {
-    val value = raw.trim()
-        .substringBefore('T')
-        .substringBefore(' ')
+private fun parseDateOrNull(raw: String): LocalDate? = LedgerDate.parseBankDateOrNull(raw)
 
-    if (value.isBlank()) return null
+/**
+ * RFC 4180-style record reader over the whole file so quoted fields containing
+ * commas AND embedded newlines stay inside one field/record instead of being
+ * split into ghost rows.
+ */
+internal fun parseCsvRecords(text: String): List<List<String>> {
+    val records = mutableListOf<List<String>>()
+    val field = StringBuilder()
+    var record = mutableListOf<String>()
+    var inQuotes = false
 
-    for (formatter in DATE_FORMATTERS) {
-        try {
-            return LocalDate.parse(value, formatter)
-        } catch (_: DateTimeParseException) {
-            continue
-        }
+    fun endField() {
+        record += field.toString().trim()
+        field.clear()
     }
 
-    return null
-}
+    fun endRecord() {
+        endField()
+        records += record
+        record = mutableListOf()
+    }
 
-private fun parseCsvLine(line: String): List<String> {
-    val values = mutableListOf<String>()
-    val current = StringBuilder()
-    var inQuotes = false
     var index = 0
-
-    while (index < line.length) {
-        val character = line[index]
-        when (character) {
-            '"' -> {
-                if (inQuotes && index + 1 < line.length && line[index + 1] == '"') {
-                    current.append('"')
+    while (index < text.length) {
+        val character = text[index]
+        when {
+            inQuotes -> when {
+                character == '"' && index + 1 < text.length && text[index + 1] == '"' -> {
+                    field.append('"')
                     index++
-                } else {
-                    inQuotes = !inQuotes
                 }
+                character == '"' -> inQuotes = false
+                else -> field.append(character)
             }
-            ',' -> {
-                if (inQuotes) {
-                    current.append(character)
-                } else {
-                    values += current.toString().trim()
-                    current.clear()
-                }
-            }
-            else -> current.append(character)
+            character == '"' -> inQuotes = true
+            character == ',' -> endField()
+            character == '\r' -> { /* line endings handled at '\n' */ }
+            character == '\n' -> endRecord()
+            else -> field.append(character)
         }
         index++
     }
+    if (field.isNotEmpty() || record.isNotEmpty()) endRecord()
 
-    values += current.toString().trim()
-    return values
+    return records.filter { record -> record.any { it.isNotBlank() } }
 }
 
 private fun normalizeHeader(value: String): String {
@@ -853,15 +889,3 @@ private val BILL_AUTO_HEADERS = setOf(
     "autodraft",
     "auto",
 )
-
-private val DATE_FORMATTERS = listOf(
-    DateTimeFormatter.ofPattern("uuuu-MM-dd"),
-    DateTimeFormatter.ofPattern("uuuu/M/d"),
-    DateTimeFormatter.ofPattern("M/d/uuuu"),
-    DateTimeFormatter.ofPattern("MM/dd/uuuu"),
-    DateTimeFormatter.ofPattern("M/d/yy"),
-    DateTimeFormatter.ofPattern("MM/dd/yy"),
-    DateTimeFormatter.ofPattern("M-d-uuuu"),
-    DateTimeFormatter.ofPattern("MM-dd-uuuu"),
-)
-
