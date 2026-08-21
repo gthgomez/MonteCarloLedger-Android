@@ -945,9 +945,7 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     fun processPayday(income: com.montecarlo.ledger.data.IncomeEntity, actualAmountCents: Long) {
-        viewModelScope.launch {
-            repo.processPayday(income, actualAmountCents)
-        }
+        launchPersistence { repo.processPayday(income, actualAmountCents) }
     }
 
     fun addTransaction(

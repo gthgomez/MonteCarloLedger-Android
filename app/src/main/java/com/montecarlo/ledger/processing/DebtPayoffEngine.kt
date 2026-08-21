@@ -78,6 +78,10 @@ object DebtPayoffEngine {
 
         if (extraMonthlyPaymentCents > 0L && debts.isNotEmpty()) {
             val updatedEvents = forecastEvents.toMutableList()
+            // Synthetic minimum-payment events are recognizable by description, so two
+            // unlinked debts that share a minimum amount and due date never suppress
+            // each other; only a real user bill on the timeline counts as a duplicate.
+            val syntheticMinimumDescriptions = debts.map { "${it.name} minimum payment" }.toSet()
             debts.filter { it.linkedPaymentId == null }.forEach { debt ->
                 var dueDate = today.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(today.lengthOfMonth()))
                 if (!dueDate.isAfter(today)) dueDate = dueDate.plusMonths(1)
@@ -85,7 +89,8 @@ object DebtPayoffEngine {
                     val alreadyOnTimeline = updatedEvents.any { event ->
                         event.date == dueDate &&
                             (event.type == "bill" || event.type == "expense") &&
-                            event.amount_cents == debt.minPaymentCents
+                            event.amount_cents == debt.minPaymentCents &&
+                            event.description !in syntheticMinimumDescriptions
                     }
                     if (!alreadyOnTimeline) {
                         updatedEvents.add(
@@ -173,10 +178,16 @@ object DebtPayoffEngine {
         var totalInterestPaidCents = 0L
         var totalPaidCents = 0L
         var currentDate = startDate
+        // Negative-amortization debts can compound past the Long range; when that
+        // happens the balance would wrap negative and fake a "converged" result.
+        var balanceOverflowed = false
 
         val maxMonths = 360 // 30-year safety cap
 
-        while (debtStates.any { it.currentBalanceCents > 0L } && monthCount < maxMonths) {
+        while (debtStates.any { it.currentBalanceCents > 0L } &&
+            monthCount < maxMonths &&
+            !balanceOverflowed
+        ) {
             monthCount++
             currentDate = currentDate.plusMonths(1)
 
@@ -191,12 +202,22 @@ object DebtPayoffEngine {
 
             // 2. Accrue interest & apply minimum payments
             for (debt in targetOrder) {
-                val interestCents = monthlyInterestCents(debt.currentBalanceCents, debt.item.aprBasisPoints)
+                // Saturate instead of throwing/wrapping: an unrepresentable balance
+                // means this debt can never converge, so report it honestly.
+                val interestCents = runCatching {
+                    monthlyInterestCents(debt.currentBalanceCents, debt.item.aprBasisPoints)
+                }.getOrDefault(Long.MAX_VALUE)
+                if (interestCents > Long.MAX_VALUE - debt.currentBalanceCents) {
+                    balanceOverflowed = true
+                    break
+                }
                 debt.currentBalanceCents += interestCents
                 totalInterestPaidCents += interestCents
 
                 val minPayment = minOf(debt.item.minPaymentCents, debt.currentBalanceCents)
-                val principal = minPayment - minOf(minPayment, interestCents)
+                // Signed principal: negative when the payment cannot cover accrued interest
+                // (negative amortization). Keeps starting - principal == ending on every row.
+                val principal = minPayment - interestCents
                 debt.currentBalanceCents -= minPayment
                 totalPaidCents += minPayment
 
@@ -247,7 +268,7 @@ object DebtPayoffEngine {
             totalPaidCents = totalPaidCents,
             payoffDate = currentDate,
             monthlySchedule = schedule,
-            didNotConverge = remaining,
+            didNotConverge = remaining || balanceOverflowed,
         )
     }
 }

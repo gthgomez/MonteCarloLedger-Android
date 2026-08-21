@@ -70,7 +70,7 @@ class CsvImportTest {
     }
 
     @Test
-    fun parseTransactionCsv_skipsExactDuplicateRows() {
+    fun parseTransactionCsv_keepsIdenticalSameDayCharges() {
         val csv = """
             Date,Description,Amount
             2026-04-01,Groceries,-34.25
@@ -79,8 +79,10 @@ class CsvImportTest {
 
         val preview = parseTransactionCsv(csvText = csv)
 
-        assertEquals(1, preview.importedTransactions.size)
-        assertEquals(1, preview.duplicateRows)
+        // Two identical same-day charges are real distinct transactions; both must
+        // survive parsing. Re-import protection lives in LedgerRepository.
+        assertEquals(2, preview.importedTransactions.size)
+        assertEquals(0, preview.skippedRows)
     }
 
     @Test

@@ -45,7 +45,6 @@ internal data class CsvImportPreview(
     val importedTransactions: List<TransactionEntity>,
     val skippedRows: Int,
     val totalRows: Int,
-    val duplicateRows: Int = 0,
 )
 
 internal data class TransactionCsvColumnMapping(
@@ -109,13 +108,6 @@ internal fun CsvImportSheetContent(
             style = MaterialTheme.typography.bodyMedium,
             color = GlassTokens.TextSecondary
         )
-        if (activePreview.duplicateRows > 0) {
-            Text(
-                text = "${activePreview.duplicateRows} duplicate rows skipped.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = GlassTokens.TextSecondary
-            )
-        }
         Text(
             text = "Map the columns below if your bank export uses different headers.",
             style = MaterialTheme.typography.bodySmall,
@@ -445,8 +437,6 @@ internal fun parseTransactionCsv(
 
     val transactions = mutableListOf<TransactionEntity>()
     var skippedRows = 0
-    var duplicateRows = 0
-    val seenRows = mutableSetOf<String>()
 
     lines.drop(1).forEach { line -> 
         val columns = parseCsvLine(line)
@@ -466,17 +456,9 @@ internal fun parseTransactionCsv(
             return@forEach
         }
 
-        val normalizedKey = listOf(
-            date.toString(),
-            description.lowercase(Locale.US).trim(),
-            amountCents.toString(),
-            if (amountCents < 0) "expense" else "income",
-        ).joinToString("|")
-        if (!seenRows.add(normalizedKey)) {
-            duplicateRows++
-            return@forEach
-        }
-
+        // Identical same-day rows are kept: two identical charges in one statement
+        // are real distinct transactions. Re-import protection happens at the
+        // repository layer via multiset counting against existing ledger rows.
         transactions += TransactionEntity(
             description = description,
             amount_cents = amountCents,
@@ -495,7 +477,6 @@ internal fun parseTransactionCsv(
         importedTransactions = transactions,
         skippedRows = skippedRows,
         totalRows = lines.size - 1,
-        duplicateRows = duplicateRows,
     )
 }
 
