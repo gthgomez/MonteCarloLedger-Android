@@ -1,5 +1,6 @@
 package com.montecarlo.ledger.ui
 
+import com.montecarlo.ledger.data.AccountEntity
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
@@ -46,6 +47,7 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
         goals = root.array("goals").map { it.toGoalEntity() },
         categoryBudgets = root.array("categoryBudgets").map { it.toCategoryBudgetEntity() },
         debts = root.array("debts").map { it.toDebtEntity() },
+        accounts = root.array("accounts").map { it.toAccountEntity() },
     )
 }
 
@@ -115,6 +117,16 @@ private fun JsonObject.toRuleEntity(): TransactionRuleEntity =
         created_at = optStr("created_at"),
     )
 
+private fun JsonObject.toAccountEntity(): AccountEntity =
+    AccountEntity(
+        id = longOrFallback("id", 0L),
+        name = str("name"),
+        type = optStr("type").ifBlank { "checking" },
+        balanceCents = longOrFallback("balanceCents", 0L),
+        isReconciled = optBool("isReconciled", false),
+        isDefault = optBool("isDefault", false),
+        lastUpdated = optStr("lastUpdated"),
+    )
 private fun JsonObject.toAssetEntity(): AssetEntity =
     AssetEntity(
         id = longOrFallback("id", 0L),

@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryBudgetEntity::class,
         DebtEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -64,6 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_11_12,
                         MIGRATION_12_13,
                         MIGRATION_13_14,
+                        MIGRATION_14_15,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -288,8 +289,29 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_12_13_FOR_TEST: Migration
             get() = MIGRATION_12_13
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `accounts` ADD COLUMN `isReconciled` INTEGER NOT NULL DEFAULT 0"
+                )
+                // Adopt the reconciled flag from the legacy settings mirror.
+                db.execSQL(
+                    """
+                    UPDATE accounts
+                    SET isReconciled = CASE WHEN (
+                        SELECT value FROM settings WHERE key = 'bank_balance_reconciled'
+                    ) IN ('1', 'true', 'TRUE', 'True', 'yes') THEN 1 ELSE 0 END
+                    WHERE isDefault = 1
+                    """.trimIndent()
+                )
+            }
+        }
         @VisibleForTesting
         val MIGRATION_13_14_FOR_TEST: Migration
             get() = MIGRATION_13_14
+
+        @VisibleForTesting
+        val MIGRATION_14_15_FOR_TEST: Migration
+            get() = MIGRATION_14_15
     }
 }

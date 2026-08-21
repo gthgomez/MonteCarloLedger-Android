@@ -113,6 +113,7 @@ fun AppView(
     val debts by viewModel.allDebts.collectAsStateWithLifecycle()
     val billOccurrences by viewModel.allBillOccurrences.collectAsStateWithLifecycle()
     val transactionRules by viewModel.allTransactionRules.collectAsStateWithLifecycle()
+    val accounts by viewModel.allAccounts.collectAsStateWithLifecycle()
     val transactions by viewModel.allTransactions.collectAsStateWithLifecycle()
     val onboardingProgress by viewModel.onboardingProgress.collectAsStateWithLifecycle()
     val settings by viewModel.allSettings.collectAsStateWithLifecycle()

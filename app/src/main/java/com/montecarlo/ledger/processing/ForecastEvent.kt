@@ -15,5 +15,7 @@ data class ForecastEvent(
     val description: String,
     val amount_cents: Long,
     val type: String,
-    val recurrenceLabel: String? = null
+    val recurrenceLabel: String? = null,
+    /** Normalized spend category for bill events, used for per-category simulation variance. */
+    val category: String? = null,
 )

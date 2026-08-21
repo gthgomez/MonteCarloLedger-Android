@@ -58,6 +58,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val accounts by viewModel.allAccounts.collectAsState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -365,6 +366,38 @@ fun SettingsScreen(
 
             item {
                 Text(
+                    "Bank Accounts",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = GlassTokens.TextSecondary,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                )
+            }
+
+            item {
+                AccountsSection(
+                    accounts = accounts,
+                    onAdd = { name, type, cents ->
+                        viewModel.upsertAccount(
+                            com.montecarlo.ledger.data.AccountEntity(
+                                name = name,
+                                type = type,
+                                balanceCents = cents,
+                                isDefault = accounts.none { it.isDefault },
+                                lastUpdated = java.time.LocalDate.now().toString(),
+                            )
+                        )
+                    },
+                    onUpdateBalance = { account, cents ->
+                        if (account.isDefault) viewModel.setBankBalance(cents)
+                        else viewModel.upsertAccount(account.copy(balanceCents = cents, lastUpdated = java.time.LocalDate.now().toString()))
+                    },
+                    onDelete = { account -> viewModel.deleteAccount(account) },
+                    onSetDefault = { account -> viewModel.setDefaultAccount(account.id) },
+                )
+            }
+
+            item {
+                Text(
                     "Net Worth Assets",
                     style = MaterialTheme.typography.labelLarge,
                     color = GlassTokens.TextSecondary,
@@ -492,4 +525,182 @@ private fun SettingsCard(
             }
         }
     }
+}
+
+@Composable
+private fun AccountsSection(
+    accounts: List<com.montecarlo.ledger.data.AccountEntity>,
+    onAdd: (name: String, type: String, balanceCents: Long) -> Unit,
+    onUpdateBalance: (account: com.montecarlo.ledger.data.AccountEntity, cents: Long) -> Unit,
+    onDelete: (com.montecarlo.ledger.data.AccountEntity) -> Unit,
+    onSetDefault: (com.montecarlo.ledger.data.AccountEntity) -> Unit,
+) {
+    var showAddDialog by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<com.montecarlo.ledger.data.AccountEntity?>(null) }
+
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        tint = GlassTint.Neutral,
+        surfaceStyle = GlassSurfaceStyle.Standard,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(8.dp)) {
+            if (accounts.isEmpty()) {
+                Text(
+                    "No accounts yet. Add your checking or savings accounts to track balances.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GlassTokens.TextDim
+                )
+            }
+            accounts.forEach { account ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                account.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = GlassTokens.TextPrimary
+                            )
+                            if (account.isDefault) {
+                                Icon(
+                                    Icons.Default.Star,
+                                    contentDescription = "Default account",
+                                    tint = GlassTokens.CyanBright,
+                                    modifier = Modifier.padding(start = 4.dp).size(16.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            "${account.type.replaceFirstChar { it.uppercase() }} • ${centsToDisplay(account.balanceCents)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = GlassTokens.TextSecondary
+                        )
+                    }
+                    TextButton(onClick = { editing = account }) { Text("Edit") }
+                    if (!account.isDefault) {
+                        IconButton(onClick = { onDelete(account) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = GlassTokens.ErrorRed)
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = GlassTokens.CyanBright)
+                    Text("Add account", color = GlassTokens.CyanBright)
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        AccountEditDialog(
+            title = "Add account",
+            initial = null,
+            onConfirm = { name, type, cents ->
+                onAdd(name, type, cents)
+                showAddDialog = false
+            },
+            onDismiss = { showAddDialog = false }
+        )
+    }
+
+    editing?.let { account ->
+        AccountEditDialog(
+            title = "Edit ${account.name}",
+            initial = account,
+            allowDelete = !account.isDefault,
+            isDefault = account.isDefault,
+            onConfirm = { _, _, cents ->
+                onUpdateBalance(account, cents)
+                editing = null
+            },
+            onDismiss = { editing = null },
+            onSetDefault = {
+                onSetDefault(account)
+                editing = null
+            },
+            onDelete = {
+                onDelete(account)
+                editing = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun AccountEditDialog(
+    title: String,
+    initial: com.montecarlo.ledger.data.AccountEntity?,
+    onConfirm: (name: String, type: String, balanceCents: Long) -> Unit,
+    onDismiss: () -> Unit,
+    allowDelete: Boolean = true,
+    isDefault: Boolean = false,
+    onSetDefault: () -> Unit = {},
+    onDelete: () -> Unit = {},
+) {
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    var balance by remember { mutableStateOf(initial?.let { com.montecarlo.ledger.util.centsToDollarInputString(it.balanceCents) } ?: "") }
+    var type by remember { mutableStateOf(initial?.type?.replaceFirstChar { it.uppercase() } ?: "Checking") }
+    var error by remember { mutableStateOf("") }
+    val types = listOf("Checking", "Savings", "Credit", "Cash")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = GlassTokens.TextPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; error = "" },
+                    label = { Text("Account name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = balance,
+                    onValueChange = { balance = it; error = "" },
+                    label = { Text(if (isDefault) "Balance ($) — syncing also updates your forecast" else "Balance ($)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                Text("Type", style = MaterialTheme.typography.labelSmall)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    types.forEach { t ->
+                        FilterChip(selected = type == t, onClick = { type = t }, label = { Text(t) })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val parsed = parseDollars(balance)
+                    when {
+                        name.isBlank() -> error = "Account name is required."
+                        parsed !is DollarParseResult.Valid -> error = "Enter a valid starting balance."
+                        else -> {
+                            onConfirm(name.trim(), type, parsed.cents)
+                        }
+                    }
+                },
+                enabled = name.isNotBlank() && balance.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (initial != null && allowDelete) {
+                    TextButton(onClick = onDelete) { Text("Delete", color = GlassTokens.ErrorRed) }
+                } else if (initial != null && !isDefault) {
+                    TextButton(onClick = onSetDefault) { Text("Make default") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
 }

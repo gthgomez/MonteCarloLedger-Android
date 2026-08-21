@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.ui
 
 import com.montecarlo.ledger.AppUiState
+import com.montecarlo.ledger.data.AccountEntity
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
@@ -25,7 +26,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Current export schema: serializer-based writer, same field layout as v3 plus version bump. */
-internal const val BACKUP_SCHEMA_VERSION = 4
+internal const val BACKUP_SCHEMA_VERSION = 5
 
 private val BACKUP_JSON = Json { prettyPrint = true }
 
@@ -43,6 +44,7 @@ internal fun buildLedgerBackupJson(
     goals: List<GoalEntity> = uiState.goals,
     categoryBudgets: List<CategoryBudgetEntity> = emptyList(),
     debts: List<DebtEntity> = uiState.debts,
+    accounts: List<AccountEntity> = emptyList(),
 ): String {
     val root = buildJsonObject {
         put("schemaVersion", BACKUP_SCHEMA_VERSION)
@@ -80,6 +82,7 @@ internal fun buildLedgerBackupJson(
         put("goals", JsonArray(goals.map { it.toJsonElement() }))
         put("categoryBudgets", JsonArray(categoryBudgets.map { it.toJsonElement() }))
         put("debts", JsonArray(debts.map { it.toJsonElement() }))
+        put("accounts", JsonArray(accounts.map { it.toJsonElement() }))
     }
     return BACKUP_JSON.encodeToString(JsonElement.serializer(), root)
 }
@@ -150,6 +153,16 @@ private fun BillOccurrenceEntity.toJsonElement(): JsonObject = buildJsonObject {
     putNullableString("created_at", created_at)
     putNullableString("original_due_date", original_due_date)
     put("is_user_modified", is_user_modified == 1)
+}
+
+private fun AccountEntity.toJsonElement(): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("type", type)
+    put("balanceCents", balanceCents)
+    put("isReconciled", isReconciled)
+    put("isDefault", isDefault)
+    put("lastUpdated", lastUpdated)
 }
 
 private fun AssetEntity.toJsonElement(): JsonObject = buildJsonObject {

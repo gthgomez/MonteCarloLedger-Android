@@ -13,6 +13,12 @@ data class MonteCarloParams(
     val incomeVariationMax: Int = 8,
     val expenseVariationMin: Int = 0,
     val expenseVariationMax: Int = 0,
+    /**
+     * Per-category symmetric percent ranges overriding the scalar expense range.
+     * Keyed by normalized category; events whose category is present here vary
+     * within their own range instead of the aggregate one.
+     */
+    val expenseCategoryVariation: Map<String, IntRange> = emptyMap(),
     val surpriseProbability: Double = 0.15,
     val surpriseCheckIntervalDays: Int = 14,
     val surpriseAmountMin: Int = 2000,
@@ -168,12 +174,17 @@ class MonteCarloEngine(
                 } else 0
                 max(0L, scaleCentsByPercent(event.amount_cents, variationPercent))
             } else {
-                val variationPercent = if (params.expenseVariationMin != 0 || params.expenseVariationMax != 0) {
-                    rng.nextInt(
-                        params.expenseVariationMin,
-                        params.expenseVariationMax + 1,
-                    )
-                } else 0
+                val categoryRange = event.category?.let { params.expenseCategoryVariation[it] }
+                val variationPercent = when {
+                    categoryRange != null && !categoryRange.isEmpty() ->
+                        rng.nextInt(categoryRange.first, categoryRange.last + 1)
+                    params.expenseVariationMin != 0 || params.expenseVariationMax != 0 ->
+                        rng.nextInt(
+                            params.expenseVariationMin,
+                            params.expenseVariationMax + 1,
+                        )
+                    else -> 0
+                }
                 max(0L, scaleCentsByPercent(event.amount_cents, variationPercent))
             }
             scenario.add(event.copy(amount_cents = adjustedAmount))

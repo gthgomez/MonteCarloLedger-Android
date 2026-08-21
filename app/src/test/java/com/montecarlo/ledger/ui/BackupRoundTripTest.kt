@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.ui
 
 import com.montecarlo.ledger.AppUiState
+import com.montecarlo.ledger.data.AccountEntity
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.DebtEntity
@@ -97,6 +98,9 @@ class BackupRoundTripTest {
             debts = listOf(
                 DebtEntity(9L, "Card", 80_000L, 1850, 5_000L, 15, null, true)
             ),
+            accounts = listOf(
+                AccountEntity(11L, "Checking", "checking", 12_345L, isReconciled = true, isDefault = true, lastUpdated = "2026-08-21")
+            ),
         )
     }
 
@@ -130,6 +134,9 @@ class BackupRoundTripTest {
 
         assertEquals("50000", snapshot.settings.first { it.key == "starting_balance" }.value)
         assertNull(snapshot.debts.single().linkedPaymentId)
+        val account = snapshot.accounts.single()
+        assertTrue(account.isDefault && account.isReconciled)
+        assertEquals(12_345L, account.balanceCents)
         assertEquals("2026-12-31", snapshot.goals.single().deadline)
     }
 

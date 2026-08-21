@@ -94,6 +94,10 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun insertAccount(account: AccountEntity): Long = db.accountDao().insert(account)
     suspend fun updateAccount(account: AccountEntity) = db.accountDao().update(account)
     suspend fun deleteAccount(account: AccountEntity) = db.accountDao().delete(account)
+    suspend fun upsertAccount(account: AccountEntity) {
+        if (account.isDefault && account.id != 0L) { setDefaultAccount(account.id); return }
+        db.accountDao().insert(account)
+    }
     suspend fun getDefaultAccount(): AccountEntity? = db.accountDao().getDefault()
     // Transactions
     val allTransactions: Flow<List<TransactionEntity>> = db.transactionDao().getAll()
@@ -698,7 +702,9 @@ class LedgerRepository(private val db: AppDatabase) {
             db.goalDao().deleteAllGoals()
             db.categoryBudgetDao().deleteAll()
             db.debtDao().deleteAll()
+            db.accountDao().deleteAll()
         }
+        ensureDefaultAccountSeeded()
     }
 
     suspend fun restoreBackup(snapshot: LedgerBackupSnapshot) {
@@ -717,7 +723,9 @@ class LedgerRepository(private val db: AppDatabase) {
             db.goalDao().deleteAllGoals()
             db.categoryBudgetDao().deleteAll()
             db.debtDao().deleteAll()
+            db.accountDao().deleteAll()
 
+            snapshot.accounts.forEach { db.accountDao().insert(it) }
             snapshot.incomes.forEach { db.incomeDao().insertIncome(it) }
             snapshot.payments.forEach { db.paymentDao().insert(it) }
             snapshot.transactions.forEach { db.transactionDao().insert(it) }
@@ -730,6 +738,8 @@ class LedgerRepository(private val db: AppDatabase) {
 
             restoreSettings(snapshot)
             preservedLockSettings.forEach { db.settingsDao().setValue(it) }
+            // Accounts reflect the restored state; reseed if the snapshot predates v5.
+            ensureDefaultAccountSeeded()
         }
     }
 
@@ -839,7 +849,83 @@ class LedgerRepository(private val db: AppDatabase) {
             db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, amountCents.toString()))
             db.settingsDao().setValue(SettingsEntity(KEY_BANK_BALANCE_RECONCILED, "true"))
             db.settingsDao().setValue(SettingsEntity(KEY_LEGACY_RECONCILED, "true"))
+            syncDefaultAccountRow(amountCents, reconciled = true)
         }
+    }
+
+    /**
+     * Keeps the default account row in lockstep with the primary balance pipeline.
+     * Accounts are the adopted surface; settings remain the legacy/backup mirror.
+     */
+    private suspend fun syncDefaultAccountRow(amountCents: Long, reconciled: Boolean) {
+        val today = LocalDate.now().toString()
+        val existing = db.accountDao().getDefault()
+        if (existing != null) {
+            if (existing.balanceCents != amountCents || existing.isReconciled != reconciled) {
+                db.accountDao().update(
+                    existing.copy(balanceCents = amountCents, isReconciled = reconciled, lastUpdated = today)
+                )
+            }
+        } else {
+            db.accountDao().insert(
+                AccountEntity(
+                    name = "Primary account",
+                    type = "checking",
+                    balanceCents = amountCents,
+                    isDefault = true,
+                    isReconciled = reconciled,
+                    lastUpdated = today,
+                )
+            )
+        }
+    }
+
+    /**
+     * Guarantees a default account exists, seeded from the legacy balance settings.
+     * Covers fresh installs (no migration seed) and restores of pre-accounts backups.
+     */
+    suspend fun ensureDefaultAccountSeeded() {
+        if (db.accountDao().getDefault() != null) return
+        // Read-only seeding: never resurrect settings rows on a wiped database.
+        val bank = db.settingsDao().getValue(KEY_BANK_BALANCE)?.toLongOrNull()
+            ?: db.settingsDao().getValue(KEY_CURRENT_BALANCE)?.toLongOrNull()
+            ?: 0L
+        db.accountDao().insert(
+            AccountEntity(
+                name = "Primary account",
+                type = "checking",
+                balanceCents = bank,
+                isReconciled = isBalanceReconciled(),
+                isDefault = true,
+                lastUpdated = LocalDate.now().toString(),
+            )
+        )
+    }
+
+    /** Promotes [id] to be the default account and demotes every other account. */
+    suspend fun setDefaultAccount(id: Long) {
+        db.withTransaction {
+            val target = db.accountDao().getById(id)
+                ?: throw IllegalArgumentException("Account not found.")
+            for (account in db.accountDao().getAll().first()) {
+                val shouldBeDefault = account.id == id
+                if (account.isDefault != shouldBeDefault) {
+                    db.accountDao().update(account.copy(isDefault = shouldBeDefault))
+                }
+            }
+            // The default account drives the primary pipeline; adopt its current row values.
+            if (!target.balanceCents.equals(getBankBalanceCents()) || !target.isReconciled) {
+                writeBankBalanceCents(target.balanceCents)
+            }
+        }
+    }
+
+    /** Deletes a non-default account. Deleting the default is blocked to protect the pipeline. */
+    suspend fun deleteAccountSafe(account: AccountEntity) {
+        if (account.isDefault) {
+            throw IllegalArgumentException("Set another account as default before deleting this one.")
+        }
+        db.accountDao().delete(account)
     }
 
     private suspend fun applyTransactionToBankBalanceIfReconciled(deltaCents: Long) {

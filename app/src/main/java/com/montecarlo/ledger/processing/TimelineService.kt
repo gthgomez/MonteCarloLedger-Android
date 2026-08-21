@@ -3,6 +3,7 @@ package com.montecarlo.ledger.processing
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
+import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
 
@@ -14,6 +15,7 @@ object TimelineService {
         startDate: LocalDate,
         daysAhead: Int,
         paidOccurrences: List<BillOccurrenceEntity> = emptyList(),
+        rules: List<TransactionRuleEntity> = emptyList(),
     ): List<ForecastEvent> {
         if (daysAhead < 0) return emptyList()
 
@@ -42,9 +44,9 @@ object TimelineService {
         }
 
         payments.filter { it.is_active != 0 }.forEach { payment ->
-            events += generatePaymentEvents(payment, startDate, endDate, suppressedSet)
+            events += generatePaymentEvents(payment, startDate, endDate, suppressedSet, rules)
         }
-        events += generateModifiedBillOccurrenceEvents(paidOccurrences, paymentById, startDate, endDate)
+        events += generateModifiedBillOccurrenceEvents(paidOccurrences, paymentById, startDate, endDate, rules)
 
         return events.sortedWith(
             compareBy<ForecastEvent> { it.date }
@@ -106,7 +108,9 @@ object TimelineService {
         startDate: LocalDate,
         endDate: LocalDate,
         suppressedSet: Set<Pair<Int, String>> = emptySet(),
+        rules: List<TransactionRuleEntity> = emptyList(),
     ): List<ForecastEvent> {
+        val category = resolveCategory(payment.name, rules)
         val events = mutableListOf<ForecastEvent>()
         var currentDate = LedgerDate.parseIsoOrNull(payment.next_date) ?: return emptyList()
 
@@ -124,6 +128,7 @@ object TimelineService {
                         payment.day_of_month,
                         payment.next_date
                     ),
+                    category = category,
                 )
             }
             currentDate = RecurrenceMath.nextDate(currentDate, payment.frequency, payment.day_of_month) ?: return events
@@ -143,6 +148,7 @@ object TimelineService {
                             payment.day_of_month,
                             payment.next_date
                         ),
+                        category = category,
                     )
                 }
             }
@@ -153,11 +159,21 @@ object TimelineService {
         return events
     }
 
+    /** Categorizes a bill by its name using user rules; null when no rule matches. */
+    private fun resolveCategory(
+        name: String,
+        rules: List<TransactionRuleEntity>,
+    ): String? {
+        val result = CategoryRuleEngine.categorize(name, rules)
+        return result.category.takeIf { it != "uncategorized" }
+    }
+
     private fun generateModifiedBillOccurrenceEvents(
         occurrences: List<BillOccurrenceEntity>,
         paymentById: Map<Int, PaymentEntity>,
         startDate: LocalDate,
         endDate: LocalDate,
+        rules: List<TransactionRuleEntity> = emptyList(),
     ): List<ForecastEvent> {
         return occurrences.mapNotNull { occurrence ->
             if (occurrence.is_paid != 0 || occurrence.is_user_modified == 0) return@mapNotNull null
@@ -176,6 +192,7 @@ object TimelineService {
                     payment.day_of_month,
                     occurrence.due_date
                 ),
+                category = resolveCategory(payment.name, rules),
             )
         }
     }
