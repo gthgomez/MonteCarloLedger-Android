@@ -86,6 +86,9 @@ private fun JsonObject.toTransactionEntity(): TransactionEntity =
         source = optStr("source").ifBlank { "manual" },
         review_status = optStr("review_status").ifBlank { "approved" },
         reviewed_at = nullableString("reviewed_at")?.ifBlank { null },
+        // Schema <= 5 backups predate clearing states; statement history is posted.
+        clearing_status = com.montecarlo.ledger.data.ClearingStatus.normalize(optStr("clearing_status")),
+        account_id = nullableLong("account_id"),
     )
 
 private fun JsonObject.toBillOccurrenceEntity(): BillOccurrenceEntity =
@@ -156,6 +159,11 @@ private fun JsonObject.toDebtEntity(): DebtEntity =
         dueDayOfMonth = intOrFallback("dueDayOfMonth", 1),
         linkedPaymentId = nullableInt("linkedPaymentId"),
         isActive = optBool("isActive", true),
+        kind = com.montecarlo.ledger.data.DebtKind.normalize(optStr("kind")),
+        statementDayOfMonth = nullableInt("statementDayOfMonth"),
+        minPaymentPercentBps = intOrFallback("minPaymentPercentBps", 0),
+        minPaymentFloorCents = longOrFallback("minPaymentFloorCents", 0L),
+        linkedAccountId = nullableLong("linkedAccountId"),
     )
 
 private fun JsonObject.toCategoryBudgetEntity(): CategoryBudgetEntity =

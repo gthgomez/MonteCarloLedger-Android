@@ -49,21 +49,41 @@ fun GlassCard(
 fun SolidListSurface(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = scheme.surfaceContainerLow,
-        contentColor = scheme.onSurface,
-        tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-    ) {
-        Box(
-            modifier = Modifier.padding(contentPadding),
-            content = content,
-        )
+    val shape = RoundedCornerShape(12.dp)
+    val baseModifier = modifier.fillMaxWidth()
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            modifier = baseModifier,
+            shape = shape,
+            color = scheme.surfaceContainerLow,
+            contentColor = scheme.onSurface,
+            tonalElevation = 0.dp,
+            border = BorderStroke(1.dp, scheme.outlineVariant),
+        ) {
+            Box(
+                modifier = Modifier.padding(contentPadding),
+                content = content,
+            )
+        }
+    } else {
+        Surface(
+            modifier = baseModifier,
+            shape = shape,
+            color = scheme.surfaceContainerLow,
+            contentColor = scheme.onSurface,
+            tonalElevation = 0.dp,
+            border = BorderStroke(1.dp, scheme.outlineVariant),
+        ) {
+            Box(
+                modifier = Modifier.padding(contentPadding),
+                content = content,
+            )
+        }
     }
 }
 

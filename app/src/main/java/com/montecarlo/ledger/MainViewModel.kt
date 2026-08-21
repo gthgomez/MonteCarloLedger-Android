@@ -250,6 +250,12 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
+    fun setTransactionPending(transactionId: Int, pending: Boolean) {
+        viewModelScope.launch {
+            repo.setTransactionClearingStatus(transactionId, pending)
+        }
+    }
+
     fun createRuleFromTransactionReview(transactionId: Int, category: String) {
         val trimmedCategory = category.trim()
         val transaction = allTransactions.value.firstOrNull { it.id == transactionId } ?: return

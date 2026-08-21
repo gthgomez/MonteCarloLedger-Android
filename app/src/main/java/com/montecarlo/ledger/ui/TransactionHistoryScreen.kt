@@ -45,7 +45,9 @@ fun TransactionHistoryScreen(
         transactions = uiState.transactions,
         payments = payments,
         billOccurrences = billOccurrences,
-        onEditTransaction = onEditTransaction
+        onEditTransaction = onEditTransaction,
+        onMarkPosted = { viewModel.setTransactionPending(it.id, pending = false) },
+        onMarkPending = { viewModel.setTransactionPending(it.id, pending = true) },
     )
 }
 
@@ -55,7 +57,9 @@ internal fun TransactionHistoryContent(
     transactions: List<TransactionEntity>,
     payments: List<PaymentEntity>,
     billOccurrences: List<BillOccurrenceEntity>,
-    onEditTransaction: (TransactionEntity) -> Unit
+    onEditTransaction: (TransactionEntity) -> Unit,
+    onMarkPosted: (TransactionEntity) -> Unit = {},
+    onMarkPending: (TransactionEntity) -> Unit = {},
 ) {
     val sorted = transactions.sortedByDescending { it.date }
     val paymentById = remember(payments) { payments.associateBy { it.id } }
@@ -63,6 +67,10 @@ internal fun TransactionHistoryContent(
         billOccurrences
             .filter { it.transaction_id != null }
             .associateBy { it.transaction_id!! }
+    }
+    val pendingCount = transactions.count {
+        com.montecarlo.ledger.data.ClearingStatus.normalize(it.clearing_status) ==
+            com.montecarlo.ledger.data.ClearingStatus.PENDING
     }
 
     Scaffold(
@@ -77,7 +85,11 @@ internal fun TransactionHistoryContent(
                             modifier = Modifier.semantics { heading() }
                         )
                         Text(
-                            "Recent activity",
+                            if (pendingCount > 0) {
+                                "Recent activity • $pendingCount pending"
+                            } else {
+                                "Recent activity"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = GlassTokens.TextDim
                         )
@@ -117,6 +129,8 @@ internal fun TransactionHistoryContent(
                 val linkedPaymentName = linkedOccurrence?.let { occurrence ->
                     paymentById[occurrence.payment_id]?.name
                 }
+                val isPending = com.montecarlo.ledger.data.ClearingStatus.normalize(txn.clearing_status) ==
+                    com.montecarlo.ledger.data.ClearingStatus.PENDING
                 SolidListSurface(
                     modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
                 ) {
@@ -139,6 +153,14 @@ internal fun TransactionHistoryContent(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = GlassTokens.TextDim
                             )
+                            if (isPending) {
+                                Text(
+                                    "Pending — not yet posted by your bank",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = GlassTokens.CyanBright
+                                )
+                            }
                             if (linkedOccurrence != null && linkedPaymentName != null) {
                                 Text(
                                     "Closed bill: $linkedPaymentName • due ${linkedOccurrence.due_date.formatDateDisplay()}",
@@ -148,8 +170,19 @@ internal fun TransactionHistoryContent(
                                 )
                             }
                         }
-                        OutlinedButton(onClick = { onEditTransaction(txn) }) {
-                            Text("Edit", color = GlassTokens.TextSecondary)
+                        Column(horizontalAlignment = Alignment.End) {
+                            OutlinedButton(onClick = { onEditTransaction(txn) }) {
+                                Text("Edit", color = GlassTokens.TextSecondary)
+                            }
+                            if (isPending) {
+                                androidx.compose.material3.TextButton(onClick = { onMarkPosted(txn) }) {
+                                    Text("Mark posted")
+                                }
+                            } else {
+                                androidx.compose.material3.TextButton(onClick = { onMarkPending(txn) }) {
+                                    Text("Mark pending", color = GlassTokens.TextDim)
+                                }
+                            }
                         }
                     }
                 }

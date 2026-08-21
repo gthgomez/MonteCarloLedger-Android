@@ -187,6 +187,7 @@ fun AppView(
                     billOccurrences = billOccurrences,
                     transactionRules = transactionRules,
                     transactions = transactions,
+                    accounts = accounts,
                     onboardingProgress = onboardingProgress,
                     settings = settings,
                     reminderPreferences = reminderPreferences,
@@ -246,6 +247,7 @@ private fun AppChrome(
     billOccurrences: List<com.montecarlo.ledger.data.BillOccurrenceEntity>,
     transactionRules: List<com.montecarlo.ledger.data.TransactionRuleEntity>,
     transactions: List<com.montecarlo.ledger.data.TransactionEntity>,
+    accounts: List<com.montecarlo.ledger.data.AccountEntity>,
     onboardingProgress: OnboardingProgress,
     settings: List<SettingsEntity>,
     reminderPreferences: ReminderPreferences,
@@ -754,6 +756,9 @@ private fun AppChrome(
                             minPaymentCents = it.minimumPaymentCents,
                             dueDayOfMonth = it.dueDayOfMonth,
                             linkedPaymentId = it.linkedPaymentId,
+                            kind = it.kind,
+                            minPaymentPercentBps = it.minPaymentPercentBps,
+                            minPaymentFloorCents = it.minPaymentFloorCents,
                         )
                     }
                     val events = com.montecarlo.ledger.processing.TimelineService.generateTimeline(incomes, payments, java.time.LocalDate.now(), 90, billOccurrences)
@@ -765,6 +770,7 @@ private fun AppChrome(
                             onUpdate = viewModel::updateDebt,
                             onDelete = viewModel::deleteDebt,
                             modifier = Modifier.weight(1f),
+                            accounts = accounts,
                         )
                         if (debtItems.isNotEmpty()) {
                             DebtPayoffScreen(

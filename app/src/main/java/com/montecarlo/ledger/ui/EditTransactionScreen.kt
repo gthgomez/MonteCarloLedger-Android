@@ -57,6 +57,12 @@ fun EditTransactionScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var rememberRule by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    var pendingClearing by remember {
+        mutableStateOf(
+            com.montecarlo.ledger.data.ClearingStatus.normalize(transaction.clearing_status) ==
+                com.montecarlo.ledger.data.ClearingStatus.PENDING
+        )
+    }
 
     if (showDeleteConfirm) {
         ConfirmDeleteDialog(
@@ -124,6 +130,24 @@ fun EditTransactionScreen(
             }
         }
 
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.Switch(
+                checked = pendingClearing,
+                onCheckedChange = { pendingClearing = it }
+            )
+            Column {
+                Text("Pending (not yet posted)")
+                Text(
+                    "Use for card charges the bank has not settled yet. Posting never changes balances.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         if (errorMessage.isNotBlank()) {
             Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
@@ -158,7 +182,14 @@ fun EditTransactionScreen(
                             amount_cents = cents,
                             type = type,
                             category = category,
-                            date = dateIso
+                            date = dateIso,
+                            clearing_status = com.montecarlo.ledger.data.ClearingStatus.normalize(
+                                if (pendingClearing) {
+                                    com.montecarlo.ledger.data.ClearingStatus.PENDING
+                                } else {
+                                    com.montecarlo.ledger.data.ClearingStatus.POSTED
+                                }
+                            )
                         )
                         onSave(updated)
                         if (rememberRule && category.isNotBlank()) {

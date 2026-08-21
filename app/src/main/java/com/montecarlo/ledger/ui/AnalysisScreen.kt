@@ -32,11 +32,16 @@ fun AnalysisScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingRule by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var expandedCategory by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     AnalysisContent(
         uiState = uiState,
         hazeState = hazeState,
         onCreateRule = { description, category -> pendingRule = description to category },
         onTrackAsBill = onTrackAsBill,
+        expandedCategory = expandedCategory,
+        onToggleCategory = { category ->
+            expandedCategory = if (expandedCategory == category) null else category
+        },
     )
     pendingRule?.let { (description, category) ->
         TransactionRuleConfirmationDialog(
@@ -57,6 +62,8 @@ fun AnalysisContent(
     hazeState: HazeState? = null,
     onCreateRule: (String, String) -> Unit = { _, _ -> },
     onTrackAsBill: (RecurringCandidate) -> Unit = {},
+    expandedCategory: String? = null,
+    onToggleCategory: (String) -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -84,6 +91,8 @@ fun AnalysisContent(
             uiState = uiState,
             onCreateRule = onCreateRule,
             onTrackAsBill = onTrackAsBill,
+            expandedCategory = expandedCategory,
+            onToggleCategory = onToggleCategory,
         )
 
         item {

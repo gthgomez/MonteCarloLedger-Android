@@ -1,7 +1,9 @@
 package com.montecarlo.ledger.processing
 
+import com.montecarlo.ledger.data.DebtKind
 import com.montecarlo.ledger.util.centsToDisplay
 import com.montecarlo.ledger.util.monthlyInterestCents
+import com.montecarlo.ledger.util.scaleCentsByBasisPoints
 import java.time.LocalDate
 
 enum class PayoffStrategy {
@@ -17,6 +19,12 @@ data class DebtItem(
     val minPaymentCents: Long,
     val dueDayOfMonth: Int = 1,
     val linkedPaymentId: Int? = null,
+    /** installment | revolving (credit-card style). */
+    val kind: String = DebtKind.INSTALLMENT,
+    /** Revolving: percent-of-balance minimum in basis points; 0 disables the percentage leg. */
+    val minPaymentPercentBps: Int = 0,
+    /** Revolving: flat floor for the computed minimum. */
+    val minPaymentFloorCents: Long = 0L,
 )
 
 data class MonthlyPayoffStep(
@@ -56,6 +64,21 @@ data class DebtSimulationResult(
 
 object DebtPayoffEngine {
 
+    /**
+     * Minimum due this month for [debt] at [balanceCents].
+     *
+     * Installment debts pay their fixed minimum. Revolving debts (credit cards) use
+     * max(flat floor, percent of balance), and a card below its floor is simply paid
+     * in full — matching how issuers actually compute statement minimums.
+     */
+    fun minimumPaymentCents(debt: DebtItem, balanceCents: Long): Long {
+        if (debt.kind != DebtKind.REVOLVING) return debt.minPaymentCents
+        if (balanceCents <= 0L) return 0L
+        val percentBased = scaleCentsByBasisPoints(balanceCents, debt.minPaymentPercentBps)
+        val computed = maxOf(percentBased, debt.minPaymentFloorCents)
+        return minOf(computed, balanceCents)
+    }
+
     fun runSimulation(
         debts: List<DebtItem>,
         extraMonthlyPaymentCents: Long,
@@ -83,13 +106,14 @@ object DebtPayoffEngine {
             // each other; only a real user bill on the timeline counts as a duplicate.
             val syntheticMinimumDescriptions = debts.map { "${it.name} minimum payment" }.toSet()
             debts.filter { it.linkedPaymentId == null }.forEach { debt ->
+                val representativeMinimum = minimumPaymentCents(debt, debt.balanceCents)
                 var dueDate = today.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(today.lengthOfMonth()))
                 if (!dueDate.isAfter(today)) dueDate = dueDate.plusMonths(1)
                 while (!dueDate.isAfter(today.plusDays(90))) {
                     val alreadyOnTimeline = updatedEvents.any { event ->
                         event.date == dueDate &&
                             (event.type == "bill" || event.type == "expense") &&
-                            event.amount_cents == debt.minPaymentCents &&
+                            event.amount_cents == representativeMinimum &&
                             event.description !in syntheticMinimumDescriptions
                     }
                     if (!alreadyOnTimeline) {
@@ -97,7 +121,7 @@ object DebtPayoffEngine {
                             ForecastEvent(
                                 date = dueDate,
                                 description = "${debt.name} minimum payment",
-                                amount_cents = debt.minPaymentCents,
+                                amount_cents = representativeMinimum,
                                 type = "expense",
                             ),
                         )
@@ -214,7 +238,7 @@ object DebtPayoffEngine {
                 debt.currentBalanceCents += interestCents
                 totalInterestPaidCents += interestCents
 
-                val minPayment = minOf(debt.item.minPaymentCents, debt.currentBalanceCents)
+                val minPayment = minimumPaymentCents(debt.item, debt.currentBalanceCents)
                 // Signed principal: negative when the payment cannot cover accrued interest
                 // (negative amortization). Keeps starting - principal == ending on every row.
                 val principal = minPayment - interestCents

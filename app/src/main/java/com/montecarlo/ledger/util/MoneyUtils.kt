@@ -63,3 +63,13 @@ fun monthlyInterestCents(balanceCents: Long, aprBasisPoints: Int): Long {
         .divide(java.math.BigDecimal.valueOf(120_000L), 0, java.math.RoundingMode.HALF_UP)
         .longValueExact()
 }
+
+/** Scale a cent amount by basis points (1/10000) without floating-point currency math. */
+fun scaleCentsByBasisPoints(amountCents: Long, basisPoints: Int): Long {
+    require(amountCents >= 0L) { "Amount cannot be negative" }
+    require(basisPoints >= 0) { "Basis points cannot be negative" }
+    return java.math.BigDecimal.valueOf(amountCents)
+        .multiply(java.math.BigDecimal.valueOf(basisPoints.toLong()))
+        .divide(java.math.BigDecimal.valueOf(10_000L), 0, java.math.RoundingMode.HALF_UP)
+        .longValueExact()
+}

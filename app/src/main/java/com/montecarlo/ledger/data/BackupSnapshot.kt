@@ -8,6 +8,8 @@ package com.montecarlo.ledger.data
  * - Schema 3: includes persisted debt records.
  * - Schema 4: serializer-based writer (field layout unchanged).
  * - Schema 5: includes bank accounts. Preferred export version.
+ * - Schema 6: transaction clearing status + account tag; revolving-debt fields
+ *   (kind, statement day, percent minimums, linked account).
  */
 data class LedgerBackupSnapshot(
     val schemaVersion: Int,

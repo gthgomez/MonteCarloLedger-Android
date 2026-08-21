@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.MainViewModel
 import com.montecarlo.ledger.data.RecurringCandidate
+import com.montecarlo.ledger.processing.CategoryDrillDown
 import com.montecarlo.ledger.util.centsToDisplay
 import java.util.Locale
 import kotlin.math.abs
@@ -40,6 +44,7 @@ fun InsightsScreen(
     onTrackAsBill: (RecurringCandidate) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var expandedCategory by rememberSaveable { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.padding(16.dp),
@@ -49,6 +54,10 @@ fun InsightsScreen(
             uiState = uiState,
             onCreateRule = viewModel::saveTransactionRule,
             onTrackAsBill = onTrackAsBill,
+            expandedCategory = expandedCategory,
+            onToggleCategory = { category ->
+                expandedCategory = if (expandedCategory == category) null else category
+            },
         )
     }
 }
@@ -57,6 +66,8 @@ internal fun LazyListScope.analysisInsightsSection(
     uiState: com.montecarlo.ledger.AppUiState,
     onCreateRule: (String, String) -> Unit,
     onTrackAsBill: (RecurringCandidate) -> Unit,
+    expandedCategory: String? = null,
+    onToggleCategory: (String) -> Unit = {},
 ) {
     item {
         Text(
@@ -166,44 +177,64 @@ internal fun LazyListScope.analysisInsightsSection(
         }
     } else {
         items(uiState.categorySpend) { spend ->
+            val categoryKey = spend.category.ifBlank { "uncategorized" }
+            val isExpanded = expandedCategory == categoryKey
             SolidListSurface(
                 modifier = Modifier.heightIn(min = UiLayoutTokens.AnalysisListCardMinHeight),
+                onClick = { onToggleCategory(categoryKey) },
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CategoryGlassIcon(category = spend.category, size = 32.dp, iconSize = 16.dp)
-                    Text(
-                        spend.category.ifBlank { "Uncategorized" }.replaceFirstChar { it.uppercase() },
-                        color = GlassTokens.TextPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${centsToDisplay(abs(spend.totalCents))}",
-                        fontWeight = FontWeight.SemiBold,
-                        color = GlassTokens.CyanBright
-                    )
-                }
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CategoryGlassIcon(category = spend.category, size = 32.dp, iconSize = 16.dp)
+                        Text(
+                            categoryKey.replaceFirstChar { it.uppercase() },
+                            color = GlassTokens.TextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "${centsToDisplay(abs(spend.totalCents))}",
+                            fontWeight = FontWeight.SemiBold,
+                            color = GlassTokens.CyanBright
+                        )
+                        Text(
+                            if (isExpanded) "▲" else "▼",
+                            color = GlassTokens.TextDim,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
 
-                // Pacing Bar
-                val today = java.time.LocalDate.now()
-                val monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth()
-                val spendShare = abs(spend.totalCents).toFloat() / abs(uiState.totalOutflowCents).coerceAtLeast(1)
-                
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    LinearProgressIndicator(
-                        progress = { spendShare.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                        color = if (spendShare > monthProgress) GlassTokens.ErrorRed.copy(alpha = 0.7f) else GlassTokens.CyanBright.copy(alpha = 0.5f),
-                        trackColor = GlassTokens.DividerColor,
-                    )
-                    Text(
-                        if (spendShare > monthProgress) "Over-pacing for this month" else "Under-pacing for this month",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (spendShare > monthProgress) GlassTokens.ErrorRed else GlassTokens.TextDim
-                    )
+                    // Pacing Bar
+                    val today = java.time.LocalDate.now()
+                    val monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth()
+                    val spendShare = abs(spend.totalCents).toFloat() / abs(uiState.totalOutflowCents).coerceAtLeast(1)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        LinearProgressIndicator(
+                            progress = { spendShare.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                            color = if (spendShare > monthProgress) GlassTokens.ErrorRed.copy(alpha = 0.7f) else GlassTokens.CyanBright.copy(alpha = 0.5f),
+                            trackColor = GlassTokens.DividerColor,
+                        )
+                        Text(
+                            if (spendShare > monthProgress) "Over-pacing for this month" else "Under-pacing for this month",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (spendShare > monthProgress) GlassTokens.ErrorRed else GlassTokens.TextDim
+                        )
+                    }
+
+                    if (isExpanded) {
+                        CategoryDrillDownPanel(
+                            drillDown = com.montecarlo.ledger.processing.CategoryDrillDownDeriver.build(
+                                transactions = uiState.transactions,
+                                category = categoryKey,
+                                today = today,
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -358,5 +389,62 @@ internal fun LazyListScope.analysisInsightsSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CategoryDrillDownPanel(drillDown: CategoryDrillDown?) {
+    if (drillDown == null) return
+    Column(
+        modifier = Modifier.padding(top = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        HorizontalDivider(color = GlassTokens.DividerColor)
+
+        DrillDownRow("Total (${drillDown.windowDays}d)", centsToDisplay(drillDown.totalCents))
+        DrillDownRow(
+            "Trend",
+            drillDown.trendLabel ?: "No earlier window to compare",
+        )
+        DrillDownRow(
+            "Per charge",
+            "${drillDown.transactionCount} charges • ${centsToDisplay(drillDown.averageCents)} avg",
+        )
+        DrillDownRow("Largest charge", centsToDisplay(drillDown.largestCents))
+
+        if (drillDown.topMerchants.isNotEmpty()) {
+            HorizontalDivider(color = GlassTokens.DividerColor)
+            Text(
+                "Where it went",
+                style = MaterialTheme.typography.labelLarge,
+                color = GlassTokens.TextSecondary,
+                modifier = Modifier.semantics { heading() }
+            )
+            drillDown.topMerchants.forEach { merchant ->
+                DrillDownRow(
+                    merchant.label,
+                    "${centsToDisplay(merchant.totalCents)} • ${merchant.count}×",
+                )
+            }
+        }
+
+        Text(
+            "Tap again to collapse.",
+            style = MaterialTheme.typography.labelSmall,
+            color = GlassTokens.TextDim
+        )
+    }
+}
+
+@Composable
+private fun DrillDownRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = GlassTokens.TextPrimary)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = GlassTokens.TextSecondary
+        )
     }
 }

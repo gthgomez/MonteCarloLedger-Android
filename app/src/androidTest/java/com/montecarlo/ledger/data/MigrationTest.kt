@@ -322,4 +322,80 @@ class MigrationTest {
         cursor.close()
         migratedDb.close()
     }
+
+    @Test
+    fun migrate15To16_addsClearingStatusAccountTagAndRevolvingDebtFields() {
+        val db15 = helper.createDatabase(TEST_DB, 15)
+
+        db15.execSQL(
+            """
+            INSERT INTO accounts (id, name, type, balanceCents, isDefault, lastUpdated)
+            VALUES (1, 'Visa', 'credit', 0, 0, '2026-08-01')
+            """.trimIndent()
+        )
+        db15.execSQL(
+            """
+            INSERT INTO debts (id, name, balanceCents, aprBasisPoints, minimumPaymentCents,
+                               dueDayOfMonth, linkedPaymentId, isActive)
+            VALUES (2, 'Card', 80000, 1850, 5000, 15, NULL, 1)
+            """.trimIndent()
+        )
+        db15.execSQL(
+            """
+            INSERT INTO transactions (id, description, amount_cents, date, type, category,
+                                      source, review_status, reviewed_at)
+            VALUES (3, 'Coffee', -475, '2026-08-20', 'expense', 'food', 'manual', 'approved', NULL)
+            """.trimIndent()
+        )
+        db15.close()
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            TEST_DB, 16, true,
+            AppDatabase.MIGRATION_15_16_FOR_TEST
+        )
+
+        // Existing transactions restore as posted with no account tag.
+        val txnCursor = migratedDb.query("SELECT clearing_status, account_id FROM transactions WHERE id = 3")
+        assertTrue("transaction should survive 15→16", txnCursor.moveToFirst())
+        assertEquals("posted", txnCursor.getString(0))
+        assertTrue(txnCursor.isNull(1))
+        txnCursor.close()
+
+        // Rebuilt debts keep their rows and gain defaulted revolving fields.
+        val debtCursor = migratedDb.query(
+            "SELECT name, balanceCents, kind, statementDayOfMonth, minPaymentPercentBps, " +
+                "minPaymentFloorCents, linkedAccountId FROM debts WHERE id = 2"
+        )
+        assertTrue("debt should survive the table rebuild", debtCursor.moveToFirst())
+        assertEquals("Card", debtCursor.getString(0))
+        assertEquals(80000L, debtCursor.getLong(1))
+        assertEquals("installment", debtCursor.getString(2))
+        assertTrue(debtCursor.isNull(3))
+        assertEquals(0, debtCursor.getInt(4))
+        assertEquals(0L, debtCursor.getLong(5))
+        assertTrue(debtCursor.isNull(6))
+        debtCursor.close()
+
+        // New columns accept product-depth writes.
+        migratedDb.execSQL(
+            """
+            UPDATE debts SET kind = 'revolving', statementDayOfMonth = 22,
+                             minPaymentPercentBps = 300, minPaymentFloorCents = 2500,
+                             linkedAccountId = 1
+            WHERE id = 2
+            """.trimIndent()
+        )
+        migratedDb.execSQL(
+            "UPDATE transactions SET clearing_status = 'pending', account_id = 1 WHERE id = 3"
+        )
+
+        val updatedCursor = migratedDb.query(
+            "SELECT clearing_status FROM transactions WHERE id = 3 AND account_id = 1"
+        )
+        assertTrue(updatedCursor.moveToFirst())
+        assertEquals("pending", updatedCursor.getString(0))
+        updatedCursor.close()
+
+        migratedDb.close()
+    }
 }

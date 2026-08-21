@@ -26,7 +26,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Current export schema: serializer-based writer, same field layout as v3 plus version bump. */
-internal const val BACKUP_SCHEMA_VERSION = 5
+internal const val BACKUP_SCHEMA_VERSION = 6
 
 private val BACKUP_JSON = Json { prettyPrint = true }
 
@@ -132,6 +132,8 @@ private fun TransactionEntity.toJsonElement(): JsonObject = buildJsonObject {
     put("source", source)
     put("review_status", review_status)
     putNullableString("reviewed_at", reviewed_at)
+    put("clearing_status", clearing_status)
+    putNullableLong("account_id", account_id)
 }
 
 private fun TransactionRuleEntity.toJsonElement(): JsonObject = buildJsonObject {
@@ -199,6 +201,11 @@ private fun DebtEntity.toJsonElement(): JsonObject = buildJsonObject {
     put("dueDayOfMonth", dueDayOfMonth)
     putNullableInt("linkedPaymentId", linkedPaymentId)
     put("isActive", isActive)
+    put("kind", kind)
+    putNullableInt("statementDayOfMonth", statementDayOfMonth)
+    put("minPaymentPercentBps", minPaymentPercentBps)
+    put("minPaymentFloorCents", minPaymentFloorCents)
+    putNullableLong("linkedAccountId", linkedAccountId)
 }
 
 // -- shared primitives -------------------------------------------

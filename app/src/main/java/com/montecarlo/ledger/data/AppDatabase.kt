@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryBudgetEntity::class,
         DebtEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -65,6 +65,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_12_13,
                         MIGRATION_13_14,
                         MIGRATION_14_15,
+                        MIGRATION_15_16,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -313,5 +314,66 @@ abstract class AppDatabase : RoomDatabase() {
         @VisibleForTesting
         val MIGRATION_14_15_FOR_TEST: Migration
             get() = MIGRATION_14_15
+
+        /**
+         * Product-depth migration: transaction clearing states, optional account tagging,
+         * and revolving-debt fields (kind, statement day, percent minimums).
+         * Debts is rebuilt because SQLite cannot ALTER TABLE to add foreign-key columns.
+         */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `transactions` ADD COLUMN `clearing_status` TEXT NOT NULL DEFAULT 'posted'"
+                )
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `account_id` INTEGER")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `debts_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `balanceCents` INTEGER NOT NULL,
+                        `aprBasisPoints` INTEGER NOT NULL,
+                        `minimumPaymentCents` INTEGER NOT NULL,
+                        `dueDayOfMonth` INTEGER NOT NULL,
+                        `linkedPaymentId` INTEGER,
+                        `isActive` INTEGER NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `statementDayOfMonth` INTEGER,
+                        `minPaymentPercentBps` INTEGER NOT NULL,
+                        `minPaymentFloorCents` INTEGER NOT NULL,
+                        `linkedAccountId` INTEGER,
+                        FOREIGN KEY(`linkedPaymentId`) REFERENCES `payments`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+                        FOREIGN KEY(`linkedAccountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `debts_new` (
+                        `id`, `name`, `balanceCents`, `aprBasisPoints`, `minimumPaymentCents`,
+                        `dueDayOfMonth`, `linkedPaymentId`, `isActive`,
+                        `kind`, `statementDayOfMonth`, `minPaymentPercentBps`, `minPaymentFloorCents`,
+                        `linkedAccountId`
+                    )
+                    SELECT
+                        `id`, `name`, `balanceCents`, `aprBasisPoints`, `minimumPaymentCents`,
+                        `dueDayOfMonth`, `linkedPaymentId`, `isActive`,
+                        'installment', NULL, 0, 0, NULL
+                    FROM `debts`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `debts`")
+                db.execSQL("ALTER TABLE `debts_new` RENAME TO `debts`")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_debts_linkedPaymentId` ON `debts` (`linkedPaymentId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_debts_linkedAccountId` ON `debts` (`linkedAccountId`)"
+                )
+            }
+        }
+        @VisibleForTesting
+        val MIGRATION_15_16_FOR_TEST: Migration
+            get() = MIGRATION_15_16
     }
 }

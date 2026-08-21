@@ -107,7 +107,7 @@ class LedgerRepository(private val db: AppDatabase) {
         val normalized = applyTransactionRules(entity).withReviewState(source = SOURCE_MANUAL)
         db.withTransaction {
             db.transactionDao().insert(normalized)
-            applyTransactionToBankBalanceIfReconciled(normalized.amount_cents)
+            applyTransactionSideEffects(normalized.amount_cents, normalized.account_id)
             if (normalized.type == "expense") {
                 markOnboardingMilestone(OnboardingMilestone.FIRST_EXPENSE)
             }
@@ -214,10 +214,11 @@ class LedgerRepository(private val db: AppDatabase) {
             reviewed_at = entity.reviewed_at ?: LocalDateTime.now().toString(),
         )
         db.withTransaction {
-            db.transactionDao().update(reviewed)
             if (existing != null) {
-                applyTransactionToBankBalanceIfReconciled(reviewed.amount_cents - existing.amount_cents)
+                revertTransactionSideEffects(existing.amount_cents, existing.account_id)
             }
+            db.transactionDao().update(reviewed)
+            applyTransactionSideEffects(reviewed.amount_cents, reviewed.account_id)
         }
     }
     suspend fun approveTransactionReview(transactionId: Int) {
@@ -229,10 +230,23 @@ class LedgerRepository(private val db: AppDatabase) {
             )
         )
     }
+
+    /**
+     * Move a transaction between pending and posted clearing states.
+     * Pure state change: pending charges are committed money and already count
+     * toward balances, so posting never re-applies an amount.
+     */
+    suspend fun setTransactionClearingStatus(transactionId: Int, pending: Boolean) {
+        val transaction = db.transactionDao().getById(transactionId) ?: return
+        val status = if (pending) ClearingStatus.PENDING else ClearingStatus.POSTED
+        db.transactionDao().update(
+            transaction.copy(clearing_status = ClearingStatus.normalize(status))
+        )
+    }
     suspend fun deleteTransaction(entity: TransactionEntity) {
         db.withTransaction {
             db.transactionDao().delete(entity)
-            applyTransactionToBankBalanceIfReconciled(-entity.amount_cents)
+            revertTransactionSideEffects(entity.amount_cents, entity.account_id)
         }
     }
 
@@ -932,6 +946,40 @@ class LedgerRepository(private val db: AppDatabase) {
         if (isBalanceReconciled()) {
             writeBankBalanceCents(getBankBalanceCents() + deltaCents)
         }
+    }
+
+    /**
+     * Routes a transaction's balance impact to the right ledger surface.
+     *
+     * Charges tagged to a credit-type account are not cash: they raise the linked
+     * card liability (and lower it on refunds/credits). Everything else keeps the
+     * legacy reconciled bank-balance delta. A credit account without a linked debt
+     * moves neither — reconciliation surfaces that gap honestly instead of guessing.
+     */
+    private suspend fun applyTransactionSideEffects(amountCents: Long, accountId: Long?) {
+        val cardDebt = linkedCardDebt(accountId)
+        if (cardDebt != null) {
+            db.debtDao().update(cardDebt.copy(balanceCents = cardDebt.balanceCents - amountCents))
+        } else if (!isCreditAccount(accountId)) {
+            applyTransactionToBankBalanceIfReconciled(amountCents)
+        }
+    }
+
+    /** Inverse of [applyTransactionSideEffects] for edits and deletes. */
+    private suspend fun revertTransactionSideEffects(amountCents: Long, accountId: Long?) {
+        applyTransactionSideEffects(-amountCents, accountId)
+    }
+
+    private suspend fun isCreditAccount(accountId: Long?): Boolean {
+        if (accountId == null) return false
+        val account = db.accountDao().getById(accountId) ?: return false
+        return account.type.equals("credit", ignoreCase = true)
+    }
+
+    private suspend fun linkedCardDebt(accountId: Long?): DebtEntity? {
+        if (accountId == null || !isCreditAccount(accountId)) return null
+        return db.debtDao().getActive().first()
+            .firstOrNull { it.linkedAccountId == accountId }
     }
 
     private fun TransactionEntity.withReviewState(source: String): TransactionEntity {

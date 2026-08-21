@@ -12,6 +12,15 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/** Liability kind: fixed-schedule installment loan vs credit-card style revolving balance. */
+object DebtKind {
+    const val INSTALLMENT = "installment"
+    const val REVOLVING = "revolving"
+
+    fun normalize(value: String?): String =
+        if (value.equals(REVOLVING, ignoreCase = true)) REVOLVING else INSTALLMENT
+}
+
 @Entity(
     tableName = "debts",
     foreignKeys = [
@@ -20,9 +29,18 @@ import kotlinx.coroutines.flow.Flow
             parentColumns = ["id"],
             childColumns = ["linkedPaymentId"],
             onDelete = ForeignKey.SET_NULL,
-        )
+        ),
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["linkedAccountId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
     ],
-    indices = [Index(value = ["linkedPaymentId"])],
+    indices = [
+        Index(value = ["linkedPaymentId"]),
+        Index(value = ["linkedAccountId"]),
+    ],
 )
 data class DebtEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
@@ -34,6 +52,19 @@ data class DebtEntity(
     val dueDayOfMonth: Int,
     val linkedPaymentId: Int? = null,
     val isActive: Boolean = true,
+    /** installment | revolving. Revolving debts use percent-of-balance minimums. */
+    val kind: String = DebtKind.INSTALLMENT,
+    /** Statement cycle close day (1–31), when tracked. */
+    val statementDayOfMonth: Int? = null,
+    /**
+     * Revolving only: minimum-payment percentage of the statement balance in
+     * basis points (300 = 3%). Ignored for installment debts.
+     */
+    val minPaymentPercentBps: Int = 0,
+    /** Revolving only: flat floor applied to the computed percentage minimum. */
+    val minPaymentFloorCents: Long = 0L,
+    /** Credit account whose charges feed this liability (accounts table id). */
+    val linkedAccountId: Long? = null,
 )
 
 @Dao

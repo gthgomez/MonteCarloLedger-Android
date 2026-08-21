@@ -69,6 +69,8 @@ class BackupRoundTripTest {
                     source = "csv_import",
                     review_status = "pending",
                     reviewed_at = null,
+                    clearing_status = "pending",
+                    account_id = 11L,
                 )
             ),
             billOccurrences = listOf(
@@ -96,7 +98,21 @@ class BackupRoundTripTest {
             goals = listOf(GoalEntity(8, "Vacation", 150_000L, 25_000L, "2026-12-31", "2026-02-02")),
             categoryBudgets = emptyList(),
             debts = listOf(
-                DebtEntity(9L, "Card", 80_000L, 1850, 5_000L, 15, null, true)
+                DebtEntity(
+                    id = 9L,
+                    name = "Card",
+                    balanceCents = 80_000L,
+                    aprBasisPoints = 1850,
+                    minimumPaymentCents = 5_000L,
+                    dueDayOfMonth = 15,
+                    linkedPaymentId = null,
+                    isActive = true,
+                    kind = "revolving",
+                    statementDayOfMonth = 22,
+                    minPaymentPercentBps = 300,
+                    minPaymentFloorCents = 2_500L,
+                    linkedAccountId = 11L,
+                )
             ),
             accounts = listOf(
                 AccountEntity(11L, "Checking", "checking", 12_345L, isReconciled = true, isDefault = true, lastUpdated = "2026-08-21")
@@ -125,6 +141,8 @@ class BackupRoundTripTest {
         val txn = snapshot.transactions.single()
         assertNull(txn.reviewed_at)
         assertEquals("pending", txn.review_status)
+        assertEquals("pending", txn.clearing_status)
+        assertEquals(11L, txn.account_id)
         // Hand-rolled escaping bugs used to corrupt exactly this kind of content.
         assertEquals("Coffee \"deluxe\" — multi,part", txn.description)
 
@@ -134,6 +152,12 @@ class BackupRoundTripTest {
 
         assertEquals("50000", snapshot.settings.first { it.key == "starting_balance" }.value)
         assertNull(snapshot.debts.single().linkedPaymentId)
+        val debt = snapshot.debts.single()
+        assertEquals("revolving", debt.kind)
+        assertEquals(22, debt.statementDayOfMonth)
+        assertEquals(300, debt.minPaymentPercentBps)
+        assertEquals(2_500L, debt.minPaymentFloorCents)
+        assertEquals(11L, debt.linkedAccountId)
         val account = snapshot.accounts.single()
         assertTrue(account.isDefault && account.isReconciled)
         assertEquals(12_345L, account.balanceCents)
@@ -175,6 +199,47 @@ class BackupRoundTripTest {
         assertEquals(3, snapshot.schemaVersion)
         assertEquals(12345L, snapshot.bankBalanceCents)
         assertEquals("Pay", snapshot.incomes.single().name)
+    }
+
+    @Test
+    fun legacyV5BackupImportsWithProductDepthDefaults() {
+        val legacyV5 = """
+            {
+              "schemaVersion": 5,
+              "exportedAt": "2026-08-01T12:00:00",
+              "summary": {"bankBalanceCents": 5000, "isBalanceReconciled": false},
+              "onboarding": {},
+              "settings": [],
+              "rules": [],
+              "incomes": [],
+              "payments": [],
+              "transactions": [{"id": 1, "description": "Swipe", "amount_cents": -1200,
+                                "date": "2026-07-30", "type": "expense", "category": "food",
+                                "source": "manual", "review_status": "approved", "reviewed_at": null}],
+              "billOccurrences": [],
+              "assets": [],
+              "goals": [],
+              "categoryBudgets": [],
+              "debts": [{"id": 1, "name": "Card", "balanceCents": 40000, "aprBasisPoints": 2100,
+                         "minimumPaymentCents": 2500, "dueDayOfMonth": 10,
+                         "linkedPaymentId": null, "isActive": true}],
+              "accounts": []
+            }
+        """.trimIndent()
+
+        val snapshot = parseLedgerBackupJson(legacyV5)
+
+        assertEquals(5, snapshot.schemaVersion)
+        // Statement history predates clearing states: everything restores as posted.
+        assertEquals("posted", snapshot.transactions.single().clearing_status)
+        assertNull(snapshot.transactions.single().account_id)
+        // Pre-revolving debts restore as plain installments.
+        val debt = snapshot.debts.single()
+        assertEquals("installment", debt.kind)
+        assertNull(debt.statementDayOfMonth)
+        assertEquals(0, debt.minPaymentPercentBps)
+        assertEquals(0L, debt.minPaymentFloorCents)
+        assertNull(debt.linkedAccountId)
     }
 
     @Test
