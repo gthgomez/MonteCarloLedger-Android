@@ -7,6 +7,7 @@ import com.montecarlo.ledger.dashboard.DashboardDeriver
 import com.montecarlo.ledger.dashboard.LedgerReportingData
 import com.montecarlo.ledger.dashboard.PlanningReportingData
 import com.montecarlo.ledger.dashboard.ReportingPackage
+import com.montecarlo.ledger.data.AccountEntity
 import com.montecarlo.ledger.data.AppDatabase
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.LedgerBackupSnapshot
@@ -43,6 +44,9 @@ class MainViewModel @JvmOverloads constructor(
 ) : AndroidViewModel(application) {
 
     private val repo: LedgerRepository = LedgerRepository(database)
+
+    val allAccounts: StateFlow<List<AccountEntity>> = repo.allAccounts
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val allIncome: StateFlow<List<IncomeEntity>> = repo.allIncome
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -106,6 +110,7 @@ class MainViewModel @JvmOverloads constructor(
     init {
         viewModelScope.launch {
             repo.migrateBalanceSettings()
+            repo.ensureDefaultAccountSeeded()
             repo.syncBillOccurrences()
             repo.syncOnboardingMilestones()
         }
@@ -411,6 +416,19 @@ class MainViewModel @JvmOverloads constructor(
     }
     fun deleteCategoryBudget(budget: com.montecarlo.ledger.data.CategoryBudgetEntity) {
         viewModelScope.launch { repo.deleteCategoryBudget(budget) }
+    }
+
+    // Account management
+    fun upsertAccount(account: com.montecarlo.ledger.data.AccountEntity) {
+        viewModelScope.launch { repo.upsertAccount(account) }
+    }
+
+    fun deleteAccount(account: com.montecarlo.ledger.data.AccountEntity, onResult: (Result<Unit>) -> Unit = {}) {
+        launchPersistence(onResult) { repo.deleteAccountSafe(account) }
+    }
+
+    fun setDefaultAccount(id: Long) {
+        viewModelScope.launch { repo.setDefaultAccount(id) }
     }
 
     fun addDebt(debt: DebtEntity) {

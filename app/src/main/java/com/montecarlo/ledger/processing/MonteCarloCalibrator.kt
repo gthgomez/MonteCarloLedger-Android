@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.processing
 
 import com.montecarlo.ledger.data.TransactionEntity
+import com.montecarlo.ledger.domain.Categories
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.Locale
@@ -26,6 +27,12 @@ data class MonteCarloCalibration(
     val incomeVariationMax: Int,
     val expenseVariationMin: Int,
     val expenseVariationMax: Int,
+    /**
+     * Per-category symmetric percent ranges derived from that category's own monthly
+     * volatility. Only categories with enough history appear; events in other
+     * categories fall back to the aggregate [expenseVariationMin]/[expenseVariationMax].
+     */
+    val expenseCategoryVariation: Map<String, IntRange> = emptyMap(),
     val surpriseProbability: Double,
     val surpriseAmountMin: Int,
     val surpriseAmountMax: Int,
@@ -36,6 +43,7 @@ data class MonteCarloCalibration(
 
     companion object {
         const val MIN_CALIBRATED_MONTHS = 3
+        const val MIN_CATEGORY_MONTHS = 2
 
         /** Fallback matching the previous hardcoded engine defaults. */
         fun defaults(): MonteCarloCalibration = MonteCarloCalibration(
@@ -43,6 +51,7 @@ data class MonteCarloCalibration(
             incomeVariationMax = 8,
             expenseVariationMin = 0,
             expenseVariationMax = 0,
+            expenseCategoryVariation = emptyMap(),
             surpriseProbability = 0.15,
             surpriseAmountMin = 2_000,
             surpriseAmountMax = 15_000,
@@ -76,6 +85,11 @@ object MonteCarloCalibrator {
 
         val incomeRange = cvPercentRange(monthlyIncome, floor = 2, ceiling = 25, minimumMonths = 2)
         val expenseRange = cvPercentRange(monthlyExpense, floor = 3, ceiling = 30, minimumMonths = 2)
+
+        // Per-category ranges: a volatile groceries budget and a flat rent bill should
+        // not share one variance number. Sparse categories (fewer than
+        // MIN_CATEGORY_MONTHS distinct months) are excluded rather than guessed.
+        val categoryVariation = categoryRanges(dated)
 
         val irregularCents = dated
             .asSequence()
@@ -113,6 +127,7 @@ object MonteCarloCalibrator {
             incomeVariationMax = incomeRange,
             expenseVariationMin = -(expenseRange),
             expenseVariationMax = expenseRange,
+            expenseCategoryVariation = categoryVariation,
             surpriseProbability = surpriseProbability,
             surpriseAmountMin = surpriseAmountMin,
             surpriseAmountMax = surpriseAmountMax,
@@ -152,6 +167,28 @@ object MonteCarloCalibrator {
             .mapValues { (_, txns) -> txns.sumOf { abs(it.amount_cents) } }
             .values
             .toList()
+    }
+
+    /**
+     * Derives a symmetric percent range per expense category from that category's own
+     * monthly totals. Requires at least [MonteCarloCalibration.MIN_CATEGORY_MONTHS]
+     * distinct months of history in the category; otherwise the category is omitted
+     * so events fall back to the aggregate range.
+     */
+    private fun categoryRanges(
+        dated: List<Pair<TransactionEntity, YearMonth>>,
+    ): Map<String, IntRange> {
+        return dated.asSequence()
+            .filter { it.first.type == "expense" && Categories.normalizeOrUncategorized(it.first.category) != Categories.UNCATEGORIZED }
+            .groupBy { Categories.normalize(it.first.category) }
+            .mapNotNull { (category, txns) ->
+                val months = txns.groupBy({ it.second }, { it.first })
+                    .mapValues { (_, monthTxns) -> monthTxns.sumOf { abs(it.amount_cents) } }
+                    .values.toList()
+                val range = cvPercentRange(months, floor = 3, ceiling = 40, minimumMonths = MonteCarloCalibration.MIN_CATEGORY_MONTHS)
+                if (range > 0) category to (range..range) else null
+            }
+            .toMap()
     }
 
     private fun percentile(sortedValues: List<Long>, fraction: Double): Long {

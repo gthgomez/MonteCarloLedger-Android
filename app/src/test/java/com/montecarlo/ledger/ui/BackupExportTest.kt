@@ -132,7 +132,7 @@ class BackupExportTest {
             ),
         )
 
-        assertTrue(json.contains("\"schemaVersion\": 4"))
+        assertTrue(json.contains("\"schemaVersion\": 5"))
         assertTrue(json.contains("\"exportedAt\": \"2026-04-22T12:00:00\""))
         assertTrue(json.contains("\"name\": \"Paycheck\""))
         assertTrue(json.contains("\"payType\": \"HOURLY\""))
@@ -249,7 +249,7 @@ class BackupExportTest {
 
         val snapshot = parseLedgerBackupJson(exported)
 
-        assertEquals(4, snapshot.schemaVersion)
+        assertEquals(5, snapshot.schemaVersion)
         assertEquals("2026-04-22T12:00:00", snapshot.exportedAtIso)
         assertEquals(12_345, snapshot.bankBalanceCents)
         assertTrue(snapshot.isBalanceReconciled)
@@ -428,7 +428,7 @@ class BackupExportTest {
 
         // The JSON should still parse correctly (parseLedgerBackupJson ignores integrity)
         val snapshot = parseLedgerBackupJson(withIntegrity)
-        assertEquals(4, snapshot.schemaVersion)
+        assertEquals(5, snapshot.schemaVersion)
         assertEquals(1, snapshot.incomes.size)
         assertEquals("Job", snapshot.incomes.single().name)
 
@@ -479,7 +479,7 @@ class BackupExportTest {
         val withIntegrity = com.montecarlo.ledger.security.SecurityUtils.insertIntegrityField(json, "testHmac123+/=")
         val snapshot = parseLedgerBackupJson(withIntegrity)
 
-        assertEquals(4, snapshot.schemaVersion)
+        assertEquals(5, snapshot.schemaVersion)
         assertEquals("2026-07-19T12:00:00", snapshot.exportedAtIso)
     }
 

@@ -86,7 +86,7 @@ class DashboardDeriver {
             bankBalanceCents,
             reconciled
         )
-        val events = TimelineService.generateTimeline(pack.incomes, pack.payments, today, 90, pack.billOccurrences)
+        val events = TimelineService.generateTimeline(pack.incomes, pack.payments, today, 90, pack.billOccurrences, pack.rules)
 
         val nextPaycheck = events.filter { it.type == "income" }.minByOrNull { it.date }
         val daysUntilPayday = if (nextPaycheck != null) {
@@ -275,6 +275,7 @@ class DashboardDeriver {
             incomeVariationMax = incomeVariationMax,
             expenseVariationMin = expenseVariationMin,
             expenseVariationMax = expenseVariationMax,
+            expenseCategoryVariation = expenseCategoryVariation,
             surpriseProbability = surpriseProbability,
             surpriseAmountMin = surpriseAmountMin,
             surpriseAmountMax = surpriseAmountMax,

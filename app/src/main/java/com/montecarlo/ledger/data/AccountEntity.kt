@@ -17,6 +17,7 @@ data class AccountEntity(
     /** checking | savings | credit | cash | other */
     val type: String,
     val balanceCents: Long,
+    val isReconciled: Boolean = false,
     val isDefault: Boolean = false,
     val lastUpdated: String,
 )

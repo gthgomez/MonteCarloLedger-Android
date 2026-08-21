@@ -322,3 +322,4 @@ class MigrationTest {
         cursor.close()
         migratedDb.close()
     }
+}
