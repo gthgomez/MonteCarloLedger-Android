@@ -780,183 +780,42 @@ private fun AppChrome(
         }
     }
 
-    selectedIncome?.let { income ->
-        ModalBottomSheet(
-            onDismissRequest = { onSelectIncome(null) },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            EditIncomeScreen(
-                income = income,
-                onSave = {
-                    viewModel.updateIncome(it) { result ->
-                        handlePersistenceResult(result) { onSelectIncome(null) }
-                    }
-                },
-                onDelete = {
-                    viewModel.deleteIncome(it) { result ->
-                        handlePersistenceResult(result) { onSelectIncome(null) }
-                    }
-                },
-                onDismiss = { onSelectIncome(null) }
-            )
-        }
-    }
+    EditSheets(
+        selectedIncome = selectedIncome,
+        selectedPayment = selectedPayment,
+        selectedTransaction = selectedTransaction,
+        onSelectIncome = onSelectIncome,
+        onSelectPayment = onSelectPayment,
+        onSelectTransaction = onSelectTransaction,
+        viewModel = viewModel,
+        handleResult = { result, onSuccessAction, showSuccess ->
+            handlePersistenceResult(result, onSuccessAction, showSuccess)
+        },
+    )
 
-    selectedPayment?.let { payment ->
-        ModalBottomSheet(
-            onDismissRequest = { onSelectPayment(null) },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            EditPaymentScreen(
-                payment = payment,
-                onSave = {
-                    viewModel.updatePayment(it) { result ->
-                        handlePersistenceResult(result) { onSelectPayment(null) }
-                    }
-                },
-                onDelete = {
-                    viewModel.deletePayment(it) { result ->
-                        handlePersistenceResult(result) { onSelectPayment(null) }
-                    }
-                },
-                onDismiss = { onSelectPayment(null) }
-            )
-        }
-    }
+    AddKindSheet(
+        addKind = addKind,
+        pendingBillPrefill = pendingBillPrefill,
+        payments = payments,
+        billOccurrences = billOccurrences,
+        dashboardErrorMessage = dashboardErrorMessage,
+        onSetAddKind = onSetAddKind,
+        onClearBillPrefill = onClearBillPrefill,
+        onShowAddAnotherPrompt = { showAddAnotherBillDialog = true },
+        onTransactionSaved = { showSuccessToast = true },
+        viewModel = viewModel,
+        handleResult = { result, onSuccessAction, showSuccess ->
+            handlePersistenceResult(result, onSuccessAction, showSuccess)
+        },
+    )
 
-    selectedTransaction?.let { transaction ->
-        ModalBottomSheet(
-            onDismissRequest = { onSelectTransaction(null) },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            EditTransactionScreen(
-                transaction = transaction,
-                onSave = {
-                    viewModel.updateTransaction(it) { result ->
-                        handlePersistenceResult(result) { onSelectTransaction(null) }
-                    }
-                },
-                onSaveRule = { description, category ->
-                    viewModel.saveTransactionRule(description, category)
-                },
-                onDelete = {
-                    viewModel.deleteTransaction(it) { result ->
-                        handlePersistenceResult(result) { onSelectTransaction(null) }
-                    }
-                },
-                onDismiss = { onSelectTransaction(null) }
-            )
-        }
-    }
-
-    if (addKind != null) {
-        ModalBottomSheet(
-            onDismissRequest = { onSetAddKind(null) },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            when (addKind) {
-                AddKind.Income -> AddIncomeScreen(
-                    onCancel = { onSetAddKind(null) },
-                    onSave = {
-                        viewModel.addIncome(it) { result ->
-                            handlePersistenceResult(result) { onSetAddKind(null) }
-                        }
-                    }
-                )
-                AddKind.Bill -> AddPaymentScreen(
-                    initialDraft = pendingBillPrefill,
-                    onSave = {
-                        viewModel.addPayment(it) { result ->
-                            handlePersistenceResult(
-                                result = result,
-                                onSuccessAction = {
-                                    onClearBillPrefill()
-                                    onSetAddKind(null)
-                                    showAddAnotherBillDialog = true
-                                },
-                                showSuccess = false,
-                            )
-                        }
-                    },
-                    onDismiss = {
-                        onClearBillPrefill()
-                        onSetAddKind(null)
-                    }
-                )
-                AddKind.Transaction -> AddTransactionScreen(
-                    payments = payments,
-                    billOccurrences = billOccurrences,
-                    externalErrorMessage = dashboardErrorMessage,
-                    onCancel = { onSetAddKind(null) },
-                    onSave = { description, amountCents, type, linkedOccurrenceId, category, date ->
-                        viewModel.addTransaction(description, amountCents, type, linkedOccurrenceId, category, date) {
-                            onSetAddKind(null)
-                            showSuccessToast = true
-                        }
-                    }
-                )
-                AddKind.Goal -> AddGoalDialog(
-                    onDismiss = { onSetAddKind(null) },
-                    onSave = { goal ->
-                        viewModel.addGoal(goal) { result ->
-                            handlePersistenceResult(result) { onSetAddKind(null) }
-                        }
-                    }
-                )
-            }
-        }
-    }
-
-    transactionCsvImportPreview?.let { preview ->
-        ModalBottomSheet(
-            onDismissRequest = { transactionCsvImportPreview = null },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            CsvImportSheetContent(
-                preview = preview,
-                onDismiss = { transactionCsvImportPreview = null },
-                onImport = { mappedPreview ->
-                    viewModel.importTransactions(mappedPreview.importedTransactions) { result ->
-                        val message = result.fold(
-                            onSuccess = { "Imported ${mappedPreview.importedTransactions.size} transactions" },
-                            onFailure = { it.message ?: "Import failed" },
-                        )
-                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                        transactionCsvImportPreview = null
-                    }
-                }
-            )
-        }
-    }
-
-    billCsvImportPreview?.let { preview ->
-        ModalBottomSheet(
-            onDismissRequest = { billCsvImportPreview = null },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            BillCsvImportSheetContent(
-                preview = preview,
-                onDismiss = { billCsvImportPreview = null },
-                onImport = { mappedPreview ->
-                    viewModel.importPayments(mappedPreview.importedPayments) { result ->
-                        val message = result.fold(
-                            onSuccess = { "Imported ${mappedPreview.importedPayments.size} bills" },
-                            onFailure = { it.message ?: "Import failed" },
-                        )
-                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                        billCsvImportPreview = null
-                    }
-                }
-            )
-        }
-    }
-
+    ImportCsvSheets(
+        transactionPreview = transactionCsvImportPreview,
+        billPreview = billCsvImportPreview,
+        onDismissTransaction = { transactionCsvImportPreview = null },
+        onDismissBill = { billCsvImportPreview = null },
+        viewModel = viewModel,
+    )
     restoreBackupPreview?.let { preview ->
         RestoreBackupDialog(
             snapshot = preview,
@@ -1030,24 +889,14 @@ private fun AppChrome(
         )
     }
 
-    if (showBankBalanceDialog) {
-        ModalBottomSheet(
-            onDismissRequest = { showBankBalanceDialog = false },
-            containerColor = colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-            contentColor = GlassTokens.TextPrimary,
-        ) {
-            BankBalanceSheetContent(
-                initialAmountCents = uiState.bankBalanceCents,
-                onDismiss = { showBankBalanceDialog = false },
-                onConfirm = { amountCents ->
-                    viewModel.setBankBalance(amountCents) { result ->
-                        handlePersistenceResult(result) { showBankBalanceDialog = false }
-                    }
-                }
-            )
-        }
-    }
-
+    BankBalanceSheet(
+        bankBalanceCents = uiState.bankBalanceCents,
+        onDismiss = { showBankBalanceDialog = false },
+        viewModel = viewModel,
+        handleResult = { result, onSuccessAction, showSuccess ->
+            handlePersistenceResult(result, onSuccessAction, showSuccess)
+        },
+    )
     if (showAddAnotherBillDialog) {
         AlertDialog(
             onDismissRequest = {

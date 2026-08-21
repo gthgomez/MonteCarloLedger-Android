@@ -246,6 +246,11 @@ class DashboardDeriver {
             monteCarloDailyPercentiles = mc.dailyPercentiles,
             monteCarloResult = mc,
             monteCarloBasisLabel = basisLabel(calibration),
+            forecastInsights = com.montecarlo.ledger.processing.MonteCarloInsights.generate(
+                transactions = pack.txns,
+                today = today,
+                calibration = calibration,
+            ),
         )
 
         return DashboardDerivation(
