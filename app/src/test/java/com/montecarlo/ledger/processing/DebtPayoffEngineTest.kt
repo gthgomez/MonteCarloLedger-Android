@@ -132,6 +132,49 @@ class DebtPayoffEngineTest {
     }
 
     @Test
+    fun runSimulation_siblingDebtsWithSameMinimumAndDueDayAreBothCounted() {
+        val debts = listOf(
+            DebtItem(1, "Card A", 200_000L, 2_000, 5_000L, dueDayOfMonth = 15),
+            DebtItem(2, "Card B", 150_000L, 2_000, 5_000L, dueDayOfMonth = 15),
+        )
+
+        // $200 balance vs $50/mo per debt of minimums + $10 extra: survives if only ONE
+        // debt's minimums are counted ($190 out), overdrafts when BOTH are counted ($340).
+        // The old amount-based suppression hid the second debt and cleared the warning.
+        val result = DebtPayoffEngine.runSimulation(
+            debts = debts,
+            extraMonthlyPaymentCents = 1_000L,
+            strategy = PayoffStrategy.SNOWBALL,
+            currentBalanceCents = 20_000L,
+            forecastEvents = emptyList(),
+            today = LocalDate.of(2026, 7, 2),
+        )
+
+        assertTrue(result.causesOverdraft)
+    }
+
+    @Test
+    fun simulateSchedule_rowsReconcileWhenPaymentIsBelowAccruedInterest() {
+        // $10,000 @ 24% APR = $200/mo interest against a $50 minimum: balance must grow.
+        val summary = DebtPayoffEngine.simulateSchedule(
+            debts = listOf(DebtItem(1, "Trap", 1_000_000L, 2_400, 5_000L)),
+            extraMonthlyPaymentCents = 0L,
+            strategy = PayoffStrategy.SNOWBALL,
+            startDate = today,
+        )
+
+        assertTrue(summary.didNotConverge)
+        val firstMonth = summary.monthlySchedule.filter { it.monthNumber == 1 }.single()
+        assertEquals(5_000L, firstMonth.paymentCents)
+        assertTrue(firstMonth.principalCents < 0)
+        assertEquals(
+            "starting - principal must equal ending on every schedule row",
+            firstMonth.startingBalanceCents - firstMonth.principalCents,
+            firstMonth.endingBalanceCents,
+        )
+    }
+
+    @Test
     fun simulateSchedule_flagsDebtsThatDoNotConvergeWithin360Months() {
         val summary = DebtPayoffEngine.simulateSchedule(
             debts = listOf(DebtItem(1, "Trap", 1_000_000L, 2_400, 5_000L)),
@@ -140,5 +183,22 @@ class DebtPayoffEngineTest {
             startDate = today,
         )
         assertTrue(summary.didNotConverge)
+    }
+
+    @Test
+    fun simulateSchedule_flagsNonConvergenceWhenCompoundingOverflowsLong() {
+        // $10,000 @ 240% APR with a $50 minimum compounds ~19.5% per month and
+        // would overflow Long around month ~168; the wrapped negative balance used
+        // to fake a "converged" result instead of flagging non-convergence.
+        val summary = DebtPayoffEngine.simulateSchedule(
+            debts = listOf(DebtItem(1, "Trap", 1_000_000L, 24_000, 5_000L)),
+            extraMonthlyPaymentCents = 0L,
+            strategy = PayoffStrategy.SNOWBALL,
+            startDate = today,
+        )
+
+        assertTrue(summary.didNotConverge)
+        assertTrue("overflow must stop the simulation before the 360-month cap",
+            summary.monthsToPayoff < 360)
     }
 }

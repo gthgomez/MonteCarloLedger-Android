@@ -109,6 +109,40 @@ class SecurityUtilsTest {
     }
 
     @Test
+    fun decrypt_rejectsHeaderIterationsAboveTheSupportedBound() {
+        val encrypted = SecurityUtils.encrypt("ledger payload", "correct horse".toCharArray())
+        val parts = encrypted.split(":", limit = 4)
+        val craftedHeader = "MCL1:2000000000:${parts[2]}"
+
+        val exception = try {
+            SecurityUtils.decrypt(craftedHeader, "correct horse".toCharArray())
+            null
+        } catch (e: Exception) {
+            e
+        }
+
+        assertTrue(exception is IllegalArgumentException)
+        assertTrue(exception!!.message!!.contains("Unsupported encrypted backup header"))
+    }
+
+    @Test
+    fun verifyIntegrity_failsClosedOnHeaderIterationsAboveTheSupportedBound() {
+        val json = """{"schemaVersion":3,"data":"payload"}"""
+        val password = "correct horse".toCharArray()
+        val encrypted = SecurityUtils.encryptWithHmac(json, password)
+        val parts = encrypted.split(":", limit = 4)
+        val craftedHeader = "MCL1:2000000000:${parts[2]}:${parts[3]}"
+
+        val result = SecurityUtils.verifyIntegrity(craftedHeader, json, password)
+
+        assertTrue(result is BackupIntegrityResult.IntegrityFailure)
+        assertTrue(
+            (result as BackupIntegrityResult.IntegrityFailure).message
+                .contains("Unsupported encrypted backup header")
+        )
+    }
+
+    @Test
     fun insertAndStripIntegrityField_roundTrips() {
         val json = """{
   "schemaVersion": 2,

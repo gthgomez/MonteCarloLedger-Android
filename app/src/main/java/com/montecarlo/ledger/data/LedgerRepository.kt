@@ -109,13 +109,27 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun importTransactions(transactions: List<TransactionEntity>) {
         if (transactions.isEmpty()) return
         transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
-        val existingKeys = db.transactionDao().getAll().first()
-            .map { transactionKey(it) }
-            .toMutableSet()
+        // Multiset dedupe: skip only as many copies per key as the ledger already
+        // holds. Identical same-day charges are real distinct transactions, so they
+        // must import, while re-importing the same statement stays a no-op.
+        val existingKeyCounts = db.transactionDao().getAll().first()
+            .groupingBy { transactionKey(it) }
+            .eachCount()
+        val skippedPerKey = mutableMapOf<String, Int>()
         val normalizedTransactions = transactions.map {
             applyTransactionRules(it).withReviewState(source = SOURCE_CSV_IMPORT)
         }
-        val uniqueTransactions = normalizedTransactions.filter { existingKeys.add(transactionKey(it)) }
+        val uniqueTransactions = normalizedTransactions.filter { entity ->
+            val key = transactionKey(entity)
+            val alreadyHeld = existingKeyCounts[key] ?: 0
+            val alreadySkipped = skippedPerKey.getOrDefault(key, 0)
+            if (alreadySkipped < alreadyHeld) {
+                skippedPerKey[key] = alreadySkipped + 1
+                false
+            } else {
+                true
+            }
+        }
         if (uniqueTransactions.isEmpty()) return
         db.withTransaction {
             uniqueTransactions.forEach { entity ->

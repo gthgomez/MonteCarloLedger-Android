@@ -53,7 +53,9 @@ object SecurityUtils {
         val payload: String
 
         if ((parts.size == 3 || parts.size == 4) && parts[0] == BACKUP_PREFIX) {
-            iterations = parts[1].toIntOrNull()?.takeIf { it > 0 }
+            // Iterations come from an untrusted file; bound them so a crafted header
+            // cannot pin the CPU for hours inside PBKDF2 during restore.
+            iterations = parts[1].toIntOrNull()?.takeIf { it in 1..BACKUP_ITERATIONS }
                 ?: throw IllegalArgumentException("Unsupported encrypted backup header.")
             payload = parts[2]
         } else {
@@ -131,7 +133,8 @@ object SecurityUtils {
         val parts = trimmed.split(":", limit = 4)
 
         if (parts.size == 4 && parts[0] == BACKUP_PREFIX) {
-            val iterations = parts[1].toIntOrNull() ?: BACKUP_ITERATIONS
+            val iterations = parts[1].toIntOrNull()?.takeIf { it in 1..BACKUP_ITERATIONS }
+                ?: return BackupIntegrityResult.IntegrityFailure("Unsupported encrypted backup header.")
             val payloadBase64 = parts[2]
             val expectedHmacBase64 = parts[3]
 
@@ -217,7 +220,7 @@ object SecurityUtils {
     private fun parseEnvelope(encryptedBase64: String): EnvelopeParts {
         val trimmed = encryptedBase64.trim()
         val parts = trimmed.split(":", limit = 3)
-        val iterations = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }
+        val iterations = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..BACKUP_ITERATIONS }
             ?: LEGACY_ITERATIONS
         val payload = if (parts.size == 3 && parts[0] == BACKUP_PREFIX) parts[2] else trimmed
         val combined = Base64.decode(payload, Base64.NO_WRAP)

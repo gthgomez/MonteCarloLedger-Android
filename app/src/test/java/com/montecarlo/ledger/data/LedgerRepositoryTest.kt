@@ -535,6 +535,39 @@ class LedgerRepositoryTest {
     }
 
     @Test
+    fun importTransactions_multisetDedupeKeepsIdenticalChargesButBlocksReImport() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = LedgerRepository(db)
+
+            fun groceriesRow() = TransactionEntity(
+                description = "Groceries",
+                amount_cents = -1_500,
+                date = "2026-04-10",
+                type = "expense",
+            )
+
+            // First import: two identical same-day charges are two real transactions.
+            repo.importTransactions(listOf(groceriesRow(), groceriesRow()))
+            assertEquals(2, db.transactionDao().getAll().first().size)
+
+            // Re-importing the exact same batch is a no-op (multiset already satisfied).
+            repo.importTransactions(listOf(groceriesRow(), groceriesRow()))
+            assertEquals(2, db.transactionDao().getAll().first().size)
+
+            // Two copies already held: a batch of three identical rows admits one new
+            // row (the statement shows one charge beyond what the ledger has seen).
+            repo.importTransactions(listOf(groceriesRow(), groceriesRow(), groceriesRow()))
+            assertEquals(3, db.transactionDao().getAll().first().size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun restoreBackup_replacesLocalDataAndRestoresCoreSettings() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
