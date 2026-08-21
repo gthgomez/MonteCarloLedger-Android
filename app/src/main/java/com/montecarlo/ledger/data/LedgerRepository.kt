@@ -89,6 +89,12 @@ class LedgerRepository(private val db: AppDatabase) {
         }
     }
 
+    // Accounts (v1 groundwork: primary pipeline still uses bank_balance settings)
+    val allAccounts: Flow<List<AccountEntity>> = db.accountDao().getAll()
+    suspend fun insertAccount(account: AccountEntity): Long = db.accountDao().insert(account)
+    suspend fun updateAccount(account: AccountEntity) = db.accountDao().update(account)
+    suspend fun deleteAccount(account: AccountEntity) = db.accountDao().delete(account)
+    suspend fun getDefaultAccount(): AccountEntity? = db.accountDao().getDefault()
     // Transactions
     val allTransactions: Flow<List<TransactionEntity>> = db.transactionDao().getAll()
     val allTransactionRules: Flow<List<TransactionRuleEntity>> = db.transactionRuleDao().getAll()

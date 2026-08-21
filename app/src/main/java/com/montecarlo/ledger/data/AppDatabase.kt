@@ -13,6 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         IncomeEntity::class,
         PaymentEntity::class,
+        AccountEntity::class,
         TransactionEntity::class,
         BillOccurrenceEntity::class,
         SettingsEntity::class,
@@ -22,13 +23,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryBudgetEntity::class,
         DebtEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun incomeDao(): IncomeDao
     abstract fun paymentDao(): PaymentDao
+    abstract fun accountDao(): AccountDao
     abstract fun transactionDao(): TransactionDao
     abstract fun billOccurrenceDao(): BillOccurrenceDao
     abstract fun settingsDao(): SettingsDao
@@ -61,6 +63,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_10_11,
                         MIGRATION_11_12,
                         MIGRATION_12_13,
+                        MIGRATION_13_14,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -254,8 +257,39 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_10_11_FOR_TEST: Migration
             get() = MIGRATION_10_11
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `accounts` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `balanceCents` INTEGER NOT NULL,
+                        `isDefault` INTEGER NOT NULL DEFAULT 0,
+                        `lastUpdated` TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                // Seed one default account mirroring the current primary bank balance
+                // so per-account adoption starts from real state instead of zero.
+                db.execSQL(
+                    """
+                    INSERT INTO accounts (name, type, balanceCents, isDefault, lastUpdated)
+                    SELECT 'Primary account', 'checking',
+                           CAST(COALESCE((SELECT value FROM settings WHERE key = 'bank_balance_cents'), '0') AS INTEGER),
+                           1,
+                           strftime('%Y-%m-%d', 'now')
+                    """.trimIndent()
+                )
+            }
+        }
         @VisibleForTesting
         val MIGRATION_12_13_FOR_TEST: Migration
             get() = MIGRATION_12_13
+
+        @VisibleForTesting
+        val MIGRATION_13_14_FOR_TEST: Migration
+            get() = MIGRATION_13_14
     }
 }
