@@ -121,6 +121,18 @@ class MonteCarloCalibratorTest {
         assertEquals(2_000, calibration.surpriseAmountMin)
         assertEquals(15_000, calibration.surpriseAmountMax)
     }
+    @Test
+    fun calibrate_monthsCoveredUsesDistinctTransactionMonthsNotTodayPadding() {
+        val txns = mutableListOf<TransactionEntity>()
+        for (month in 1..5) {
+            txns += expense("Rent", 100_000L, "2026-0$month-01")
+        }
+
+        val calibration = MonteCarloCalibrator.calibrate(txns, today)
+
+        assertEquals(5, calibration.monthsCovered)
+        assertTrue(calibration.isCalibrated)
+    }
 
     @Test
     fun calibrate_incomeVariationStaysZeroWithoutTwoIncomeMonths() {
