@@ -78,9 +78,11 @@ object MonteCarloCalibrator {
             txn to YearMonth.from(date)
         }
 
-        val firstMonth = dated.minOfOrNull { it.second } ?: return MonteCarloCalibration.defaults()
-        val lastMonth = YearMonth.from(today)
-        val monthsCovered = monthsBetween(firstMonth, lastMonth).coerceAtLeast(1)
+        if (dated.isEmpty()) return MonteCarloCalibration.defaults()
+
+        // Count distinct calendar months that actually contain transactions so the
+        // basis label matches logged history instead of padding to today.
+        val monthsCovered = dated.map { it.second }.toSet().size.coerceAtLeast(1)
 
         val monthlyIncome = monthlyTotals(dated, type = "income")
         val monthlyExpense = monthlyTotals(dated, type = "expense")
@@ -203,8 +205,6 @@ object MonteCarloCalibrator {
     private fun normalize(value: String): String =
         value.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
 
-    private fun monthsBetween(from: YearMonth, to: YearMonth): Int =
-        (to.year - from.year) * 12 + (to.monthValue - from.monthValue)
 }
 
 /**

@@ -63,7 +63,7 @@ class DashboardDeriverTest {
 
         val derivation = DashboardDeriver().derive(emptyPack(txns), today)
 
-        assertTrue(derivation.uiState.monteCarloBasisLabel!!.contains("months of your history"))
+        assertEquals("Based on 5 months of your history", derivation.uiState.monteCarloBasisLabel)
         assertTrue(derivation.uiState.transactions.isNotEmpty())
     }
 
