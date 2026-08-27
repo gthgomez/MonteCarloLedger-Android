@@ -186,7 +186,7 @@ internal fun DashboardActionCenterCard(
                                             color = GlassTokens.TextPrimary
                                         )
                                         Text(
-                                            "Shift from ${rec.currentDueDate} to ${rec.suggestedDueDate} (after payday) → Drops risk to 0%",
+                                            "Shift from ${rec.currentDueDate} to ${rec.suggestedDueDate} so the bill no longer lands before your next payday",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = GlassTokens.TextSecondary
                                         )

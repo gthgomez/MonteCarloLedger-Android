@@ -187,8 +187,12 @@ class DashboardDeriver {
         }
 
         val avgMonthlyOutflow = kotlin.math.abs(flowSummary.outflowCents)
-        val avgMonthPacing = (1..today.lengthOfMonth()).map { day ->
-            (avgMonthlyOutflow * (day.toFloat() / today.lengthOfMonth())).toLong()
+        val daysInMonth = today.lengthOfMonth()
+        val avgMonthPacing = (1..daysInMonth).map { day ->
+            java.math.BigDecimal.valueOf(avgMonthlyOutflow)
+                .multiply(java.math.BigDecimal.valueOf(day.toLong()))
+                .divide(java.math.BigDecimal.valueOf(daysInMonth.toLong()), 0, java.math.RoundingMode.HALF_UP)
+                .longValueExact()
         }
 
         val pacingResult = BudgetPacingEngine.calculatePacing(

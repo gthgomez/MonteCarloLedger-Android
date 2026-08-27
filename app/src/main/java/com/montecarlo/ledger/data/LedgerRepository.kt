@@ -722,6 +722,9 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     suspend fun restoreBackup(snapshot: LedgerBackupSnapshot) {
+        // Re-validate restored rows so a hand-edited or legacy backup cannot smuggle
+        // invalid financial signs (e.g. a positive "expense") into the ledger.
+        snapshot.transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
         db.withTransaction {
             val preservedLockSettings = db.settingsDao().getAll().first()
                 .filter { isAppLockSettingKey(it.key) }
@@ -939,6 +942,13 @@ class LedgerRepository(private val db: AppDatabase) {
         if (account.isDefault) {
             throw IllegalArgumentException("Set another account as default before deleting this one.")
         }
+        val linkedTransactions = db.transactionDao().getAllTransactionsList()
+            .any { it.account_id == account.id }
+        if (linkedTransactions) {
+            throw IllegalArgumentException(
+                "This account still has linked transactions. Reassign or delete those transactions before deleting the account."
+            )
+        }
         db.accountDao().delete(account)
     }
 
@@ -959,7 +969,15 @@ class LedgerRepository(private val db: AppDatabase) {
     private suspend fun applyTransactionSideEffects(amountCents: Long, accountId: Long?) {
         val cardDebt = linkedCardDebt(accountId)
         if (cardDebt != null) {
-            db.debtDao().update(cardDebt.copy(balanceCents = cardDebt.balanceCents - amountCents))
+            val newBalance = cardDebt.balanceCents - amountCents
+            if (newBalance < 0L) {
+                throw IllegalArgumentException(
+                    "This transaction would reduce the linked credit balance below \$0. " +
+                        "Refunds or credits larger than the outstanding balance are not supported " +
+                        "because the debt model cannot represent a negative liability."
+                )
+            }
+            db.debtDao().update(cardDebt.copy(balanceCents = newBalance))
         } else if (!isCreditAccount(accountId)) {
             applyTransactionToBankBalanceIfReconciled(amountCents)
         }

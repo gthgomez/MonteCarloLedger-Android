@@ -147,19 +147,23 @@ internal fun parseBankBalanceCents(raw: String?): Long? {
         .replace("$", "")
         .replace("€", "")
         .replace("£", "")
-        .replace(",", "")
         .replace(" ", "")
 
     if (cleaned.isBlank()) return null
 
-    val normalized = if (cleaned.startsWith("(") && cleaned.endsWith(")")) {
-        "-${cleaned.substring(1, cleaned.length - 1)}"
+    // Reuse the CSV number normalization so "1234,56" (EU decimal comma) reads as
+    // $1,234.56 instead of being stripped to $123,456.00. "1,234" (US thousands)
+    // keeps the US bias used everywhere else in the app.
+    val normalized = normalizeDecimalSeparators(cleaned)
+
+    val signed = if (normalized.startsWith("(") && normalized.endsWith(")")) {
+        "-${normalized.substring(1, normalized.length - 1)}"
     } else {
-        cleaned
+        normalized
     }
 
     return runCatching {
-        BigDecimal(normalized)
+        BigDecimal(signed)
             .movePointRight(2)
             .setScale(0, RoundingMode.HALF_UP)
             .toLong()

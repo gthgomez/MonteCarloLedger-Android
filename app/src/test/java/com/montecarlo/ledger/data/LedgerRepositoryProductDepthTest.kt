@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -216,5 +217,52 @@ class LedgerRepositoryProductDepthTest {
 
         // No guessing: reconciliation surfaces the gap instead of moving either number.
         assertEquals(250_000L, repo.getBankBalanceCents())
+    }
+
+    @Test
+    fun creditRefund_smallerThanBalance_reducesCardDebt() = runBlocking {
+        reconciledBankBalance(500_000L)
+        val (_, debt) = creditCardSetup()
+
+        repo.insertTransaction(
+            TransactionEntity(
+                description = "Card refund",
+                amount_cents = 4_000L,
+                date = LocalDate.now().toString(),
+                type = "adjustment",
+                category = "refunds",
+                account_id = debt.linkedAccountId,
+            )
+        )
+
+        assertEquals(96_000L, db.debtDao().getAll().first().single().balanceCents)
+        assertEquals(500_000L, repo.getBankBalanceCents())
+    }
+
+    @Test
+    fun creditRefund_largerThanBalance_failsLoudlyWithoutMutatingAnything() = runBlocking {
+        reconciledBankBalance(500_000L)
+        val (_, debt) = creditCardSetup()
+
+        try {
+            repo.insertTransaction(
+                TransactionEntity(
+                    description = "Oversized refund",
+                    amount_cents = 500_000L,
+                    date = LocalDate.now().toString(),
+                    type = "adjustment",
+                    category = "refunds",
+                    account_id = debt.linkedAccountId,
+                )
+            )
+            fail("a refund larger than the outstanding balance must be rejected, not drive debt negative")
+        } catch (_: IllegalArgumentException) {
+            // Expected: explicit failure over silent negative liability.
+        }
+
+        // Nothing may have been half-mutated: debt and cash are untouched.
+        assertEquals(100_000L, db.debtDao().getAll().first().single().balanceCents)
+        assertEquals(500_000L, repo.getBankBalanceCents())
+        assertTrue("rejected transaction must not be persisted", db.transactionDao().getAll().first().isEmpty())
     }
 }

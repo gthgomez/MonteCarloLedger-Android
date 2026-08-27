@@ -200,7 +200,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                 )
             }
             uiState.projectedTroubleDateLabel?.let {
-                Text("Most likely low point: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
+                Text("Most likely first negative-balance date: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
             }
         }
     }
@@ -211,7 +211,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
             title = { Text("How the 3-month estimate works", color = GlassTokens.TextPrimary) },
             text = {
                 Text(
-                    "We run your upcoming income and bills through 500 different scenarios in the app (the home-screen widget uses a lighter 100-run sample). Each scenario adds random variation to your income (±8%) and occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below \$0 at any point in the next 90 days.\n\nThese estimates are for planning only and are not financial advice.",
+                    "We run your upcoming income and bills through 500 different scenarios in the app (the home-screen widget uses a lighter 100-run sample). Each scenario adds random variation to your income and expenses calibrated from your spending history — or default assumptions until there is enough history — plus occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below \$0 at any point in the next 90 days.\n\nThese estimates are for planning only and are not financial advice.",
                     color = GlassTokens.TextSecondary,
                 )
             },

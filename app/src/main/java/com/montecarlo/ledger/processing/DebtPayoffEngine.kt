@@ -72,8 +72,12 @@ object DebtPayoffEngine {
      * in full — matching how issuers actually compute statement minimums.
      */
     fun minimumPaymentCents(debt: DebtItem, balanceCents: Long): Long {
-        if (debt.kind != DebtKind.REVOLVING) return debt.minPaymentCents
         if (balanceCents <= 0L) return 0L
+        if (debt.kind != DebtKind.REVOLVING) {
+            // Cap the fixed installment minimum at the remaining balance so the final
+            // payment pays the debt off exactly instead of driving it negative.
+            return minOf(debt.minPaymentCents, balanceCents)
+        }
         val percentBased = scaleCentsByBasisPoints(balanceCents, debt.minPaymentPercentBps)
         val computed = maxOf(percentBased, debt.minPaymentFloorCents)
         return minOf(computed, balanceCents)
