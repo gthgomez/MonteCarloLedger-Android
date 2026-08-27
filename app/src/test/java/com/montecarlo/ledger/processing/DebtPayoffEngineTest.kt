@@ -201,4 +201,35 @@ class DebtPayoffEngineTest {
         assertTrue("overflow must stop the simulation before the 360-month cap",
             summary.monthsToPayoff < 360)
     }
+
+    @Test
+    fun simulateSchedule_installmentFinalPaymentNeverDrivesBalanceNegative() {
+        // Remaining balance $10.00 with a $50.00 fixed minimum: the final payment
+        // must pay off exactly, not drive the balance to -$40.00.
+        val summary = DebtPayoffEngine.simulateSchedule(
+            debts = listOf(DebtItem(1, "Installment", 1_000L, 0, 5_000L)),
+            extraMonthlyPaymentCents = 0L,
+            strategy = PayoffStrategy.SNOWBALL,
+            startDate = today,
+        )
+
+        assertFalse("a $10 balance with a $50 minimum must still converge", summary.didNotConverge)
+        assertEquals("total paid must equal the starting balance for a 0% APR loan", 1_000L, summary.totalPaidCents)
+        assertTrue(
+            "every schedule row must end at a non-negative balance",
+            summary.monthlySchedule.all { it.endingBalanceCents >= 0L }
+        )
+        val finalRow = summary.monthlySchedule.last()
+        assertEquals(0L, finalRow.endingBalanceCents)
+    }
+
+    @Test
+    fun minimumPaymentCents_installmentIsCappedAtRemainingBalance() {
+        assertEquals(0L, DebtPayoffEngine.minimumPaymentCents(
+            DebtItem(1, "Paid Off", 100_000L, 600, 5_000L), balanceCents = 0L
+        ))
+        assertEquals(800L, DebtPayoffEngine.minimumPaymentCents(
+            DebtItem(1, "Nearly Done", 100_000L, 600, 5_000L), balanceCents = 800L
+        ))
+    }
 }

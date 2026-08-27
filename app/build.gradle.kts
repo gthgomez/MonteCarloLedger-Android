@@ -65,6 +65,11 @@ android {
         compose = true
     }
 
+    sourceSets {
+        // Room's MigrationTestHelper reads exported schema JSON from assets.
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     lint {
         // local.properties is machine-local and gitignored; PropertyEscape is not a product defect.
         disable += "PropertyEscape"
@@ -97,7 +102,7 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.exifinterface:exifinterface:1.3.6")
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 
     // Shared DesignSystem library
     implementation("com.workspace:design")

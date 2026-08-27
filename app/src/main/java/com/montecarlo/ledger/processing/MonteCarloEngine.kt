@@ -316,7 +316,11 @@ class MonteCarloEngine(
         return if (sortedValues.size % 2 == 1) {
             sortedValues[middle]
         } else {
-            (sortedValues[middle - 1] + sortedValues[middle]) / 2L
+            // Overflow-safe midpoint: for sorted a <= b, a + (b - a) / 2 equals
+            // (a + b) / 2 but cannot wrap Long for values near Long.MAX_VALUE.
+            val a = sortedValues[middle - 1]
+            val b = sortedValues[middle]
+            a + (b - a) / 2L
         }
     }
 }

@@ -37,6 +37,9 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 
+/** Row-count cap so a hostile or mis-exported file cannot OOM the parser. */
+private const val MAX_CSV_RECORDS = 100_000
+
 internal data class CsvImportPreview(
     val sourceName: String,
     val csvText: String = "",
@@ -767,6 +770,11 @@ internal fun parseCsvRecords(text: String): List<List<String>> {
 
     var index = 0
     while (index < text.length) {
+        if (records.size >= MAX_CSV_RECORDS) {
+            throw IllegalArgumentException(
+                "This CSV has more than $MAX_CSV_RECORDS rows. Split it into smaller files and try again."
+            )
+        }
         val character = text[index]
         when {
             inQuotes -> when {

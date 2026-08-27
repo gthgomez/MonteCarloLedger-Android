@@ -2,7 +2,9 @@ package com.montecarlo.ledger.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
@@ -373,7 +375,7 @@ private fun AppChrome(
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         parseTransactionCsv(
-                            csvText = input.bufferedReader().readText(),
+                            csvText = readTextCapped(context, uri, input),
                             sourceName = "CSV file"
                         )
                     } ?: error("Unable to open CSV file.")
@@ -400,7 +402,7 @@ private fun AppChrome(
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         parseBillCsv(
-                            csvText = input.bufferedReader().readText(),
+                            csvText = readTextCapped(context, uri, input),
                             sourceName = "CSV file"
                         )
                     } ?: error("Unable to open CSV file.")
@@ -1058,5 +1060,47 @@ private fun AppChrome(
             }
         )
     }
+}
+
+/** Cap for CSV reads so a hostile or mis-exported file cannot OOM the parser. */
+private const val MAX_CSV_BYTES = 20 * 1024 * 1024
+
+/**
+ * Reads an imported document up to [MAX_CSV_BYTES]. Uses the declared document
+ * size as a cheap pre-check and then a byte cap on the stream so a lying size
+ * cannot slip a giant payload through.
+ */
+private fun readTextCapped(context: android.content.Context, uri: Uri, input: java.io.InputStream): String {
+    val declaredSize = context.contentResolver.query(
+        uri, arrayOf(OpenableColumns.SIZE), null, null, null
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else -1L
+        } else {
+            -1L
+        }
+    } ?: -1L
+    if (declaredSize > MAX_CSV_BYTES) {
+        throw IllegalArgumentException(
+            "CSV file is too large (over ${MAX_CSV_BYTES / (1024 * 1024)} MB). Split it into smaller files and try again."
+        )
+    }
+    val reader = input.bufferedReader()
+    val output = StringBuilder()
+    val buffer = CharArray(16 * 1024)
+    var totalChars = 0
+    while (true) {
+        val read = reader.read(buffer)
+        if (read < 0) break
+        totalChars += read
+        if (totalChars > MAX_CSV_BYTES) {
+            throw IllegalArgumentException(
+                "CSV file is too large (over ${MAX_CSV_BYTES / (1024 * 1024)} MB). Split it into smaller files and try again."
+            )
+        }
+        output.append(buffer, 0, read)
+    }
+    return output.toString()
 }
 

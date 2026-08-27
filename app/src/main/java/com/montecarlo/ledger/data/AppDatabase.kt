@@ -170,6 +170,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        @VisibleForTesting
+        val MIGRATION_1_2_FOR_TEST: Migration
+            get() = MIGRATION_1_2
+        @VisibleForTesting
+        val MIGRATION_2_3_FOR_TEST: Migration
+            get() = MIGRATION_2_3
+        @VisibleForTesting
+        val MIGRATION_3_4_FOR_TEST: Migration
+            get() = MIGRATION_3_4
+        @VisibleForTesting
+        val MIGRATION_4_5_FOR_TEST: Migration
+            get() = MIGRATION_4_5
+        @VisibleForTesting
+        val MIGRATION_5_6_FOR_TEST: Migration
+            get() = MIGRATION_5_6
+        @VisibleForTesting
+        val MIGRATION_6_7_FOR_TEST: Migration
+            get() = MIGRATION_6_7
+        @VisibleForTesting
+        val MIGRATION_7_8_FOR_TEST: Migration
+            get() = MIGRATION_7_8
+        @VisibleForTesting
+        val MIGRATION_8_9_FOR_TEST: Migration
+            get() = MIGRATION_8_9
+
         private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

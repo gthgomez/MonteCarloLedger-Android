@@ -26,4 +26,16 @@ class BankBalanceParserTest {
     fun parseBankBalanceCents_rejectsInvalidText() {
         assertNull(parseBankBalanceCents("not a balance"))
     }
+
+    @Test
+    fun parseBankBalanceCents_handlesEuropeanDecimalComma() {
+        assertEquals(123456L, parseBankBalanceCents("1234,56"))
+        assertEquals(123456L, parseBankBalanceCents("€1.234,56"))
+        assertEquals(-123456L, parseBankBalanceCents("(1.234,56)"))
+    }
+
+    @Test
+    fun parseBankBalanceCents_keepsUsThousandsGrouping() {
+        assertEquals(123400L, parseBankBalanceCents("1,234"))
+    }
 }

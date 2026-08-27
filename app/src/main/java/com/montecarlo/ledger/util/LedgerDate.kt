@@ -47,5 +47,12 @@ object LedgerDate {
         DateTimeFormatter.ofPattern("MM/dd/yy"),
         DateTimeFormatter.ofPattern("M-d-uuuu"),
         DateTimeFormatter.ofPattern("MM-dd-uuuu"),
+        // Unambiguous EU fallbacks: "13/02/2026" cannot be US month/day (month 13 is
+        // invalid) so it resolves as dd/MM. Ambiguous low-day values like "01/02/2026"
+        // keep the US-first convention used across the app.
+        DateTimeFormatter.ofPattern("d/M/uuuu"),
+        DateTimeFormatter.ofPattern("d/M/yy"),
+        DateTimeFormatter.ofPattern("d-M-uuuu"),
+        DateTimeFormatter.ofPattern("d-M-yy"),
     )
 }

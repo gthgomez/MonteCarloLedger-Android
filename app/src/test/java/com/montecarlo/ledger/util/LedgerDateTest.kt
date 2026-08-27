@@ -25,4 +25,15 @@ class LedgerDateTest {
         assertEquals("2026-04-30", LedgerDate.parseBankDateOrNull("2026/4/30").toString())
         assertNull(LedgerDate.parseBankDateOrNull("April 3, 2026"))
     }
+
+    @Test
+    fun parseBankDateOrNull_resolvesUnambiguousEuropeanDayFirstDates() {
+        // Day 13 cannot be a month, so dd/MM must win without corrupting US dates.
+        assertEquals("2026-02-13", LedgerDate.parseBankDateOrNull("13/02/2026").toString())
+        assertEquals("2026-02-13", LedgerDate.parseBankDateOrNull("13/2/26").toString())
+        assertEquals("2026-02-13", LedgerDate.parseBankDateOrNull("13-02-2026").toString())
+        assertEquals("2026-02-13", LedgerDate.parseBankDateOrNull("13-2-26").toString())
+        // Ambiguous low-day values keep the US-first convention.
+        assertEquals("2026-01-02", LedgerDate.parseBankDateOrNull("01/02/2026").toString())
+    }
 }

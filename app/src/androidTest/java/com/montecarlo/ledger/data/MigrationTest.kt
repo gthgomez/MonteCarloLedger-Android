@@ -329,8 +329,8 @@ class MigrationTest {
 
         db15.execSQL(
             """
-            INSERT INTO accounts (id, name, type, balanceCents, isDefault, lastUpdated)
-            VALUES (1, 'Visa', 'credit', 0, 0, '2026-08-01')
+            INSERT INTO accounts (id, name, type, balanceCents, isReconciled, isDefault, lastUpdated)
+            VALUES (1, 'Visa', 'credit', 0, 0, 0, '2026-08-01')
             """.trimIndent()
         )
         db15.execSQL(
