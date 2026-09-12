@@ -279,13 +279,13 @@ private fun AppChrome(
         selectedIncome != null -> "Edit Income"
         selectedPayment != null -> "Edit Payment"
         selectedTransaction != null -> "Edit Transaction"
-        section == AppSection.Dashboard && onboardingProgress.isComplete -> "Dashboard"
-        section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Start here"
+    // Sheet titles come first: during onboarding, "Start here" must not shadow them.
         addKind == AddKind.Income -> "Log paycheck"
         addKind == AddKind.Bill -> "Add bill"
         addKind == AddKind.Transaction -> "Record spending"
         addKind == AddKind.Goal -> "Set a savings goal"
-        addKind == null && section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Choose what to add"
+        section == AppSection.Dashboard && onboardingProgress.isComplete -> "Dashboard"
+        section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Start here"
         else -> section.title
     }
     val context = LocalContext.current
