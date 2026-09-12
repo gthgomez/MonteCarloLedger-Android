@@ -897,14 +897,16 @@ private fun AppChrome(
         )
     }
 
-    BankBalanceSheet(
-        bankBalanceCents = uiState.bankBalanceCents,
-        onDismiss = { showBankBalanceDialog = false },
-        viewModel = viewModel,
-        handleResult = { result, onSuccessAction, showSuccess ->
-            handlePersistenceResult(result, onSuccessAction, showSuccess)
-        },
-    )
+    if (showBankBalanceDialog) {
+        BankBalanceSheet(
+            bankBalanceCents = uiState.bankBalanceCents,
+            onDismiss = { showBankBalanceDialog = false },
+            viewModel = viewModel,
+            handleResult = { result, onSuccessAction, showSuccess ->
+                handlePersistenceResult(result, onSuccessAction, showSuccess)
+            },
+        )
+    }
     if (showAddAnotherBillDialog) {
         AlertDialog(
             onDismissRequest = {
