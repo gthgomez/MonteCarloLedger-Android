@@ -279,13 +279,13 @@ private fun AppChrome(
         selectedIncome != null -> "Edit Income"
         selectedPayment != null -> "Edit Payment"
         selectedTransaction != null -> "Edit Transaction"
-        section == AppSection.Dashboard && onboardingProgress.isComplete -> "Dashboard"
-        section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Start here"
+    // Sheet titles come first: during onboarding, "Start here" must not shadow them.
         addKind == AddKind.Income -> "Log paycheck"
         addKind == AddKind.Bill -> "Add bill"
         addKind == AddKind.Transaction -> "Record spending"
         addKind == AddKind.Goal -> "Set a savings goal"
-        addKind == null && section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Choose what to add"
+        section == AppSection.Dashboard && onboardingProgress.isComplete -> "Dashboard"
+        section == AppSection.Dashboard && !onboardingProgress.isComplete -> "Start here"
         else -> section.title
     }
     val context = LocalContext.current
@@ -299,7 +299,9 @@ private fun AppChrome(
     var showBankBalanceDialog by rememberSaveable { mutableStateOf(false) }
     var showAddAnotherBillDialog by rememberSaveable { mutableStateOf(false) }
     var showEncryptDialog by rememberSaveable { mutableStateOf(false) }
-    var pendingBackupUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    // rememberSaveable, not remember: showEncryptDialog restores after process death,
+    // so the paired URI must too or the password dialog never reappears.
+    var pendingBackupUri by rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
     var showDecryptDialog by remember { mutableStateOf<android.net.Uri?>(null) }
     var showPrivacyDialog by rememberSaveable { mutableStateOf(false) }
     val csvMimeTypes = arrayOf(

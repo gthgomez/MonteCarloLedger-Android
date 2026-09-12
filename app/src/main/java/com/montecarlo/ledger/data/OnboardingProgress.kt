@@ -22,6 +22,10 @@ data class OnboardingProgress(
     // Legacy field — kept so existing backups deserialise without crashing.
     // Not surfaced in the new onboarding UI.
     val firstExpenseCompleted: Boolean = false,
+    // User asked to proceed without finishing setup (the "Skip this step" action on
+    // the goal step). Hides the setup card only; isComplete still requires the goal,
+    // and the progress widget stays available to finish setup later.
+    val dismissed: Boolean = false,
 ) {
     val isComplete: Boolean
         get() = reconciliationCompleted && firstIncomeCompleted && firstBillCompleted && firstGoalCompleted

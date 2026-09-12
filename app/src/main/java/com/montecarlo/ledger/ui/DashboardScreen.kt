@@ -85,6 +85,7 @@ fun DashboardScreen(
         onApproveTransactionReview = viewModel::approveTransactionReview,
         onCreateReviewRule = viewModel::createRuleFromTransactionReview,
         onApplyRecommendation = viewModel::applyOverdraftRecommendation,
+        onDismissOnboarding = viewModel::dismissOnboarding,
         hazeState = hazeState,
     )
 }
@@ -102,6 +103,7 @@ fun DashboardContent(
     onAddPayment: () -> Unit,
     onAddTransaction: () -> Unit,
     onAddGoal: () -> Unit = {},
+    onDismissOnboarding: () -> Unit = {},
     onOpenAnalysis: () -> Unit = {},
     onOpenReview: () -> Unit = onOpenAnalysis,
     onOpenDebtPayoff: () -> Unit = {},
@@ -120,7 +122,7 @@ fun DashboardContent(
         val hasIncome = uiState.totalInflowCents > 0
         val hasBills = uiState.upcomingBills.isNotEmpty()
         val showForecastCards = hasIncome || hasBills
-        val showOnboardingFirst = !onboardingProgress.isComplete
+        val showOnboardingFirst = !onboardingProgress.isComplete && !onboardingProgress.dismissed
 
         if (mismatch && details != null) {
             val (calc, stored) = details
@@ -176,6 +178,7 @@ fun DashboardContent(
                     onAddTransaction = onAddTransaction,
                     onAddGoal = onAddGoal,
                     onCheckBalance = onCheckBalance,
+                    onDismissOnboarding = onDismissOnboarding,
                     onOpenAnalysis = onOpenAnalysis,
                     onOpenReview = onOpenReview,
                     onOpenDebtPayoff = onOpenDebtPayoff,
@@ -200,6 +203,7 @@ fun DashboardContent(
                     onAddTransaction = onAddTransaction,
                     onAddGoal = onAddGoal,
                     onCheckBalance = onCheckBalance,
+                    onDismissOnboarding = onDismissOnboarding,
                     onOpenAnalysis = onOpenAnalysis,
                     onOpenReview = onOpenReview,
                     onOpenDebtPayoff = onOpenDebtPayoff,
@@ -225,6 +229,7 @@ fun DashboardContent(
                     onAddTransaction = onAddTransaction,
                     onAddGoal = onAddGoal,
                     onCheckBalance = onCheckBalance,
+                    onDismissOnboarding = onDismissOnboarding,
                     onOpenAnalysis = onOpenAnalysis,
                     onOpenReview = onOpenReview,
                     onOpenDebtPayoff = onOpenDebtPayoff,
@@ -255,6 +260,7 @@ private fun DashboardCompactBody(
     onAddTransaction: () -> Unit,
     onAddGoal: () -> Unit,
     onCheckBalance: () -> Unit,
+    onDismissOnboarding: () -> Unit,
     onOpenAnalysis: () -> Unit,
     onOpenReview: () -> Unit,
     onOpenDebtPayoff: () -> Unit,
@@ -287,6 +293,7 @@ private fun DashboardCompactBody(
                     onAddTransaction = onAddTransaction,
                     onCheckBalance = onCheckBalance,
                     onAddGoal = onAddGoal,
+                    onDismissOnboarding = onDismissOnboarding,
                 )
             }
         }
@@ -448,6 +455,7 @@ private fun DashboardGridBody(
     onAddTransaction: () -> Unit,
     onAddGoal: () -> Unit,
     onCheckBalance: () -> Unit,
+    onDismissOnboarding: () -> Unit,
     onOpenAnalysis: () -> Unit,
     onOpenReview: () -> Unit,
     onOpenDebtPayoff: () -> Unit,
@@ -483,6 +491,7 @@ private fun DashboardGridBody(
                     onAddTransaction = onAddTransaction,
                     onCheckBalance = onCheckBalance,
                     onAddGoal = onAddGoal,
+                    onDismissOnboarding = onDismissOnboarding,
                 )
             }
         }

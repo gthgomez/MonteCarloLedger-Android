@@ -71,6 +71,7 @@ internal fun buildLedgerBackupJson(
             put("firstExpenseCompleted", onboardingProgress.firstExpenseCompleted)
             put("firstGoalCompleted", onboardingProgress.firstGoalCompleted)
             put("reconciliationCompleted", onboardingProgress.reconciliationCompleted)
+            put("dismissed", onboardingProgress.dismissed)
         })
         put("settings", JsonArray(settings.filterNot { isAppLockSettingKey(it.key) }.map { it.toJsonElement() }))
         put("rules", JsonArray(rules.map { it.toJsonElement() }))

@@ -124,6 +124,7 @@ internal fun OnboardingProgressCard(
     onAddTransaction: () -> Unit,
     onCheckBalance: () -> Unit,
     onAddGoal: () -> Unit,
+    onDismissOnboarding: () -> Unit,
 ) {
     val steps = progress.steps()
     val nextActionMilestone = progress.nextActionMilestone()
@@ -181,7 +182,7 @@ internal fun OnboardingProgressCard(
             "Skip to savings goal" to onAddGoal,
         )
         OnboardingMilestone.FIRST_GOAL -> listOf(
-            "Skip this step" to {},
+            "Skip this step" to onDismissOnboarding,
         )
         OnboardingMilestone.FIRST_EXPENSE -> listOf(
             "Skip this step" to {},

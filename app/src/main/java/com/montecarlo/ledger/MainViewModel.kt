@@ -240,6 +240,13 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Hides the dashboard setup card; does not mark onboarding complete. */
+    fun dismissOnboarding() {
+        viewModelScope.launch {
+            repo.setOnboardingDismissed()
+        }
+    }
+
     fun updateTransaction(entity: TransactionEntity, onResult: (Result<Unit>) -> Unit = {}) {
         launchPersistence(onResult) { repo.updateTransaction(entity) }
     }
