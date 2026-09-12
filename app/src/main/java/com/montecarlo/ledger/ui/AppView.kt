@@ -299,7 +299,9 @@ private fun AppChrome(
     var showBankBalanceDialog by rememberSaveable { mutableStateOf(false) }
     var showAddAnotherBillDialog by rememberSaveable { mutableStateOf(false) }
     var showEncryptDialog by rememberSaveable { mutableStateOf(false) }
-    var pendingBackupUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    // rememberSaveable, not remember: showEncryptDialog restores after process death,
+    // so the paired URI must too or the password dialog never reappears.
+    var pendingBackupUri by rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
     var showDecryptDialog by remember { mutableStateOf<android.net.Uri?>(null) }
     var showPrivacyDialog by rememberSaveable { mutableStateOf(false) }
     val csvMimeTypes = arrayOf(
