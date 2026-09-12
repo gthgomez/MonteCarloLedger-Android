@@ -36,6 +36,7 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
             firstExpenseCompleted = onboarding.optBool( "firstExpenseCompleted", false),
             firstGoalCompleted = onboarding.optBool( "firstGoalCompleted", false),
             reconciliationCompleted = onboarding.optBool( "reconciliationCompleted", false),
+            dismissed = onboarding.optBool( "dismissed", false),
         ),
         settings = root.array("settings").map { it.toSettingsEntity() },
         rules = root.array("rules").map { it.toRuleEntity() },

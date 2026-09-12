@@ -45,6 +45,7 @@ class LedgerRepository(private val db: AppDatabase) {
         const val KEY_ONBOARDING_FIRST_EXPENSE = "onboarding_first_expense_completed"
         const val KEY_ONBOARDING_RECONCILIATION = "onboarding_reconciliation_completed"
         const val KEY_ONBOARDING_FIRST_GOAL = "onboarding_first_goal_completed"
+        const val KEY_ONBOARDING_DISMISSED = "onboarding_dismissed"
         const val KEY_ONBOARDING_MONITORING_INTRO_SEEN = "onboarding_monitoring_intro_seen"
     }
 
@@ -294,6 +295,7 @@ class LedgerRepository(private val db: AppDatabase) {
             firstBillCompleted = byKey[KEY_ONBOARDING_FIRST_BILL]?.value?.toBoolean() == true,
             firstGoalCompleted = byKey[KEY_ONBOARDING_FIRST_GOAL]?.value?.toBoolean() == true,
             firstExpenseCompleted = byKey[KEY_ONBOARDING_FIRST_EXPENSE]?.value?.toBoolean() == true,
+            dismissed = byKey[KEY_ONBOARDING_DISMISSED]?.value?.toBoolean() == true,
         )
     }
 
@@ -564,6 +566,16 @@ class LedgerRepository(private val db: AppDatabase) {
         db.settingsDao().setValue(SettingsEntity(KEY_ONBOARDING_MONITORING_INTRO_SEEN, "true"))
     }
 
+    /**
+     * Records that the user chose to proceed without finishing setup. One-way in
+     * the UI: [syncOnboardingMilestones] and milestone marking never clear it, and
+     * [OnboardingProgress.isComplete] is unaffected — setup only completes when
+     * the underlying milestones are actually done.
+     */
+    suspend fun setOnboardingDismissed() {
+        db.settingsDao().setValue(SettingsEntity(KEY_ONBOARDING_DISMISSED, "true"))
+    }
+
     suspend fun updateReminderPreferences(preferences: ReminderPreferences) {
         db.settingsDao().setValue(SettingsEntity(KEY_REMINDERS_ENABLED, preferences.enabled.toString()))
         db.settingsDao().setValue(SettingsEntity(KEY_WEEKLY_CHECKIN_ENABLED, preferences.weeklyCheckInEnabled.toString()))
@@ -778,6 +790,7 @@ class LedgerRepository(private val db: AppDatabase) {
         ensureSetting(KEY_ONBOARDING_FIRST_EXPENSE, snapshot.onboardingProgress.firstExpenseCompleted.toString())
         ensureSetting(KEY_ONBOARDING_FIRST_GOAL, snapshot.onboardingProgress.firstGoalCompleted.toString())
         ensureSetting(KEY_ONBOARDING_RECONCILIATION, snapshot.onboardingProgress.reconciliationCompleted.toString())
+        ensureSetting(KEY_ONBOARDING_DISMISSED, snapshot.onboardingProgress.dismissed.toString())
         ensureSetting(KEY_ONBOARDING_MONITORING_INTRO_SEEN, snapshot.onboardingProgress.isComplete.toString())
         ensureSetting(KEY_STARTING_BALANCE, "0")
         ensureSetting(KEY_SIMULATION_DAYS, "90")
