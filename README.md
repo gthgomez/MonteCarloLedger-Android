@@ -22,4 +22,4 @@ Copyright is retained by the project owner. No permission is granted to
 redistribute, modify, sublicense, sell, commercially exploit, or create
 derivative works from this project except where required by applicable law.
 Third-party dependencies remain under their own licenses. See
-[`LICENSE.md`](LICENSE.md).
+[`LICENSE`](LICENSE).
