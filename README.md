@@ -16,7 +16,9 @@ Companion app to the [MonteCarlo-Ledger CLI and Monte Carlo engine](https://gith
 
 **Verify:** `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --no-daemon`
 
-**Detailed docs:** [CLAUDE.md](CLAUDE.md) | [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) | [STATUS.md](STATUS.md) | [QA_CHECKLIST.md](QA_CHECKLIST.md) | [ROADMAP_HANDOFF.md](ROADMAP_HANDOFF.md)
+**Project docs:** [docs/SHIP_STANDARD.md](docs/SHIP_STANDARD.md) | [STATUS.md](STATUS.md) | [QA_CHECKLIST.md](QA_CHECKLIST.md) | [ROADMAP_HANDOFF.md](ROADMAP_HANDOFF.md)
+
+Internal agent notes (not project documentation): [docs/agent/](docs/agent/)
 
 ## License
 
