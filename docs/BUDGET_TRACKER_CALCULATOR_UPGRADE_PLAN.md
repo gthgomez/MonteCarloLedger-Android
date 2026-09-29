@@ -16,7 +16,7 @@ current source (read directly) and cross-references existing docs so we do not d
 - `docs/budgeting-roadmap.md` — the competitor-driven UX roadmap (P0/P1 simplification items).
 - `docs/fintech-functionality-audit-2026-04-24.md` — product gap analysis ("no formal budget system").
 - `QA_CHECKLIST.md` — the ship gate, including the hard rule: **no floating-point currency in any file**.
-- `CLAUDE.md` — invariant: *"All calculations must use exact precision (integer cents / Decimal). Do not use floating-point math for currency."*
+- `docs/agent/CLAUDE.md` — invariant: *"All calculations must use exact precision (integer cents / Decimal). Do not use floating-point math for currency."*
 
 Where this plan repeats a finding, it is condensed to an action item with a file target.
 
@@ -63,7 +63,7 @@ That is the "calculator correctness" contract this plan enforces.
 - Reconciled bank balance can drift after edits with no aggressive re-reconcile CTA (audit **A4**, HIGH).
 - `AddIncomeScreen` truncates (not rounds) the semi-monthly/monthly rate conversion (audit **D5**).
 - **NEW — floating-point in display:** `MainViewModel.formatCurrency` does `"$%.2f".format(cents / 100.0)`,
-  a `Double` division, violating `CLAUDE.md` and the QA "no floating-point currency" gate.
+  a `Double` division, violating `docs/agent/CLAUDE.md` and the QA "no floating-point currency" gate.
 - Dashboard is dense and concept-heavy (audit D1/D2; budgeting model rated 4/10 in the fintech audit).
 - No first-class "monthly plan" view: income − bills − planned spend = left to spend.
 
@@ -120,7 +120,7 @@ build + unit tests after each.
 `MainViewModel.formatCurrency` uses `cents / 100.0` (Double). Fix with integer math:
 
 ```kotlin
-// BEFORE (violates CLAUDE.md + QA gate)
+// BEFORE (violates docs/agent/CLAUDE.md + QA gate)
 return "\$${String.format("%.2f", cents / 100.0)}"
 // AFTER (exact)
 val sign = if (cents < 0) "-" else ""
@@ -217,7 +217,7 @@ cd C:\Workspace\Project_Android\MonteCarloLedger
 .\gradlew.bat lint                 # no new lint warnings on touched files
 ```
 
-Per `CLAUDE.md` and `AGENTS.md`: never claim build/test success unless the command was actually run and
+Per `docs/agent/CLAUDE.md` and `docs/agent/AGENTS.md`: never claim build/test success unless the command was actually run and
 passed. Do **not** mix the B4 `Long`-cents refactor with UX edits in the same change set (HIGH blast radius).
 
 ---
@@ -242,4 +242,4 @@ passed. Do **not** mix the B4 `Long`-cents refactor with UX edits in the same ch
 - `docs/budgeting-roadmap.md` — P0 simplification items (bill/income/dashboard).
 - `docs/fintech-functionality-audit-2026-04-24.md` — "no formal budget system" gap; recommended build order.
 - `QA_CHECKLIST.md` — ship gate (financial precision, no float currency, Room migration safety).
-- `CLAUDE.md` / `PROJECT_CONTEXT.md` — invariants and verification commands.
+- `docs/agent/CLAUDE.md` / `docs/agent/PROJECT_CONTEXT.md` — invariants and verification commands.
