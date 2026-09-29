@@ -2,6 +2,10 @@
 
 Modern financial ledger application for Android. Focuses on deterministic forecasting, bill pacing, and secure encrypted backups.
 
+> **Status: proprietary.** This repository is public for source visibility and
+> transparency. It is **not open source** — there is no license grant to reuse,
+> modify, or redistribute this code. See [LICENSE](LICENSE).
+
 Companion app to the [MonteCarlo-Ledger CLI and Monte Carlo engine](https://github.com/gthgomez/MonteCarlo-Ledger): the same ledger-first, deterministic-forecasting philosophy on Android.
 
 **Tech stack:** Kotlin, Jetpack Compose, Material3, Room (SQLite), AES-GCM encrypted backups, Clean Architecture (Domain/Data/UI).
