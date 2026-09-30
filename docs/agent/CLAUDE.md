@@ -2,11 +2,10 @@
 
 ## Context Stack
 
-1. Read this file (`MonteCarloLedger/CLAUDE.md`) — project-local agent guidance.
-2. Read `MonteCarloLedger/PROJECT_CONTEXT.md` — directory map and invariants.
-3. Read `C:\Workspace\Project_Android\PROJECT_CONTEXT.md` — workspace-wide context.
-4. Read `C:\Workspace\Project_Android\CLAUDE.md` — behavioral rules and Android patterns.
-5. Review `C:\Workspace\Project_Android\tasks\lessons.md` if it exists.
+1. Follow [repository-root AGENTS.md](../../AGENTS.md), skipping loaded guidance.
+2. Read adjacent [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) and touched source/tests.
+3. Parent workspace context and lessons are optional when actually present;
+   a standalone clone does not require a particular drive or sibling checkout.
 
 ## Core Directives
 
@@ -23,7 +22,11 @@
 
 ## Verification
 
-- Build: `.\gradlew assembleDebug`
-- Test: `.\gradlew testDebugUnitTest`
-- Lint: `.\gradlew lint`
-- Never claim build or test success unless the command was actually run and passed.
+Run from the repository root. Windows uses `./gradlew.bat`; POSIX uses `./gradlew`.
+- Unit tests: `./gradlew --no-daemon :app:testDebugUnitTest`
+- Debug build: `./gradlew --no-daemon :app:assembleDebug`
+- Relevant Android lint: `./gradlew --no-daemon :app:lint`
+- Preserve the in-repo `DesignSystem/` build included by CI.
+- Device, release-signing and packaging claims need corresponding evidence.
+- Instruction-only edits need path/conflict/diff checks, not unrelated builds.
+Never claim a check passed unless it actually ran and passed.

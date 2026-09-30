@@ -8,11 +8,9 @@ This file is the agent-neutral project context.
 
 ## Startup Sequence
 
-1. Read `CLAUDE.md` in this directory — project-local agent guidance.
-2. Read this file (`PROJECT_CONTEXT.md`) — directory map and invariants.
-3. Read `C:\Workspace\Project_Android\PROJECT_CONTEXT.md` — workspace-wide context.
-4. Read `C:\Workspace\Project_Android\CLAUDE.md` — behavioral rules and Android patterns.
-5. Review `C:\Workspace\Project_Android\tasks\lessons.md` if it exists.
+1. Follow [repository-root AGENTS.md](../../AGENTS.md), skipping loaded guidance.
+2. Read adjacent [CLAUDE.md](CLAUDE.md), this context, and touched source/tests.
+3. Parent workspace context is optional. Do not require a fixed Windows path.
 
 ## Local Rules
 
@@ -22,8 +20,11 @@ This file is the agent-neutral project context.
 
 ## Verification & Commands
 
-Run from `C:\Workspace\Project_Android\MonteCarloLedger`.
+Run from the repository root. Use `./gradlew.bat` on Windows and `./gradlew` on POSIX.
 
-- Build: `.\gradlew assembleDebug`
-- Test: `.\gradlew testDebugUnitTest`
-- Lint: `.\gradlew lint`
+- Unit tests: `./gradlew --no-daemon :app:testDebugUnitTest`
+- Debug build: `./gradlew --no-daemon :app:assembleDebug`
+- Android lint when relevant: `./gradlew --no-daemon :app:lint`
+
+CI requires the in-repo `DesignSystem/` composite. Tests/builds do not prove a
+physical-device flow, financial parity with another repo, or signed release status.
