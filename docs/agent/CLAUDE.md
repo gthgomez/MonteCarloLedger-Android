@@ -30,3 +30,18 @@ Run from the repository root. Windows uses `./gradlew.bat`; POSIX uses `./gradle
 - Device, release-signing and packaging claims need corresponding evidence.
 - Instruction-only edits need path/conflict/diff checks, not unrelated builds.
 Never claim a check passed unless it actually ran and passed.
+
+## Financial domain ownership
+
+- Inspect `app/src/main/java/com/montecarlo/ledger/`: extend the relevant
+  `domain/` or `processing/` owner for financial rules; use the existing
+  `data/LedgerRepository.kt` and Room contracts for persistence.
+- Compose screens render derived results. Keep presentation-only formatting/layout
+  there; place financial decisions in their current tested owner rather than copying
+  forecast, recurrence, budget, debt, or balance formulas into screens.
+- Preserve exact money, date ordering, rounding, reconciliation, and failure behavior
+  during structural moves; use representative fixtures and seeds where supported.
+  Bugs and migration changes are explicit behavior changes with their own evidence.
+- Engine convergence with the Python repository requires an explicit migration and
+  agreed cross-implementation fixtures. This guidance does not assert existing
+  parity, replace Kotlin calculations wholesale, or alter Room/backup contracts.
