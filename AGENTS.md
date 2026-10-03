@@ -1,15 +1,16 @@
 # AGENTS.md — MonteCarlo Ledger Android
 
-Read [project context](docs/agent/PROJECT_CONTEXT.md) and
-[domain guidance](docs/agent/CLAUDE.md), then touched source/tests. All commands run
-from this repository root. Optional workspace policy cannot be a missing dependency.
+Read [project context](docs/agent/PROJECT_CONTEXT.md), then touched source/tests.
+All commands run from this repository root. Optional workspace policy cannot be a
+missing dependency.
 
 ## Invariants
 
 - Use integer cents or explicit decimal precision for money; no floating-point
   monetary arithmetic in ledger or persisted balances.
-- Treat reconciliation, financial math, Room migrations, encrypted backups and
-  AES-GCM key handling as high risk. Preserve user data and fail-closed checks.
+- Treat reconciliation, financial math, Room migrations, encrypted backups,
+  AES-GCM key handling, and manifest/permission changes (Play Store compliance)
+  as high risk. Preserve user data and fail-closed checks.
 - Preserve the in-repo `DesignSystem/` composite required by the current Android CI.
   Never substitute an assumed sibling directory to claim standalone builds.
 - Do not commit credentials, keystores, private financial data, or machine SDK paths.
@@ -27,6 +28,14 @@ Instruction-only edits require path/conflict/diff checks; preserve required CI.
 For substantive code changes, identify the owning domain, contract, and callers;
 search for existing rules before adding another formula, threshold, or schema fact.
 Keep domain decisions out of presentation/transport and use narrow contracts.
+Concretely: extend the relevant `domain/` or `processing/` owner under
+`app/src/main/java/com/montecarlo/ledger/` for financial rules; persist through
+the existing `data/LedgerRepository.kt` and Room contracts. Compose screens render
+derived results — keep presentation-only formatting/layout there; do not copy
+forecast, recurrence, budget, debt, or balance formulas into screens.
+Engine convergence with the Python repository requires an explicit migration and
+agreed cross-implementation fixtures; do not assert existing parity, replace
+Kotlin calculations wholesale, or alter Room/backup contracts under this rule.
 An owner can contain several cohesive modules; prefer simple functions/composition
 and avoid speculative abstraction or sharing coincidentally similar code.
 

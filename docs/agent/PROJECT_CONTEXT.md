@@ -9,7 +9,7 @@ This file is the agent-neutral project context.
 ## Startup Sequence
 
 1. Follow [repository-root AGENTS.md](../../AGENTS.md), skipping loaded guidance.
-2. Read adjacent [CLAUDE.md](CLAUDE.md), this context, and touched source/tests.
+2. Read this context and touched source/tests.
 3. Parent workspace context is optional. Do not require a fixed Windows path.
 
 ## Local Rules
