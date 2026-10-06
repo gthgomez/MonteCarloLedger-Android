@@ -1,6 +1,6 @@
 {
   "source_repo": "https://github.com/gthgomez/MonteCarlo-Ledger",
-  "source_commit": "a233614e29f0374f6d5b3d616fc6e14b85782803",
+  "source_commit": "d2e621c4bd609fd5c85b6cdd5275686e8412ba17",
   "contract_version": "1.0",
   "files": {
     "contracts/README.md": "a7c1564416daff2a6d223b8888d77db21fb01f4eb113a7fe0c570fe3de23d3a1",
@@ -8,7 +8,7 @@
     "contracts/ledger.md": "6893d0cb213163f301a861d406cfa6fe7a1d3349b279e34fa02dc711e84aa6ec",
     "contracts/money.md": "cfeb113282967db76443fab70d8976bf28a79cae1f7d257a178e3efe16f7b148",
     "contracts/risk.md": "40ac2d059bfa65e6096f73e71ffea0d5f58f89ca5d8b65fe412d3de63506e8dc",
-    "contracts/simulation.md": "bab511aba2a53424deffaa056730076aad0d77071a0c8a9e98089249eca6b333",
+    "contracts/simulation.md": "190428e7dd6bef695aef5bb90b387d72b0302124d9aac170300d1655b247785f",
     "contracts/timeline.md": "2bc65a0ae2e846e6d72b9ab33bb4872095331d2fa2b406b3f30eea85f03d4182",
     "contracts/version.json": "6e2158ce9e1bf17515d9c5d881a79585c1d4921bfec846110ab20f4ab6c6ced5",
     "schemas/result.schema.json": "b044ed8dcd04aed1f28cd8516582579a74a488d6cc1596f546dbaa7e4afd64ca",
@@ -35,6 +35,7 @@
     "fixtures/invalid/zero-income.json": "6b27d3ad67e3ffef281c72dfde770d0f561023e428ed4d80f718bbcc06cc2fc5",
     "fixtures/stochastic/income-variation.json": "527ecee7501bf4a09d3217b057a66fcb2d4dcbdb7e4b66420592b257010bd973",
     "fixtures/stochastic/negative-probability.json": "d1094ca992e84aae141c2821603c9013711a2403cbc8f770e9bd3362815dd45f",
+    "fixtures/stochastic/no-events-surprises.json": "cc1157fde37cf58fd133c5c1127107bcacf82bdb06b4ee8aefcaf632527a07ba",
     "fixtures/stochastic/safe-to-spend.json": "922a4b7e1fd5cbde375141c42338f03ede0bac88a5be8dfc9a6169e61ecbc8aa",
     "fixtures/stochastic/seeded-reproducibility.json": "649e24050f9738d306bde22e7b77bf5208a64132cff2fbf8d6e7cbebcf755d1d"
   }

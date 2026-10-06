@@ -62,6 +62,10 @@ object TimelineService {
     ): List<ForecastEvent> {
         val events = mutableListOf<ForecastEvent>()
         var currentDate = LedgerDate.parseIsoOrNull(income.next_date) ?: return emptyList()
+        // MCD-0022 / bug B-07: when day_of_month is absent, anchor to the start date's day and
+        // keep it across clamped months. Stepping from the already-clamped date would drift
+        // (e.g. Jan 31 -> Feb 28 -> Mar 28 instead of Mar 31).
+        val anchorDay = income.day_of_month ?: currentDate.dayOfMonth
         var firstOccurrence = true
 
         // Unpaid occurrences before the window still hit cash today (one-time and recurring).
@@ -78,7 +82,7 @@ object TimelineService {
                 type = "income",
             )
             firstOccurrence = false
-            currentDate = RecurrenceMath.nextDate(currentDate, income.frequency, income.day_of_month) ?: return events
+            currentDate = RecurrenceMath.nextDate(currentDate, income.frequency, anchorDay) ?: return events
         }
 
         while (currentDate < endDate) {
@@ -97,7 +101,7 @@ object TimelineService {
             }
 
             firstOccurrence = false
-            currentDate = RecurrenceMath.nextDate(currentDate, income.frequency, income.day_of_month) ?: break
+            currentDate = RecurrenceMath.nextDate(currentDate, income.frequency, anchorDay) ?: break
         }
 
         return events
@@ -113,6 +117,8 @@ object TimelineService {
         val category = resolveCategory(payment.name, rules)
         val events = mutableListOf<ForecastEvent>()
         var currentDate = LedgerDate.parseIsoOrNull(payment.next_date) ?: return emptyList()
+        // MCD-0022 / bug B-07: keep the day-of-month anchor across clamped months.
+        val anchorDay = payment.day_of_month ?: currentDate.dayOfMonth
 
         // Unpaid bills before the window still hit cash today (one-time and recurring).
         while (currentDate < startDate) {
@@ -131,7 +137,7 @@ object TimelineService {
                     category = category,
                 )
             }
-            currentDate = RecurrenceMath.nextDate(currentDate, payment.frequency, payment.day_of_month) ?: return events
+            currentDate = RecurrenceMath.nextDate(currentDate, payment.frequency, anchorDay) ?: return events
         }
 
         while (currentDate < endDate) {
@@ -153,7 +159,7 @@ object TimelineService {
                 }
             }
 
-            currentDate = RecurrenceMath.nextDate(currentDate, payment.frequency, payment.day_of_month) ?: break
+            currentDate = RecurrenceMath.nextDate(currentDate, payment.frequency, anchorDay) ?: break
         }
 
         return events

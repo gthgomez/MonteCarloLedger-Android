@@ -240,7 +240,8 @@ class MonteCarloEngine(
     ): ScenarioSummary {
         var runningBalance = balanceCents
         var lowestBalance = balanceCents
-        var firstNegativeDate: String? = null
+        // MCD-0010 / bug B-05: an already-negative opening balance is negative from `today`.
+        var firstNegativeDate: String? = if (balanceCents < 0L) today.toString() else null
 
         if (dailyBalances != null && dailyBalances.size >= 91) {
             dailyBalances[0] = balanceCents
@@ -294,11 +295,9 @@ class MonteCarloEngine(
      * For count <= 0, returns 0L.
      * For count = 1, returns the single value.
      *
-     * NOTE: This engine uses a deliberate mixed percentile convention:
-     * 1. Tail risk percentiles (10th/90th) use nearest-rank (`ceil(p * N) - 1`) to preserve authentic
-     *    simulated run values without synthetic linear interpolation.
-     * 2. Median (50th) uses midpoint averaging for even N (`(a + b) / 2`) via [getMedian] to minimize
-     *    median estimation bias across even run counts.
+     * This is the single convention required by MCD-0005 (`contracts/risk.md`): every
+     * percentile including the median uses nearest-rank. `P50` for even N is the lower middle
+     * element; there is no interpolation and no averaged midpoint (bug B-06).
      */
     private fun percentile(sortedValues: List<Long>, percentile: Double): Long {
         if (sortedValues.isEmpty()) return 0L
@@ -307,20 +306,12 @@ class MonteCarloEngine(
     }
 
     /**
-     * Computes 50th percentile median. Uses exact middle element for odd N, and midpoint averaging
-     * `(a + b) / 2` for even N.
+     * Computes the 50th percentile with the same nearest-rank rule as [percentile]
+     * (`ceil(0.5 * N) - 1`), i.e. the lower middle element for even N. No midpoint averaging.
      */
     private fun getMedian(sortedValues: List<Long>): Long {
         if (sortedValues.isEmpty()) return 0L
-        val middle = sortedValues.size / 2
-        return if (sortedValues.size % 2 == 1) {
-            sortedValues[middle]
-        } else {
-            // Overflow-safe midpoint: for sorted a <= b, a + (b - a) / 2 equals
-            // (a + b) / 2 but cannot wrap Long for values near Long.MAX_VALUE.
-            val a = sortedValues[middle - 1]
-            val b = sortedValues[middle]
-            a + (b - a) / 2L
-        }
+        val index = ceil(sortedValues.size * 0.5).toInt() - 1
+        return sortedValues[index.coerceIn(0, sortedValues.lastIndex)]
     }
 }

@@ -36,7 +36,10 @@ class DashboardDeriverTest {
         assertFalse(derivation.reconciliationMismatch)
         assertEquals(null, derivation.reconciliationDetails)
         assertTrue(derivation.uiState.monteCarloBasisLabel!!.startsWith("Default assumptions"))
-        assertEquals(0.0, derivation.uiState.probabilityNegativePct, 0.0001)
+        // Contract MCD-0023: simulation is defined for an empty ledger too; surprise expenses
+        // give a non-zero overdraft probability rather than a fabricated 0%.
+        assertTrue(derivation.uiState.probabilityNegativePct > 0.0)
+        assertTrue(derivation.uiState.probabilityNegativePct <= 100.0)
     }
 
     @Test

@@ -71,7 +71,7 @@ object ContractEngine {
      * The month anchor is preserved across clamped months by always projecting from `start_date`
      * with an index, rather than stepping from the previously clamped date (MCD-0016 / bug B-07).
      */
-    private fun generateOccurrences(recurrence: ContractRecurrence, endExclusive: LocalDate): List<LocalDate> {
+    internal fun generateOccurrences(recurrence: ContractRecurrence, endExclusive: LocalDate): List<LocalDate> {
         val result = ArrayList<LocalDate>()
         val start = recurrence.startDate
         val end = recurrence.endDate

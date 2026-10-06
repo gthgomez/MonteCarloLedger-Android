@@ -8,6 +8,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.sqrt
 
 /**
@@ -197,9 +198,10 @@ object MonteCarloCalibrator {
 
     private fun percentile(sortedValues: List<Long>, fraction: Double): Long {
         if (sortedValues.isEmpty()) return 0L
-        val index = (fraction * (sortedValues.size - 1)).toInt()
-            .coerceIn(0, sortedValues.lastIndex)
-        return sortedValues[index]
+        // MCD-0005 (bug B-06): one nearest-rank rule for every percentile,
+        // index = ceil(N * fraction) - 1, clamped. No `(N - 1)` interpolation.
+        val index = ceil(sortedValues.size * fraction).toInt() - 1
+        return sortedValues[index.coerceIn(0, sortedValues.lastIndex)]
     }
 
     private fun normalize(value: String): String =
@@ -326,7 +328,8 @@ object MonteCarloInsights {
 
     private fun percentileOf(sortedValues: List<Long>, fraction: Double): Long {
         if (sortedValues.isEmpty()) return 0L
-        val index = (fraction * (sortedValues.size - 1)).toInt().coerceIn(0, sortedValues.lastIndex)
-        return sortedValues[index]
+        // MCD-0005: nearest-rank, matching the simulation and calibrator.
+        val index = kotlin.math.ceil(sortedValues.size * fraction).toInt() - 1
+        return sortedValues[index.coerceIn(0, sortedValues.lastIndex)]
     }
 }

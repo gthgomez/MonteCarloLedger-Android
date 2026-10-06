@@ -23,6 +23,11 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import com.montecarlo.ledger.FeatureFlags
+import com.montecarlo.ledger.adoption.ContractDashboardMapper
+import com.montecarlo.ledger.adoption.ContractScenarioBridge
+import com.montecarlo.ledger.contract.ContractRunner
+import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.data.AppDatabase
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.ForecastEngine
@@ -68,7 +73,31 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
 
                 val today = LocalDate.now()
                 val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences)
-                val forecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
+
+                // MC-06b: headline numbers come from the canonical contract engine when the
+                // adoption flag is on; the native engines remain a fallback only.
+                val adoptedResult = if (FeatureFlags.contractForecastEnabled) {
+                    runCatching {
+                        val built = ContractScenarioBridge.build(
+                            ContractScenarioBridge.Inputs(
+                                startingBalanceCents = forecastSeedCents,
+                                asOf = today,
+                                incomes = incomes,
+                                payments = payments,
+                                billOccurrences = occurrences,
+                                simulation = ContractSimulationParams(runs = 100),
+                            )
+                        )
+                        // Contract MCD-0023: do not invent a 0% result for an empty ledger.
+                        val scenario = built
+                        ContractRunner.run(scenario)
+                    }.getOrNull()
+                } else {
+                    null
+                }
+                val forecastSummary = adoptedResult
+                    ?.let(ContractDashboardMapper::toForecastSummary)
+                    ?: ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
 
                 val safeToSpend = forecastSummary.safeToSpendCents
                 val upcomingBills = events.filter { it.type == "bill" }.take(1)
@@ -76,10 +105,14 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
                     "${it.description} • ${centsToDisplay(it.amount_cents)} (${it.date.formatDateDisplay()})"
                 } ?: "No upcoming bills"
 
-                val mc = MonteCarloEngine(MonteCarloParams(runs = 100, includeDailyPercentiles = false)).runSimulation(forecastSeedCents, events, today)
+                val probabilityNegativePct = adoptedResult?.risk
+                    ?.let { it.negativeBalanceProbabilityPpm / 10_000.0 }
+                    ?: MonteCarloEngine(MonteCarloParams(runs = 100, includeDailyPercentiles = false))
+                        .runSimulation(forecastSeedCents, events, today)
+                        .probability_negative_pct
                 val riskLabel = when {
                     safeToSpend < 0 -> "Shortfall Projected"
-                    mc.probability_negative_pct >= 25.0 -> "High Risk (${String.format("%.0f", mc.probability_negative_pct)}%)"
+                    probabilityNegativePct >= 25.0 -> "High Risk (${String.format("%.0f", probabilityNegativePct)}%)"
                     else -> "Stable Forecast"
                 }
 
