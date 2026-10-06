@@ -27,9 +27,13 @@ class ContractPinTest {
         assertTrue("contract-pin.json missing at ${pinFile.absolutePath}", pinFile.isFile)
 
         val pin = Json.parseToJsonElement(pinFile.readText()).jsonObject
-        // Pin history: the brief named 5dfb40c; the snapshot was advanced to eea85f0 when MC-03
-        // amended MCD-0007 and froze the stochastic corpus. See contract/README.md.
-        assertEquals("eea85f0", (pin["source_commit"] as? JsonPrimitive)?.content)
+        // Pin history: 5dfb40c (initial) -> eea85f0 (MC-03 amended MCD-0007, froze stochastic)
+        // -> a233614 (MC-06 codified MCD-0021/0022 + added anchor-differs-from-start).
+        // See contract/README.md for the re-pin procedure.
+        assertEquals(
+            "a233614e29f0374f6d5b3d616fc6e14b85782803",
+            (pin["source_commit"] as? JsonPrimitive)?.content,
+        )
         assertEquals("1.0", (pin["contract_version"] as? JsonPrimitive)?.content)
 
         val expectedDigests = pin["files"]!!.jsonObject.mapValues { (_, v) ->

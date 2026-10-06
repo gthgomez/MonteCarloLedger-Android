@@ -1,6 +1,6 @@
 {
   "source_repo": "https://github.com/gthgomez/MonteCarlo-Ledger",
-  "source_commit": "eea85f0",
+  "source_commit": "a233614e29f0374f6d5b3d616fc6e14b85782803",
   "contract_version": "1.0",
   "files": {
     "contracts/README.md": "a7c1564416daff2a6d223b8888d77db21fb01f4eb113a7fe0c570fe3de23d3a1",
@@ -9,9 +9,12 @@
     "contracts/money.md": "cfeb113282967db76443fab70d8976bf28a79cae1f7d257a178e3efe16f7b148",
     "contracts/risk.md": "40ac2d059bfa65e6096f73e71ffea0d5f58f89ca5d8b65fe412d3de63506e8dc",
     "contracts/simulation.md": "bab511aba2a53424deffaa056730076aad0d77071a0c8a9e98089249eca6b333",
-    "contracts/timeline.md": "0db5a556ae6eac49d9d75423d96d6c85479ec17a9cae31932212ef7c34cc36d3",
+    "contracts/timeline.md": "2bc65a0ae2e846e6d72b9ab33bb4872095331d2fa2b406b3f30eea85f03d4182",
     "contracts/version.json": "6e2158ce9e1bf17515d9c5d881a79585c1d4921bfec846110ab20f4ab6c6ced5",
+    "schemas/result.schema.json": "b044ed8dcd04aed1f28cd8516582579a74a488d6cc1596f546dbaa7e4afd64ca",
+    "schemas/scenario.schema.json": "9f3bb5c2484dbde27e8555f0d31954e6684425f33f8566725380da2b3f7bb239",
     "fixtures/README.md": "72fd1794b3df1e19e983c517070674ef110ad6af5507baf354976b2b1729b4c1",
+    "fixtures/boundary/anchor-differs-from-start.json": "3d19e09530b861780a566d1ff5e45c97c2ec3fedd317683ad60fc5b27b4f8a12",
     "fixtures/boundary/horizon-end-exclusive.json": "fd9d24076fe2763cbd7fa97eeceb3bf8e91f066b9f5a4901d15f9eefe4215749",
     "fixtures/boundary/horizon-zero.json": "e1ea80f938412447ec89a5cdb8143849ad815e84d5fb6e55d34efad907f08a9b",
     "fixtures/boundary/leap-year-recurrence.json": "d52bd234234876a8e19b73faefe80d149c35ce4a0abf7a211de62f84f9fef60b",
@@ -33,8 +36,6 @@
     "fixtures/stochastic/income-variation.json": "527ecee7501bf4a09d3217b057a66fcb2d4dcbdb7e4b66420592b257010bd973",
     "fixtures/stochastic/negative-probability.json": "d1094ca992e84aae141c2821603c9013711a2403cbc8f770e9bd3362815dd45f",
     "fixtures/stochastic/safe-to-spend.json": "922a4b7e1fd5cbde375141c42338f03ede0bac88a5be8dfc9a6169e61ecbc8aa",
-    "fixtures/stochastic/seeded-reproducibility.json": "649e24050f9738d306bde22e7b77bf5208a64132cff2fbf8d6e7cbebcf755d1d",
-    "schemas/result.schema.json": "b044ed8dcd04aed1f28cd8516582579a74a488d6cc1596f546dbaa7e4afd64ca",
-    "schemas/scenario.schema.json": "9f3bb5c2484dbde27e8555f0d31954e6684425f33f8566725380da2b3f7bb239"
+    "fixtures/stochastic/seeded-reproducibility.json": "649e24050f9738d306bde22e7b77bf5208a64132cff2fbf8d6e7cbebcf755d1d"
   }
 }
