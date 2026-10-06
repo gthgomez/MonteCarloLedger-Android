@@ -4,11 +4,15 @@ import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.ActionCenterState
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardPrimaryAction
+import com.montecarlo.ledger.FeatureFlags
 import com.montecarlo.ledger.MoneyBucketAccent
 import com.montecarlo.ledger.MoneyBucketState
 import com.montecarlo.ledger.TransactionReviewItem
 import com.montecarlo.ledger.TrustSignal
 import com.montecarlo.ledger.TrustSignalLevel
+import com.montecarlo.ledger.adoption.ContractDashboardMapper
+import com.montecarlo.ledger.adoption.ContractScenarioBridge
+import com.montecarlo.ledger.contract.ContractRunner
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
 import com.montecarlo.ledger.data.CategoryRulePresets
@@ -28,8 +32,11 @@ import com.montecarlo.ledger.processing.BudgetPacingEngine
 import com.montecarlo.ledger.processing.ForecastEngine
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import com.montecarlo.ledger.processing.MonteCarloCalibrator
+import com.montecarlo.ledger.processing.DailyPercentilePoint
+import com.montecarlo.ledger.processing.ForecastSummary
 import com.montecarlo.ledger.processing.MonteCarloEngine
 import com.montecarlo.ledger.processing.MonteCarloParams
+import com.montecarlo.ledger.processing.MonteCarloResult
 import com.montecarlo.ledger.processing.OverdraftActionEngine
 import com.montecarlo.ledger.processing.RecurringDetector
 import com.montecarlo.ledger.processing.TimelineService
@@ -95,8 +102,7 @@ class DashboardDeriver {
             30
         }
 
-        val forecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
-        val safeToSpend = forecastSummary.safeToSpendCents
+        val nativeForecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
         val incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
         val cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
         val currentCashFlowWindow = cashFlowWindows.firstOrNull()
@@ -110,10 +116,23 @@ class DashboardDeriver {
             today = today,
             recurringPatterns = recurringCandidates.map { it.pattern }.toSet(),
         )
-        val mc = withContext(Dispatchers.Default) {
+        // The non-normative daily fan chart is not part of Contract 1.0; the native engine
+        // still supplies it (with B-05/B-06 fixed) while the contract governs every headline
+        // number below when the adoption flag is on.
+        val nativeMc = withContext(Dispatchers.Default) {
             MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
                 .runSimulation(forecastSeedCents, events, today)
         }
+        val adopted = if (FeatureFlags.contractForecastEnabled) {
+            withContext(Dispatchers.Default) {
+                adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
+            }
+        } else {
+            null
+        }
+        val forecastSummary = adopted?.forecastSummary ?: nativeForecastSummary
+        val safeToSpend = forecastSummary.safeToSpendCents
+        val mc = adopted?.monteCarloResult ?: nativeMc
         val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
 
         val nextPaydayLabel = nextPaycheck?.let { "Next: ${it.date.formatDateDisplay()} (${daysUntilPayday}d)" } ?: "No upcoming income"
@@ -263,6 +282,50 @@ class DashboardDeriver {
             reconciliationDetails = if (mismatch) Pair(ledgerBalanceCents, bankBalanceCents) else null,
         )
     }
+
+    /**
+     * Runs the canonical contract engine over repository data and maps the result onto the
+     * dashboard's state types. Returns null on any contract error so the caller falls back to
+     * the legacy engines rather than rendering a broken dashboard.
+     */
+    private fun adoptContract(
+        pack: ReportingPackage,
+        startingBalanceCents: Long,
+        asOf: LocalDate,
+        calibration: MonteCarloCalibration,
+        nativeDailyPercentiles: List<DailyPercentilePoint>,
+    ): Adoption? = runCatching {
+        val built = ContractScenarioBridge.build(
+            ContractScenarioBridge.Inputs(
+                startingBalanceCents = startingBalanceCents,
+                asOf = asOf,
+                incomes = pack.incomes,
+                payments = pack.payments,
+                billOccurrences = pack.billOccurrences,
+                simulation = ContractScenarioBridge.simulationParams(calibration),
+            )
+        )
+        // Product decision (documented): with no scheduled activity there is nothing to
+        // simulate, so no surprise expense is invented. This mirrors the legacy engine guard
+        // and keeps a first-run dashboard at 0% risk until the user adds income or bills.
+        val scenario = if (built.events.isEmpty() && built.recurrences.isEmpty()) {
+            built.copy(simulation = null)
+        } else {
+            built
+        }
+        val result = ContractRunner.run(scenario)
+        val runs = scenario.simulation?.runs ?: 500
+        Adoption(
+            forecastSummary = ContractDashboardMapper.toForecastSummary(result),
+            monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
+                .copy(dailyPercentiles = nativeDailyPercentiles),
+        )
+    }.getOrNull()
+
+    private data class Adoption(
+        val forecastSummary: ForecastSummary,
+        val monteCarloResult: MonteCarloResult,
+    )
 
     /**
      * Honest provenance for the simulation: calibrated from real history, or an

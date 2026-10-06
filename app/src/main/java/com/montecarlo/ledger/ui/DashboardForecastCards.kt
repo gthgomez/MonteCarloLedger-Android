@@ -200,7 +200,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                 )
             }
             uiState.projectedTroubleDateLabel?.let {
-                Text("Most likely first negative-balance date: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
+                Text("Projected first negative-balance date: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
             }
         }
     }

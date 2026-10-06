@@ -1,0 +1,107 @@
+# MC-06b — Android contract adoption
+
+**Campaign:** MonteCarlo semantic foundation
+**Contract:** 1.0, pinned at `a233614` (vendored in `app/src/test/resources/contract/`)
+**Engine (native Kotlin):** `app/src/main/java/com/montecarlo/ledger/contract/`
+
+This document describes how the Android product adopts the canonical contract engine for its
+user-visible forecast, Monte Carlo and safe-to-spend numbers, and how to toggle it.
+
+## Feature flag
+
+`com.montecarlo.ledger.FeatureFlags.contractForecastEnabled` (default **true**).
+
+- When **true**, `DashboardDeriver` and `MonteCarloLedgerGlanceWidget` build a canonical
+  `ContractScenario` from repository state, run `ContractRunner`, and source every headline
+  number from the resulting `ContractResult`.
+- When **false**, the legacy native `ForecastEngine` / `MonteCarloEngine` numbers are used.
+- It is a `@Volatile var`, so it can be flipped at runtime (debug menu / settings override)
+  without a rebuild.
+
+## Bridge: repository state -> `ContractScenario`
+
+`com.montecarlo.ledger.adoption.ContractScenarioBridge` is the single translation point:
+
+| Product row | Contract primitive |
+|---|---|
+| resolved seed balance (`BalanceSeedResolver`) | `starting_balance_cents` |
+| UI `as_of` (supplied by ViewModel/deriver; never a clock) | `as_of` (MCD-0001) |
+| `IncomeEntity` | `income` recurrence (`start_date = next_date`, `anchor_day = day_of_month ?: start.day`, `expected_amount_cents`) |
+| `PaymentEntity` | `expense` recurrence (`amount = -abs(amount_cents)`) |
+| user-moved unpaid `BillOccurrenceEntity` | explicit `expense` event |
+| paid / moved occurrence dates | suppressed by advancing the recurrence lower bound |
+| `MonteCarloCalibration` | `simulation` block (ppm scaling, aggregate expense variation) |
+
+Adopted rules:
+
+- **MCD-0013** starting balance is explicit; posted transactions are already folded in and are
+  not replayed as events.
+- **MCD-0014** occurrences dated before `as_of` are not projected. The legacy native timeline
+  hoisted overdue bills to `as_of`; the adopted path does not.
+- **MCD-0022 / B-07** `start_date` is a lower bound and `anchor_day` sets the day of month; the
+  contract engine projects from the original start, so a clamped February cannot move a
+  monthly anchor (e.g. Jan 31 -> Feb 28 -> **Mar 31**).
+
+## Mapping: `ContractResult` -> dashboard state
+
+`com.montecarlo.ledger.adoption.ContractDashboardMapper` maps onto the existing Compose state
+types so the UI keeps working:
+
+| Contract field | Dashboard field |
+|---|---|
+| `forecast.minimum_balance_cents/date` | `lowestBalanceCents` / `lowestBalanceDateLabel` (deterministic trough) |
+| `forecast.ending_balance_cents` | ending balance |
+| `forecast.first_negative_date` | `firstNegativeDateLabel` / `projectedTroubleDateLabel` |
+| `risk.minimum_balance_p10/p50/p90` | `monteCarlo10th/50th/90thCents` (trough percentiles) |
+| `risk.ending_balance_p10/p50/p90` | `worst_10/median/best_90_ending_balance_cents` |
+| `risk.negative_balance_probability_ppm` | `probabilityNegativePct` (ppm / 10 000) |
+| `risk.safe_to_spend_cents` (signed) | `safeToSpendCents` |
+
+## Native bug fixes (B-05 / B-06 / B-07)
+
+- **B-05** (`MonteCarloEngine.simulateScenarioWithDaily`): an already-negative opening balance
+  now sets `firstNegativeDate = today` and counts toward `negative_runs` (MCD-0010).
+- **B-06** (`MonteCarloEngine.getMedian`, `MonteCarloCalibrator.percentile`,
+  `MonteCarloInsights.percentileOf`): one nearest-rank rule for all percentiles including P50
+  (`index = ceil(N*q)-1`, lower middle for even N). No midpoint averaging, no `(N-1)`
+  interpolation (MCD-0005).
+- **B-07** (`TimelineService`, `LedgerRepository.syncBillOccurrences`, `advanceIncomeDate`):
+  when `day_of_month` is null, the anchor is taken from the schedule's start date and passed to
+  `RecurrenceMath` on every step so clamped months do not drift the day (MCD-0022).
+
+Non-conformant paths for the adopted outputs are therefore unreachable: the dashboard/widget
+run the contract engine, and the remaining native path (calendar seasoning) is fixed.
+
+## Product decisions (beyond the contract)
+
+These are product-level choices, flagged here rather than added to the contract:
+
+1. **Empty ledger -> no simulation.** With no in-window events or recurrences the contract
+   simulation would still inject surprise expenses over the horizon. The product suppresses
+   simulation so a first-run dashboard shows 0% risk until income or bills exist. (Mirrors the
+   legacy `baseTimeline.isNotEmpty()` guard.)
+2. **Per-category expense variation is not representable.** Contract 1.0 models a single
+   aggregate expense-variation scalar (per-category deferred per MCD-0015), so the adopted
+   simulation uses the aggregate range only.
+3. **Daily fan chart is non-normative.** Contract 1.0 exposes no per-day path percentiles, so
+   the fan chart continues to use the native daily walk (with B-05/B-06 fixed) while all
+   headline aggregates come from the contract. `MonteCarloResult.most_common_first_negative_date`
+   is mapped to the contract deterministic first-negative date, and the UI label changed from
+   "Most likely first negative-balance date" to "Projected first negative-balance date" to avoid
+   implying a modal simulation value the contract does not expose.
+
+## Known limitations
+
+- Suppression (paid / user-moved occurrences) is honored for a suppressed **prefix** of a
+  payment recurrence's in-window occurrences only. Contract 1.0 has no per-occurrence exclusion
+  list, so a suppressed occurrence in the middle of the window is not yet representable.
+- `FeatureFlags.contractForecastEnabled` is a process-wide `var`, not yet persisted in settings.
+
+## Tests
+
+```
+./gradlew :app:testDebugUnitTest --no-daemon
+```
+
+- `app/src/test/java/com/montecarlo/ledger/adoption/ContractScenarioBridgeTest.kt`
+- `app/src/test/java/com/montecarlo/ledger/dashboard/ContractAdoptionDashboardTest.kt`

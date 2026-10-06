@@ -433,7 +433,8 @@ class LedgerRepository(private val db: AppDatabase) {
                 var cursor = LocalDate.parse(payment.next_date)
                 val freq = RecurrenceMath.normalizeFrequency(payment.frequency)
                 val isOneTime = freq == "onetime"
-                val dayOfMonth = payment.day_of_month
+                // MCD-0022 / bug B-07: anchor to the schedule's day, not the clamped cursor day.
+                val dayOfMonth = payment.day_of_month ?: cursor.dayOfMonth
                 db.billOccurrenceDao().deleteUnpaidForPaymentBetween(payment.id, lookback, horizon)
                 // Rewind cursor to cover the 30-day lookback window for recurring payments
                 if (!isOneTime) {
@@ -539,7 +540,9 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun advanceIncomeDate(fromDate: String, frequency: String, dayOfMonth: Int? = null): String {
         val date = LocalDate.parse(fromDate)
-        val next = RecurrenceMath.nextDate(date, frequency, dayOfMonth) ?: date.plusMonths(1)
+        // MCD-0022 / bug B-07: anchor to the income's day, not the clamped date's day.
+        val anchorDay = dayOfMonth ?: date.dayOfMonth
+        val next = RecurrenceMath.nextDate(date, frequency, anchorDay) ?: date.plusMonths(1)
         return next.toString()
     }
 
