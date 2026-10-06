@@ -16,8 +16,8 @@ import java.math.RoundingMode
 fun centsToDisplay(cents: Int): String = centsToDisplay(cents.toLong())
 
 fun centsToDisplay(cents: Long): String {
-    val absCents = if (cents < 0) -cents else cents
-    val dollars = BigDecimal(absCents).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
+    // Use BigDecimal for the magnitude: `-cents` overflows for Long.MIN_VALUE (MCD-0020 / bug B-08).
+    val dollars = BigDecimal(cents).abs().divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
     val sign = if (cents < 0) "-" else ""
     return "$sign\$${dollars.toPlainString()}"
 }
@@ -36,8 +36,7 @@ fun centsToDisplay(cents: Long): String {
 fun centsToDisplayWhole(cents: Int): String = centsToDisplayWhole(cents.toLong())
 
 fun centsToDisplayWhole(cents: Long): String {
-    val absCents = if (cents < 0) -cents else cents
-    val dollars = BigDecimal(absCents).divide(BigDecimal(100), 0, RoundingMode.HALF_UP)
+    val dollars = BigDecimal(cents).abs().divide(BigDecimal(100), 0, RoundingMode.HALF_UP)
     val sign = if (cents < 0) "-" else ""
     return "$sign\$${dollars.toPlainString()}"
 }
@@ -53,8 +52,7 @@ fun centsToDisplayWhole(cents: Long): String {
 fun centsToDollarInputString(cents: Int): String = centsToDollarInputString(cents.toLong())
 
 fun centsToDollarInputString(cents: Long): String {
-    val absCents = if (cents < 0) -cents else cents
-    val dollars = BigDecimal(absCents).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
+    val dollars = BigDecimal(cents).abs().divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
     val sign = if (cents < 0) "-" else ""
     return "$sign${dollars.toPlainString()}"
 }
