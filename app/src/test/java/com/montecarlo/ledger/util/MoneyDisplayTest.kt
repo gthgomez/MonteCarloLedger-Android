@@ -102,4 +102,13 @@ class MoneyDisplayTest {
         assertEquals("-\$1", centsToDisplayWhole(-149))
         assertEquals("-\$2", centsToDisplayWhole(-150))
     }
+
+    // ── Long.MIN_VALUE does not overflow on negation (MCD-0020 / bug B-08) ──
+
+    @Test
+    fun `Long MONEY_MIN renders without overflow`() {
+        assertEquals("-\$92233720368547758.08", centsToDisplay(Long.MIN_VALUE))
+        assertEquals("-92233720368547758.08", centsToDollarInputString(Long.MIN_VALUE))
+        assertEquals("-\$92233720368547758", centsToDisplayWhole(Long.MIN_VALUE))
+    }
 }
