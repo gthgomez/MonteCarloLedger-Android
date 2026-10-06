@@ -28,10 +28,11 @@ class ContractPinTest {
 
         val pin = Json.parseToJsonElement(pinFile.readText()).jsonObject
         // Pin history: 5dfb40c (initial) -> eea85f0 (MC-03 amended MCD-0007, froze stochastic)
-        // -> a233614 (MC-06 codified MCD-0021/0022 + added anchor-differs-from-start).
+        // -> a233614 (MC-06 codified MCD-0021/0022 + anchor fixture)
+        // -> d2e621c (MCD-0023 empty-schedule simulation + no-events fixture).
         // See contract/README.md for the re-pin procedure.
         assertEquals(
-            "a233614e29f0374f6d5b3d616fc6e14b85782803",
+            "d2e621c4bd609fd5c85b6cdd5275686e8412ba17",
             (pin["source_commit"] as? JsonPrimitive)?.content,
         )
         assertEquals("1.0", (pin["contract_version"] as? JsonPrimitive)?.content)

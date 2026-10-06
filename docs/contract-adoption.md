@@ -1,7 +1,7 @@
 # MC-06b — Android contract adoption
 
 **Campaign:** MonteCarlo semantic foundation
-**Contract:** 1.0, pinned at `a233614` (vendored in `app/src/test/resources/contract/`)
+**Contract:** 1.0, pinned at `d2e621c` (vendored in `app/src/test/resources/contract/`)
 **Engine (native Kotlin):** `app/src/main/java/com/montecarlo/ledger/contract/`
 
 This document describes how the Android product adopts the canonical contract engine for its
@@ -41,6 +41,10 @@ Adopted rules:
 - **MCD-0022 / B-07** `start_date` is a lower bound and `anchor_day` sets the day of month; the
   contract engine projects from the original start, so a clamped February cannot move a
   monthly anchor (e.g. Jan 31 -> Feb 28 -> **Mar 31**).
+- **MCD-0023** the simulation is defined for any scenario. Surprise generation depends only on the
+  horizon and surprise parameters, so an empty ledger still yields a genuine risk distribution.
+  The earlier "empty ledger -> drop simulation -> 0% risk" guard was removed because it fabricated
+  a number the engine would not report.
 
 ## Mapping: `ContractResult` -> dashboard state
 
@@ -76,10 +80,11 @@ run the contract engine, and the remaining native path (calendar seasoning) is f
 
 These are product-level choices, flagged here rather than added to the contract:
 
-1. **Empty ledger -> no simulation.** With no in-window events or recurrences the contract
-   simulation would still inject surprise expenses over the horizon. The product suppresses
-   simulation so a first-run dashboard shows 0% risk until income or bills exist. (Mirrors the
-   legacy `baseTimeline.isNotEmpty()` guard.)
+1. **Empty ledger.** Previously the product suppressed simulation so a first-run dashboard showed
+   0% risk. This was removed: `MCD-0023` makes the engine's answer authoritative (surprises depend
+   only on the horizon), and reporting a fake 0% would violate the "contract defines truth" rule.
+   A dedicated "not enough information yet" UX for an empty ledger is a candidate future
+   presentation task, not a change to engine semantics.
 2. **Per-category expense variation is not representable.** Contract 1.0 models a single
    aggregate expense-variation scalar (per-category deferred per MCD-0015), so the adopted
    simulation uses the aggregate range only.

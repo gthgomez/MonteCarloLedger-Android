@@ -305,14 +305,10 @@ class DashboardDeriver {
                 simulation = ContractScenarioBridge.simulationParams(calibration),
             )
         )
-        // Product decision (documented): with no scheduled activity there is nothing to
-        // simulate, so no surprise expense is invented. This mirrors the legacy engine guard
-        // and keeps a first-run dashboard at 0% risk until the user adds income or bills.
-        val scenario = if (built.events.isEmpty() && built.recurrences.isEmpty()) {
-            built.copy(simulation = null)
-        } else {
-            built
-        }
+        // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation
+        // depends only on the horizon and surprise parameters, never on whether scheduled
+        // activity exists, so we must not zero out risk for an empty ledger here.
+        val scenario = built
         val result = ContractRunner.run(scenario)
         val runs = scenario.simulation?.runs ?: 500
         Adoption(

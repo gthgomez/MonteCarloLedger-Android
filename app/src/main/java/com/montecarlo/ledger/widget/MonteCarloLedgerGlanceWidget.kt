@@ -88,12 +88,8 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
                                 simulation = ContractSimulationParams(runs = 100),
                             )
                         )
-                        // No scheduled activity -> nothing to simulate (mirrors the dashboard).
-                        val scenario = if (built.events.isEmpty() && built.recurrences.isEmpty()) {
-                            built.copy(simulation = null)
-                        } else {
-                            built
-                        }
+                        // Contract MCD-0023: do not invent a 0% result for an empty ledger.
+                        val scenario = built
                         ContractRunner.run(scenario)
                     }.getOrNull()
                 } else {
