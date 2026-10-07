@@ -9,13 +9,13 @@ import com.montecarlo.ledger.processing.MonteCarloResult
  * Compose layer keeps working unchanged (MC-06b, AD-2).
  *
  * Field mapping (contract name -> product field):
- *  - `forecast.minimum_balance_cents/date` -> `lowestBalanceCents/Date` (the deterministic trough)
+ *  - `forecast.minimum_balance_cents/date` -> `projectedLowPointCents` / `lowestBalanceDate`
  *  - `forecast.ending_balance_cents`        -> `endingBalanceCents`
  *  - `forecast.first_negative_date`         -> `firstNegativeDate`
  *  - `risk.minimum_balance_p10/p50/p90`     -> `monteCarlo10th/50th/90th` (trough percentiles)
  *  - `risk.ending_balance_p10/p50/p90`      -> `worst_10/median/best_90_ending_balance`
  *  - `risk.negative_balance_probability_ppm`-> `probabilityNegativePct` (ppm / 10_000)
- *  - `risk.safe_to_spend_cents` (signed)    -> `safeToSpendCents`
+ *  - `risk.safe_to_spend_cents` (signed)    -> `safeToSpendCents` (nullable)
  *
  * Note the deliberate split mandated by MCD-0008/MCD-0009: safe-to-spend is the quantile-based
  * `minimum_balance_p{q} - reserve`, **not** the deterministic low point, and trough and ending
@@ -26,13 +26,15 @@ object ContractDashboardMapper {
     fun toForecastSummary(result: ContractResult): ForecastSummary {
         val forecast = result.forecast
         return ForecastSummary(
-            // MCD-0008: safe-to-spend is quantile-based and signed; the low point is surfaced
-            // separately as lowestBalanceCents.
-            safeToSpendCents = result.risk?.safeToSpendCents ?: forecast.minimumBalanceCents,
-            lowestBalanceCents = forecast.minimumBalanceCents,
+            // MCD-0008: the deterministic low point and the quantile-based safe-to-spend are
+            // distinct quantities. When the scenario carried no simulation there is no trough
+            // distribution to take a quantile of, so safe-to-spend stays null instead of
+            // masquerading as the low point.
+            projectedLowPointCents = forecast.minimumBalanceCents,
             lowestBalanceDate = forecast.minimumBalanceDate,
             endingBalanceCents = forecast.endingBalanceCents,
             firstNegativeDate = forecast.firstNegativeDate,
+            safeToSpendCents = result.risk?.safeToSpendCents,
         )
     }
 

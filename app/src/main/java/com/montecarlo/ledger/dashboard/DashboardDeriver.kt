@@ -4,7 +4,6 @@ import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.ActionCenterState
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardPrimaryAction
-import com.montecarlo.ledger.FeatureFlags
 import com.montecarlo.ledger.MoneyBucketAccent
 import com.montecarlo.ledger.MoneyBucketState
 import com.montecarlo.ledger.TransactionReviewItem
@@ -59,7 +58,16 @@ import java.time.temporal.ChronoUnit
  */
 class DashboardDeriver {
 
-    suspend fun derive(reporting: ReportingPackage, today: LocalDate): DashboardDerivation {
+    /**
+     * [contractForecastEnabled] is the persisted adoption flag (MC-06b) supplied by the caller from
+     * repository state; it defaults to ON. When false, the legacy native engines supply every
+     * headline number.
+     */
+    suspend fun derive(
+        reporting: ReportingPackage,
+        today: LocalDate,
+        contractForecastEnabled: Boolean = true,
+    ): DashboardDerivation {
         val pack = reporting
         val since30d = today.minusDays(30)
         val recentTransactions = pack.txns.recentTransactionsSince(since30d)
@@ -102,7 +110,7 @@ class DashboardDeriver {
             30
         }
 
-        val nativeForecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
+        val nativeForecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events, today)
         val incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
         val cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
         val currentCashFlowWindow = cashFlowWindows.firstOrNull()
@@ -123,7 +131,7 @@ class DashboardDeriver {
             MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
                 .runSimulation(forecastSeedCents, events, today)
         }
-        val adopted = if (FeatureFlags.contractForecastEnabled) {
+        val adopted = if (contractForecastEnabled) {
             withContext(Dispatchers.Default) {
                 adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
             }
@@ -131,7 +139,10 @@ class DashboardDeriver {
             null
         }
         val forecastSummary = adopted?.forecastSummary ?: nativeForecastSummary
-        val safeToSpend = forecastSummary.safeToSpendCents
+        // MCD-0008: only the contract path models a trough distribution, so only it can supply a
+        // genuine quantile-based safe-to-spend. The native path falls back to its deterministic
+        // low point, which the UI already labels "lowest balance over next 90 days".
+        val safeToSpend = forecastSummary.safeToSpendCents ?: forecastSummary.projectedLowPointCents
         val mc = adopted?.monteCarloResult ?: nativeMc
         val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
 

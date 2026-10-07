@@ -13,12 +13,25 @@ data class BalanceForecastRow(
 )
 
 data class ForecastSummary(
-    /** Minimum running balance across the window. Negative when the forecast goes into overdraft. */
-    val safeToSpendCents: Long,
-    val lowestBalanceCents: Long,
+    /**
+     * Deterministic minimum running balance across the window (MCD-0008 "projected low point").
+     * Negative when the forecast goes into overdraft. This is **not** a spendable amount; a
+     * spendable value must come from a quantile-based [safeToSpendCents].
+     */
+    val projectedLowPointCents: Long,
     val lowestBalanceDate: LocalDate?,
     val endingBalanceCents: Long,
+    /**
+     * `as_of` when the opening balance is already negative, otherwise the first row whose balance
+     * dips below zero, or `null` when the projection never goes negative (MCD-0010 / bug B-05).
+     */
     val firstNegativeDate: LocalDate?,
+    /**
+     * Quantile-based safe-to-spend (MCD-0008): the lower-tail trough percentile minus a reserve.
+     * The native engine models no distribution, so this is `null` on that path; callers must fall
+     * back to [projectedLowPointCents] (labeled as a low point) rather than call it spendable.
+     */
+    val safeToSpendCents: Long? = null,
 )
 
 data class CashFlowWindow(
@@ -93,7 +106,10 @@ object ForecastEngine {
                 incomeCents += event.amount_cents
                 runningBalance += event.amount_cents
             }
-            var lowestBalance = runningBalance
+            // MCD-0010 / bug B-05: the window's opening balance is itself a low-point candidate.
+            // Initialising from `runningBalance` ignored an already-negative opening balance
+            // whenever a same-day paycheck moved the balance up first.
+            var lowestBalance = startingBalance
 
             windowEvents.filterNot { it.date == windowStart && it.type == "income" }.forEach { event ->
                 if (event.type == "income") {
@@ -163,13 +179,23 @@ object ForecastEngine {
         }
     }
 
-    fun calculateForecastSummary(balanceCents: Long, events: List<ForecastEvent>): ForecastSummary {
+    /**
+     * Deterministic forecast summary. [asOf] is supplied explicitly by the caller and is never read
+     * from a clock (MCD-0001); it anchors [ForecastSummary.firstNegativeDate] when the opening
+     * balance is already negative (MCD-0010 / bug B-05).
+     */
+    fun calculateForecastSummary(
+        balanceCents: Long,
+        events: List<ForecastEvent>,
+        asOf: LocalDate,
+    ): ForecastSummary {
         val forecastRows = buildBalanceForecast(balanceCents, events)
         val endingBalance = forecastRows.lastOrNull()?.balanceCents ?: balanceCents
 
         var lowestBalance = balanceCents
         var lowestBalanceDate: LocalDate? = null
-        var firstNegativeDate: LocalDate? = null
+        // MCD-0010 / bug B-05: an already-negative opening balance is negative from `as_of`.
+        var firstNegativeDate: LocalDate? = if (balanceCents < 0L) asOf else null
 
         for (row in forecastRows) {
             if (row.balanceCents < lowestBalance) {
@@ -182,8 +208,7 @@ object ForecastEngine {
         }
 
         return ForecastSummary(
-            safeToSpendCents = lowestBalance,
-            lowestBalanceCents = lowestBalance,
+            projectedLowPointCents = lowestBalance,
             lowestBalanceDate = lowestBalanceDate,
             endingBalanceCents = endingBalance,
             firstNegativeDate = firstNegativeDate,

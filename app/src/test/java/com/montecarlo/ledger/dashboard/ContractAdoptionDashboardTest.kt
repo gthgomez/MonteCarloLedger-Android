@@ -1,7 +1,6 @@
 package com.montecarlo.ledger.dashboard
 
 import com.montecarlo.ledger.DashboardConfig
-import com.montecarlo.ledger.FeatureFlags
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
 import com.montecarlo.ledger.data.IncomeEntity
@@ -11,10 +10,8 @@ import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibrator
 import com.montecarlo.ledger.processing.RecurringDetector
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 
@@ -25,16 +22,6 @@ import java.time.LocalDate
 class ContractAdoptionDashboardTest {
 
     private val today = LocalDate.of(2026, 1, 1)
-
-    @Before
-    fun enableContractAdoption() {
-        FeatureFlags.contractForecastEnabled = true
-    }
-
-    @After
-    fun restoreDefault() {
-        FeatureFlags.contractForecastEnabled = true
-    }
 
     private fun pack(): ReportingPackage {
         val txns = listOf(
@@ -82,7 +69,7 @@ class ContractAdoptionDashboardTest {
     @Test
     fun dashboardHeadlineMatchesCanonicalContractResult() = runBlocking {
         val reporting = pack()
-        val derivation = DashboardDeriver().derive(reporting, today)
+        val derivation = DashboardDeriver().derive(reporting, today, contractForecastEnabled = true)
         val state = derivation.uiState
 
         // Recompute the canonical result through the same bridge, independently of the deriver.
@@ -123,7 +110,7 @@ class ContractAdoptionDashboardTest {
     @Test
     fun safeToSpendIsTheQuantileValueNotTheDeterministicLowPoint() = runBlocking {
         val reporting = pack()
-        val state = DashboardDeriver().derive(reporting, today).uiState
+        val state = DashboardDeriver().derive(reporting, today, contractForecastEnabled = true).uiState
 
         val calibration = MonteCarloCalibrator.calibrate(
             transactions = reporting.txns,

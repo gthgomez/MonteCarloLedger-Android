@@ -224,6 +224,26 @@ class DebtPayoffEngineTest {
     }
 
     @Test
+    fun runSimulation_openingNegativeReportsOverdraftFromToday() {
+        val debts = listOf(DebtItem(1, "Card", 200_000L, 2_000, 5_000L))
+
+        // The opening balance is already overdrawn; the guard must fire on `today`, not on the
+        // first synthetic minimum-payment date next month (MCD-0010 / bug B-05).
+        val result = DebtPayoffEngine.runSimulation(
+            debts = debts,
+            extraMonthlyPaymentCents = 1_000L,
+            strategy = PayoffStrategy.SNOWBALL,
+            currentBalanceCents = -25_000L,
+            forecastEvents = emptyList(),
+            today = today,
+        )
+
+        assertTrue(result.causesOverdraft)
+        assertEquals(today, result.overdraftDate)
+        assertTrue(result.overdraftShortfallCents >= 25_000L)
+    }
+
+    @Test
     fun minimumPaymentCents_installmentIsCappedAtRemainingBalance() {
         assertEquals(0L, DebtPayoffEngine.minimumPaymentCents(
             DebtItem(1, "Paid Off", 100_000L, 600, 5_000L), balanceCents = 0L

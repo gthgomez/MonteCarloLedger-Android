@@ -502,10 +502,14 @@ class MainViewModel @JvmOverloads constructor(
                 )
             }
 
-            combine(dashboardDateFlow(), reportingData) { today, pack ->
+            combine(
+                dashboardDateFlow(),
+                reportingData,
+                repo.contractForecastEnabled,
+            ) { today, pack, contractForecastEnabled ->
                 // Derivation lives in DashboardDeriver so the pipeline stays testable
                 // without Android plumbing; this ViewModel only holds and applies state.
-                val derivation = dashboardDeriver.derive(pack, today)
+                val derivation = dashboardDeriver.derive(pack, today, contractForecastEnabled)
                 _reconciliationDetails.value = derivation.reconciliationDetails
                 _reconciliationMismatch.value = derivation.reconciliationMismatch
                 _uiState.value = derivation.uiState

@@ -152,12 +152,15 @@ object DebtPayoffEngine {
             val forecastSummary = ForecastEngine.calculateForecastSummary(
                 currentBalanceCents,
                 updatedEvents,
+                today,
             )
 
-            if (forecastSummary.lowestBalanceCents < 0L) {
+            // MCD-0010 / bug B-05: an already-negative opening balance is negative from `today`,
+            // so the guard fires even before any synthetic payment lands.
+            if (forecastSummary.projectedLowPointCents < 0L) {
                 causesOverdraft = true
                 overdraftDate = forecastSummary.firstNegativeDate ?: today
-                shortfallCents = -forecastSummary.lowestBalanceCents
+                shortfallCents = -forecastSummary.projectedLowPointCents
                 val shortfallDisplay = centsToDisplay(shortfallCents)
                 val extraDisplay = centsToDisplay(extraMonthlyPaymentCents)
                 warningMessage = "Extra payment of $extraDisplay risks an overdraft shortfall of $shortfallDisplay on $overdraftDate."

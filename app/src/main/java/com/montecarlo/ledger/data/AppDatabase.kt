@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryBudgetEntity::class,
         DebtEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -66,6 +66,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_13_14,
                         MIGRATION_14_15,
                         MIGRATION_15_16,
+                        MIGRATION_16_17,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -400,5 +401,21 @@ abstract class AppDatabase : RoomDatabase() {
         @VisibleForTesting
         val MIGRATION_15_16_FOR_TEST: Migration
             get() = MIGRATION_15_16
+
+        /**
+         * MC-06b: persist the contract-adoption flag. Existing installs default to ON so the
+         * contract engine is adopted without a manual opt-in; a user can still store "false".
+         */
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "INSERT OR IGNORE INTO settings (key, value) VALUES ('contract_forecast_enabled', 'true')"
+                )
+            }
+        }
+
+        @VisibleForTesting
+        val MIGRATION_16_17_FOR_TEST: Migration
+            get() = MIGRATION_16_17
     }
 }
