@@ -30,6 +30,10 @@ object ContractEngine {
         val end = scenario.windowEndExclusive
         val expanded = ArrayList<ContractEvent>()
         var nextIndex = scenario.events.size
+        // Contract 1.1 (MCD-0024): occurrences declared excluded are removed before the
+        // expected-amount slot is decided, so an excluded occurrence does not consume it.
+        val exclusions = scenario.occurrenceExclusions
+            .mapTo(HashSet()) { it.recurrenceId to it.date }
 
         for (recurrence in scenario.recurrences) {
             val occurrences = generateOccurrences(recurrence, end)
@@ -37,6 +41,7 @@ object ContractEngine {
             for (date in occurrences) {
                 // Outer filter keeps only the half-open window; overdue dates are not projected.
                 if (date.isBefore(scenario.asOf) || !date.isBefore(end)) continue
+                if ((recurrence.id to date) in exclusions) continue
                 val amount = if (recurrence.type == "income" &&
                     recurrence.expectedAmountCents != null && firstKept
                 ) {

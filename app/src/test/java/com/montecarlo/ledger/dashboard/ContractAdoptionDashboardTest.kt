@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.dashboard
 
 import com.montecarlo.ledger.DashboardConfig
+import com.montecarlo.ledger.adoption.ContractDashboardMapper
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
 import com.montecarlo.ledger.data.IncomeEntity
@@ -129,5 +130,37 @@ class ContractAdoptionDashboardTest {
         val expected = ContractRunner.run(scenario)
 
         assertEquals(expected.risk!!.safeToSpendCents, state.safeToSpendCents)
+    }
+
+    /** MC-07/C1: the displayed rows come from the canonical timeline, not a second engine. */
+    @Test
+    fun forecastRowsAreCanonical() = runBlocking {
+        val reporting = pack()
+        val state = DashboardDeriver().derive(reporting, today, contractForecastEnabled = true).uiState
+        val calibration = MonteCarloCalibrator.calibrate(
+            transactions = reporting.txns,
+            today = today,
+            recurringPatterns = RecurringDetector.detect(reporting.txns).map { it.pattern }.toSet(),
+        )
+        val scenario = ContractScenarioBridge.build(
+            ContractScenarioBridge.Inputs(
+                startingBalanceCents = 200_000L,
+                asOf = today,
+                incomes = reporting.incomes,
+                payments = reporting.payments,
+                simulation = ContractScenarioBridge.simulationParams(calibration),
+            )
+        )
+        val expectedRows = ContractDashboardMapper.toBalanceForecastRows(scenario)
+        assertEquals(expectedRows.map { it.date }, state.forecastRows.map { it.date })
+        assertEquals(expectedRows.map { it.balanceCents }, state.forecastRows.map { it.balanceCents })
+    }
+
+    /** MC-07/C2: with the contract path on, the daily budget derives from its safe-to-spend. */
+    @Test
+    fun dailyBudgetDerivesFromCanonicalSafeToSpend() = runBlocking {
+        val state = DashboardDeriver().derive(pack(), today, contractForecastEnabled = true).uiState
+        assertTrue(state.dailyBudgetCents >= 0L)
+        if (state.safeToSpendCents <= 0L) assertEquals(0L, state.dailyBudgetCents)
     }
 }

@@ -1,7 +1,7 @@
 # MC-06b — Android contract adoption
 
 **Campaign:** MonteCarlo semantic foundation
-**Contract:** 1.0, pinned at `d2e621c` (vendored in `app/src/test/resources/contract/`)
+**Contract:** 1.1, pinned at `912b89d` (vendored in `app/src/test/resources/contract/`)
 **Engine (native Kotlin):** `app/src/main/java/com/montecarlo/ledger/contract/`
 
 This document describes how the Android product adopts the canonical contract engine for its
@@ -31,7 +31,7 @@ through `LedgerRepository.contractForecastEnabled` / `getContractForecastEnabled
 | `IncomeEntity` | `income` recurrence (`start_date = next_date`, `anchor_day = day_of_month ?: start.day`, `expected_amount_cents`) |
 | `PaymentEntity` | `expense` recurrence (`amount = -abs(amount_cents)`) |
 | user-moved unpaid `BillOccurrenceEntity` | explicit `expense` event |
-| paid / moved occurrence dates | suppressed by advancing the recurrence lower bound |
+| paid / moved occurrence dates | suppressed with contract 1.1 `occurrence_exclusions` (MCD-0024) |
 | `MonteCarloCalibration` | `simulation` block (ppm scaling, aggregate expense variation) |
 
 Adopted rules:
@@ -62,6 +62,7 @@ types so the UI keeps working:
 | `risk.ending_balance_p10/p50/p90` | `worst_10/median/best_90_ending_balance_cents` |
 | `risk.negative_balance_probability_ppm` | `probabilityNegativePct` (ppm / 10 000) |
 | `risk.safe_to_spend_cents` (signed) | `safeToSpendCents` |
+| canonical ordered events (`inWindowBaseEvents`) | `forecastRows` (MC-07/C1; native rows when the flag is off) |
 
 ## Native bug fixes (B-05 / B-06 / B-07)
 
@@ -110,11 +111,24 @@ These are product-level choices, flagged here rather than added to the contract:
    "Most likely first negative-balance date" to "Projected first negative-balance date" to avoid
    implying a modal simulation value the contract does not expose.
 
+## MC-07 — remaining Contract-1.x adoption
+
+- **C1 — display rows are canonical.** When the contract path is active, `forecastRows` come from
+  `ContractDashboardMapper.toBalanceForecastRows` (the contract's own `inWindowBaseEvents` +
+  `checkedAdd`), not a second recurrence/forecast interpretation. With the flag off the native
+  engine supplies them.
+- **C2 — `dailyBudgetCents` is a PRODUCT_HEURISTIC derived from the canonical safe-to-spend** when
+  the contract path is active, so it cannot contradict the canonical value beside it. It is
+  guidance, not a financial conclusion; it does not move into the contract.
+- **C3 — `DebtPayoffEngine` is CONTRACT_2_CANDIDATE** (native, non-normative) pending the debt
+  domain campaign.
+- **C4 — the fan chart is non-normative** (no per-day path percentiles in the contract).
+
 ## Known limitations
 
-- Suppression (paid / user-moved occurrences) is honored for a suppressed **prefix** of a
-  payment recurrence's in-window occurrences only. Contract 1.0 has no per-occurrence exclusion
-  list, so a suppressed occurrence in the middle of the window is not yet representable.
+- Suppression (paid / user-moved occurrences) is fully represented in contract 1.1: a suppressed
+  occurrence **anywhere** in the window is removed via `occurrence_exclusions` (MCD-0024). The
+  recurrence keeps its original `start_date`, so the month anchor stays exact (MCD-0022).
 - The native fallback still labels its deterministic low point as the dashboard's "safe to spend"
   because the product has no native distribution to take a quantile of; only the contract path
   supplies a genuine quantile-based safe-to-spend (MCD-0008).

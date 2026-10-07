@@ -3,6 +3,7 @@ package com.montecarlo.ledger.adoption
 import com.montecarlo.ledger.contract.ContractEngine
 import com.montecarlo.ledger.contract.ContractEvent
 import com.montecarlo.ledger.contract.ContractRecurrence
+import com.montecarlo.ledger.contract.ContractRecurrenceExclusion
 import com.montecarlo.ledger.contract.ContractScenario
 import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.data.BillOccurrenceEntity
@@ -28,15 +29,18 @@ import kotlin.math.roundToInt
  *    contract engine projects from the original start, so a clamped month cannot move the
  *    anchor (MCD-0022 / bug B-07).
  *  - Occurrences dated before `as_of` are **not** projected (MCD-0014 / bug D-14). Paid or
- *    user-moved template dates are suppressed by advancing the recurrence's lower bound;
+ *    user-moved template dates are suppressed by contract 1.1 `occurrence_exclusions` (MCD-0024);
  *    user-moved unpaid occurrences become explicit events.
  *
- * Known, documented limitation: suppression is only honored for a suppressed *prefix* of a
- * payment's in-window occurrences (the common paid-history / moved-next-occurrence case). A
- * suppressed occurrence in the middle of a recurrence's window is not yet representable in
- * Contract 1.0, which has no per-occurrence exclusion list.
+ * Suppression (paid / user-moved occurrences) is expressed with contract 1.1
+ * `occurrence_exclusions` (MCD-0024), so an occurrence anywhere in the window — not only a prefix —
+ * can be removed. The recurrence keeps its original `start_date` so the month anchor stays exact;
+ * individual suppressed occurrences are excluded by `(recurrence_id, date)`.
  */
 object ContractScenarioBridge {
+
+    /** Contract revision these scenarios declare (occurrence exclusions, MCD-0024). */
+    private const val CONTRACT_VERSION = "1.1"
 
     data class Inputs(
         val startingBalanceCents: Long,
@@ -82,11 +86,15 @@ object ContractScenarioBridge {
         }
 
         val recurrences = ArrayList<ContractRecurrence>()
+        val exclusions = ArrayList<ContractRecurrenceExclusion>()
         inputs.incomes.forEach { income ->
             recurrenceForIncome(income, inputs.asOf, endExclusive)?.let(recurrences::add)
         }
         activePayments.forEach { payment ->
-            recurrenceForPayment(payment, inputs.asOf, endExclusive, suppressed)?.let(recurrences::add)
+            buildPaymentRecurrence(payment, inputs.asOf, endExclusive, suppressed)?.let {
+                recurrences.add(it.recurrence)
+                exclusions.addAll(it.exclusions)
+            }
         }
 
         return ContractScenario(
@@ -97,6 +105,8 @@ object ContractScenarioBridge {
             events = explicit,
             recurrences = recurrences,
             simulation = inputs.simulation,
+            contractVersion = CONTRACT_VERSION,
+            occurrenceExclusions = exclusions,
         )
     }
 
@@ -151,12 +161,17 @@ object ContractScenarioBridge {
         return recurrence.takeIf { dates.any { !it.isBefore(asOf) } }
     }
 
-    private fun recurrenceForPayment(
+    private data class PaymentRecurrence(
+        val recurrence: ContractRecurrence,
+        val exclusions: List<ContractRecurrenceExclusion>,
+    )
+
+    private fun buildPaymentRecurrence(
         payment: PaymentEntity,
         asOf: LocalDate,
         endExclusive: LocalDate,
         suppressed: Set<Pair<Int, String>>,
-    ): ContractRecurrence? {
+    ): PaymentRecurrence? {
         val start = LedgerDate.parseIsoOrNull(payment.next_date) ?: return null
         val amount = -abs(payment.amount_cents)
         if (amount >= 0L) return null
@@ -172,13 +187,16 @@ object ContractScenarioBridge {
             endDate = null,
             expectedAmountCents = null,
         )
-        val dates = ContractEngine.generateOccurrences(recurrence, endExclusive)
-        // First in-window occurrence that is neither paid nor user-moved. Advancing the lower
-        // bound skips the suppressed prefix while `anchor_day` keeps the month anchor.
-        val firstKept = dates.firstOrNull { date ->
-            !date.isBefore(asOf) && Pair(payment.id, date.toString()) !in suppressed
-        } ?: return null
-        return recurrence.copy(startDate = firstKept)
+        val inWindow = ContractEngine.generateOccurrences(recurrence, endExclusive)
+            .filter { !it.isBefore(asOf) }
+        // Keep the original start date (so `anchor_day` stays exact) and suppress individual
+        // occurrences with exclusions rather than advancing the lower bound, so a suppression in
+        // the MIDDLE of the window is representable (contract 1.1, MCD-0024 / MC-07 C5).
+        val exclusions = inWindow
+            .filter { date -> Pair(payment.id, date.toString()) in suppressed }
+            .map { date -> ContractRecurrenceExclusion(recurrenceId = recurrence.id, date = date) }
+        if (exclusions.size >= inWindow.size) return null
+        return PaymentRecurrence(recurrence = recurrence, exclusions = exclusions)
     }
 
     /** Mirrors [com.montecarlo.ledger.processing.TimelineService] paid/skipped/moved suppression. */
