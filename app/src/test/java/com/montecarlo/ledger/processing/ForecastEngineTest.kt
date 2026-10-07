@@ -8,6 +8,9 @@ import java.time.LocalDate
 
 class ForecastEngineTest {
 
+    /** Explicit `as_of`; the engine never reads a clock (MCD-0001). */
+    private val asOf = LocalDate.of(2026, 1, 1)
+
     // ──────────────────────────────────────────────
     // Existing tests (preserved)
     // ──────────────────────────────────────────────
@@ -41,11 +44,12 @@ class ForecastEngineTest {
         assertEquals(2_000L, ForecastEngine.calculateIncomeContribution(balance, events))
         val forecast = ForecastEngine.buildBalanceForecast(balance, events)
         assertEquals(7_000L, forecast.last().balanceCents)
-        val summary = ForecastEngine.calculateForecastSummary(balance, events)
-        assertEquals(7_000L, summary.safeToSpendCents)
-        assertEquals(7_000L, summary.lowestBalanceCents)
+        val summary = ForecastEngine.calculateForecastSummary(balance, events, asOf)
+        assertEquals(7_000L, summary.projectedLowPointCents)
         assertEquals(7_000L, summary.endingBalanceCents)
         assertNull(summary.firstNegativeDate)
+        // The native engine models no distribution, so it exposes no quantile safe-to-spend.
+        assertNull(summary.safeToSpendCents)
         assertTrue(forecast.isNotEmpty())
     }
 
@@ -104,7 +108,12 @@ class ForecastEngineTest {
         assertEquals(100_00, windows[1].shortfallCents)
 
         assertEquals(250_00, windows[2].incomeCents)
-        assertEquals(150_00, windows[2].safeToSpendCents)
+        // Window 2 opens at -100_00 (carried from window 1). The paycheck lifts the running
+        // balance to +150_00, but the window's low point is the negative opening balance, so
+        // nothing is spendable without first recovering (MCD-0010 / bug B-05).
+        assertEquals(-100_00, windows[2].startingBalanceCents)
+        assertEquals(0, windows[2].safeToSpendCents)
+        assertEquals(100_00, windows[2].shortfallCents)
     }
 
     // ──────────────────────────────────────────────
@@ -397,10 +406,9 @@ class ForecastEngineTest {
             ForecastEvent(LocalDate.of(2026, 1, 2), "Payday", 500_00L, "income"),
             ForecastEvent(LocalDate.of(2026, 1, 5), "Rent", 300_00L, "bill"),
         )
-        val summary = ForecastEngine.calculateForecastSummary(balance, events)
+        val summary = ForecastEngine.calculateForecastSummary(balance, events, asOf)
         // Lowest balance is the starting balance (1000) since income comes first
-        assertEquals(1000_00L, summary.safeToSpendCents)
-        assertEquals(1000_00L, summary.lowestBalanceCents)
+        assertEquals(1000_00L, summary.projectedLowPointCents)
         assertNull(summary.lowestBalanceDate)
         assertEquals(1200_00L, summary.endingBalanceCents)
         assertNull(summary.firstNegativeDate)
@@ -414,13 +422,12 @@ class ForecastEngineTest {
             ForecastEvent(LocalDate.of(2026, 1, 5), "Payday", 500_00L, "income"),
             ForecastEvent(LocalDate.of(2026, 1, 8), "Small bill", 100_00L, "bill"),
         )
-        val summary = ForecastEngine.calculateForecastSummary(balance, events)
+        val summary = ForecastEngine.calculateForecastSummary(balance, events, asOf)
         // Row 1 (Jan 2, bill 600): 500-600 = -100 (neg, lowest)
         // Row 2 (Jan 5, inc 500): -100+500 = 400
         // Row 3 (Jan 8, bill 100): 400-100 = 300 (end)
-        // safeToSpendCents mirrors the lowest running balance (negative = overdraft)
-        assertEquals(-100_00L, summary.safeToSpendCents)
-        assertEquals(-100_00L, summary.lowestBalanceCents)
+        // projectedLowPointCents is the lowest running balance (negative = overdraft)
+        assertEquals(-100_00L, summary.projectedLowPointCents)
         assertEquals(LocalDate.of(2026, 1, 2), summary.lowestBalanceDate)
         assertEquals(300_00L, summary.endingBalanceCents)
         assertEquals(LocalDate.of(2026, 1, 2), summary.firstNegativeDate)
@@ -429,9 +436,8 @@ class ForecastEngineTest {
     @Test
     fun calculateForecastSummary_emptyEvents_returnsBalanceBasedSummary() {
         val balance = 500_00L
-        val summary = ForecastEngine.calculateForecastSummary(balance, emptyList())
-        assertEquals(500_00L, summary.safeToSpendCents)
-        assertEquals(500_00L, summary.lowestBalanceCents)
+        val summary = ForecastEngine.calculateForecastSummary(balance, emptyList(), asOf)
+        assertEquals(500_00L, summary.projectedLowPointCents)
         assertNull(summary.lowestBalanceDate)
         assertEquals(500_00L, summary.endingBalanceCents)
         assertNull(summary.firstNegativeDate)
@@ -444,11 +450,70 @@ class ForecastEngineTest {
             ForecastEvent(LocalDate.of(2026, 1, 5), "Bonus", 300_00L, "income"),
             ForecastEvent(LocalDate.of(2026, 1, 10), "Refund", 100_00L, "income"),
         )
-        val summary = ForecastEngine.calculateForecastSummary(balance, events)
-        assertEquals(200_00L, summary.safeToSpendCents)
-        assertEquals(200_00L, summary.lowestBalanceCents)
+        val summary = ForecastEngine.calculateForecastSummary(balance, events, asOf)
+        assertEquals(200_00L, summary.projectedLowPointCents)
         assertNull(summary.lowestBalanceDate)
         assertEquals(600_00L, summary.endingBalanceCents)
         assertNull(summary.firstNegativeDate)
+    }
+
+    // ──────────────────────────────────────────────
+    // MCD-0010 / B-05: opening-negative
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun calculateForecastSummary_openingNegative_setsFirstNegativeDateToAsOf() {
+        // Overdrawn opening balance with only recovering income: the projection never dips below
+        // zero again, but the opening balance is already negative, so firstNegativeDate is asOf.
+        val summary = ForecastEngine.calculateForecastSummary(
+            balanceCents = -25_00L,
+            events = listOf(
+                ForecastEvent(LocalDate.of(2026, 1, 20), "Paycheck", 100_00L, "income"),
+            ),
+            asOf = asOf,
+        )
+
+        assertEquals(asOf, summary.firstNegativeDate)
+        assertEquals(-25_00L, summary.projectedLowPointCents)
+        assertEquals(75_00L, summary.endingBalanceCents)
+    }
+
+    @Test
+    fun calculateForecastSummary_openingNegativeEmptyEvents_stillNegativeFromAsOf() {
+        val summary = ForecastEngine.calculateForecastSummary(-10_00L, emptyList(), asOf)
+
+        assertEquals(asOf, summary.firstNegativeDate)
+        assertEquals(-10_00L, summary.projectedLowPointCents)
+    }
+
+    @Test
+    fun buildCashFlowWindows_openingNegative_sameDayPaycheckDoesNotHideTheShortfall() {
+        val windows = ForecastEngine.buildCashFlowWindows(
+            balanceCents = -30_00L,
+            events = listOf(
+                ForecastEvent(LocalDate.of(2026, 1, 10), "Paycheck", 50_00L, "income"),
+            ),
+            startDate = LocalDate.of(2026, 1, 1),
+            daysAhead = 30,
+        )
+
+        assertEquals(2, windows.size)
+
+        // The first window opens overdrawn and no event lifts it.
+        val first = windows.first()
+        assertEquals(-30_00L, first.startingBalanceCents)
+        assertEquals(-30_00L, first.lowestBalanceCents)
+        assertEquals(30_00L, first.shortfallCents)
+        assertEquals(0L, first.safeToSpendCents)
+        assertEquals(0L, first.dailySafeSpendCents)
+
+        // The second window opens at the same negative balance and receives a same-day paycheck.
+        // The low point is still the opening balance, so the window is not spendable.
+        val second = windows[1]
+        assertEquals(-30_00L, second.startingBalanceCents)
+        assertEquals(-30_00L, second.lowestBalanceCents)
+        assertEquals(30_00L, second.shortfallCents)
+        assertEquals(0L, second.safeToSpendCents)
+        assertEquals(20_00L, second.endingBalanceCents)
     }
 }

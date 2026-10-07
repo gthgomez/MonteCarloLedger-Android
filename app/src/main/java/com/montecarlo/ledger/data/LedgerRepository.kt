@@ -16,6 +16,7 @@ import com.montecarlo.ledger.security.SecurityUtils
 import java.util.Locale
 import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.toPersistedBoolean
+import com.montecarlo.ledger.util.toPersistedValue
 
 class LedgerRepository(private val db: AppDatabase) {
 
@@ -47,6 +48,7 @@ class LedgerRepository(private val db: AppDatabase) {
         const val KEY_ONBOARDING_FIRST_GOAL = "onboarding_first_goal_completed"
         const val KEY_ONBOARDING_DISMISSED = "onboarding_dismissed"
         const val KEY_ONBOARDING_MONITORING_INTRO_SEEN = "onboarding_monitoring_intro_seen"
+        const val KEY_CONTRACT_FORECAST_ENABLED = "contract_forecast_enabled"
     }
 
     // Income
@@ -348,6 +350,24 @@ class LedgerRepository(private val db: AppDatabase) {
             hasPin = hasPin,
             failedAttempts = byKey[KEY_APP_LOCK_FAILED_ATTEMPTS]?.value?.toIntOrNull() ?: 0,
             lockoutUntilEpochMs = byKey[KEY_APP_LOCK_LOCKOUT_UNTIL]?.value?.toLongOrNull() ?: 0L,
+        )
+    }
+
+    /**
+     * Persisted contract-adoption flag (MC-06b). Absent means ON so existing installs adopt the
+     * contract engine without a manual opt-in; a stored "false" falls back to the native engines.
+     */
+    val contractForecastEnabled: Flow<Boolean> = db.settingsDao().getAll().map { settings ->
+        settings.firstOrNull { it.key == KEY_CONTRACT_FORECAST_ENABLED }?.value?.toPersistedBoolean()
+            ?: true
+    }
+
+    suspend fun getContractForecastEnabled(): Boolean =
+        db.settingsDao().getValue(KEY_CONTRACT_FORECAST_ENABLED)?.toPersistedBoolean() ?: true
+
+    suspend fun setContractForecastEnabled(enabled: Boolean) {
+        db.settingsDao().setValue(
+            SettingsEntity(KEY_CONTRACT_FORECAST_ENABLED, enabled.toPersistedValue())
         )
     }
 
@@ -795,6 +815,7 @@ class LedgerRepository(private val db: AppDatabase) {
         ensureSetting(KEY_ONBOARDING_RECONCILIATION, snapshot.onboardingProgress.reconciliationCompleted.toString())
         ensureSetting(KEY_ONBOARDING_DISMISSED, snapshot.onboardingProgress.dismissed.toString())
         ensureSetting(KEY_ONBOARDING_MONITORING_INTRO_SEEN, snapshot.onboardingProgress.isComplete.toString())
+        ensureSetting(KEY_CONTRACT_FORECAST_ENABLED, "true")
         ensureSetting(KEY_STARTING_BALANCE, "0")
         ensureSetting(KEY_SIMULATION_DAYS, "90")
 

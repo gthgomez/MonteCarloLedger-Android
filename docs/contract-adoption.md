@@ -9,14 +9,16 @@ user-visible forecast, Monte Carlo and safe-to-spend numbers, and how to toggle 
 
 ## Feature flag
 
-`com.montecarlo.ledger.FeatureFlags.contractForecastEnabled` (default **true**).
+Persisted setting `contract_forecast_enabled` in the `settings` table (default **true**), read
+through `LedgerRepository.contractForecastEnabled` / `getContractForecastEnabled()`.
 
 - When **true**, `DashboardDeriver` and `MonteCarloLedgerGlanceWidget` build a canonical
   `ContractScenario` from repository state, run `ContractRunner`, and source every headline
   number from the resulting `ContractResult`.
 - When **false**, the legacy native `ForecastEngine` / `MonteCarloEngine` numbers are used.
-- It is a `@Volatile var`, so it can be flipped at runtime (debug menu / settings override)
-  without a rebuild.
+- The flag is stored in Room (DB version 17) and survives restarts; an absent row means ON, so
+  existing installs adopt the contract engine without a manual opt-in. `DashboardDeriver.derive`
+  takes the flag as an explicit parameter and `MainViewModel` supplies it from repository state.
 
 ## Bridge: repository state -> `ContractScenario`
 
@@ -53,7 +55,7 @@ types so the UI keeps working:
 
 | Contract field | Dashboard field |
 |---|---|
-| `forecast.minimum_balance_cents/date` | `lowestBalanceCents` / `lowestBalanceDateLabel` (deterministic trough) |
+| `forecast.minimum_balance_cents/date` | `projectedLowPointCents` / `lowestBalanceDateLabel` (deterministic trough) |
 | `forecast.ending_balance_cents` | ending balance |
 | `forecast.first_negative_date` | `firstNegativeDateLabel` / `projectedTroubleDateLabel` |
 | `risk.minimum_balance_p10/p50/p90` | `monteCarlo10th/50th/90thCents` (trough percentiles) |
@@ -73,8 +75,21 @@ types so the UI keeps working:
   when `day_of_month` is null, the anchor is taken from the schedule's start date and passed to
   `RecurrenceMath` on every step so clamped months do not drift the day (MCD-0022).
 
+B-05 follow-up clears the opening-negative omission in the remaining native paths too:
+
+- `ForecastEngine.calculateForecastSummary(balance, events, asOf)` now takes an explicit `asOf`
+  (MCD-0001) and reports `firstNegativeDate = asOf` when the opening balance is already negative.
+- `ForecastEngine.buildCashFlowWindows` counts the window's opening balance as a low-point
+  candidate, so a same-day paycheck no longer hides an overdrawn window start.
+- `DebtPayoffEngine.runSimulation` reports the overdraft guard from `today` for an opening-negative
+  balance instead of waiting for the first synthetic payment.
+- `ForecastSummary` renames the deterministic trough to `projectedLowPointCents`; the
+  quantile-based `safeToSpendCents` is a separate, nullable field populated only by the contract
+  path (MCD-0008). The native path has no distribution, so it exposes no safe-to-spend.
+
 Non-conformant paths for the adopted outputs are therefore unreachable: the dashboard/widget
-run the contract engine, and the remaining native path (calendar seasoning) is fixed.
+run the contract engine, and the remaining native paths (calendar seasoning, cash-flow windows,
+debt guard) are fixed.
 
 ## Product decisions (beyond the contract)
 
@@ -100,7 +115,9 @@ These are product-level choices, flagged here rather than added to the contract:
 - Suppression (paid / user-moved occurrences) is honored for a suppressed **prefix** of a
   payment recurrence's in-window occurrences only. Contract 1.0 has no per-occurrence exclusion
   list, so a suppressed occurrence in the middle of the window is not yet representable.
-- `FeatureFlags.contractForecastEnabled` is a process-wide `var`, not yet persisted in settings.
+- The native fallback still labels its deterministic low point as the dashboard's "safe to spend"
+  because the product has no native distribution to take a quantile of; only the contract path
+  supplies a genuine quantile-based safe-to-spend (MCD-0008).
 
 ## Tests
 

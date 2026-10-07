@@ -23,7 +23,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.montecarlo.ledger.FeatureFlags
 import com.montecarlo.ledger.adoption.ContractDashboardMapper
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
@@ -68,6 +67,8 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
 
                 val bankBalanceCents = settings["bank_balance_cents"]?.toLongOrNull() ?: 0L
                 val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
+                // MC-06b persisted adoption flag; absent means ON.
+                val contractForecastEnabled = settings["contract_forecast_enabled"]?.toPersistedBoolean() ?: true
                 val ledgerBalanceCents = txns.sumOf { it.amount_cents }
                 val forecastSeedCents = BalanceSeedResolver.resolve(ledgerBalanceCents, bankBalanceCents, reconciled)
 
@@ -76,7 +77,7 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
 
                 // MC-06b: headline numbers come from the canonical contract engine when the
                 // adoption flag is on; the native engines remain a fallback only.
-                val adoptedResult = if (FeatureFlags.contractForecastEnabled) {
+                val adoptedResult = if (contractForecastEnabled) {
                     runCatching {
                         val built = ContractScenarioBridge.build(
                             ContractScenarioBridge.Inputs(
@@ -97,9 +98,11 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
                 }
                 val forecastSummary = adoptedResult
                     ?.let(ContractDashboardMapper::toForecastSummary)
-                    ?: ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
+                    ?: ForecastEngine.calculateForecastSummary(forecastSeedCents, events, today)
 
-                val safeToSpend = forecastSummary.safeToSpendCents
+                // MCD-0008: prefer the contract's quantile-based safe-to-spend; the native path
+                // only has the deterministic low point.
+                val safeToSpend = forecastSummary.safeToSpendCents ?: forecastSummary.projectedLowPointCents
                 val upcomingBills = events.filter { it.type == "bill" }.take(1)
                 val nextBillLabel = upcomingBills.firstOrNull()?.let {
                     "${it.description} • ${centsToDisplay(it.amount_cents)} (${it.date.formatDateDisplay()})"
