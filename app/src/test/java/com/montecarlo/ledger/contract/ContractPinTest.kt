@@ -32,10 +32,11 @@ class ContractPinTest {
         // -> d2e621c (MCD-0023 empty-schedule simulation + no-events fixture)
         // -> 9fd8f74 (MC-07 corrected version.json metadata: released -> created_at)
         // -> 90ac33f (MC-08 contract 1.1: occurrence_exclusions + 3 fixtures; MCD-0024)
-        // -> 912b89d (MC-08 merged to Ledger master; the snapshot now pins the default branch).
+        // -> 912b89d (MC-08 merged to Ledger master; the snapshot now pins the default branch)
+        // -> 90ed406 (MC-09 enforced that occurrence_exclusions require a 1.1 document).
         // See contract/README.md for the re-pin procedure.
         assertEquals(
-            "912b89d148b714ac1ed73f8d8e61816e54143ca7",
+            "90ed406fef153dfd1a75c37e487436fe1ce10429",
             (pin["source_commit"] as? JsonPrimitive)?.content,
         )
         assertEquals("1.1", (pin["contract_version"] as? JsonPrimitive)?.content)

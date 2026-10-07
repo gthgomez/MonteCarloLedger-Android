@@ -116,6 +116,11 @@ object ContractScenarioParser {
         if (contractVersion !in SUPPORTED_CONTRACT_VERSIONS) {
             schema("contract_version must be one of ${SUPPORTED_CONTRACT_VERSIONS.sorted()}")
         }
+        // MC-09: occurrence_exclusions is a 1.1 addition; a 1.0 document that carries it is
+        // rejected rather than silently reinterpreted under 1.1 semantics.
+        if (root.containsKey("occurrence_exclusions") && contractVersion == "1.0") {
+            schema("occurrence_exclusions requires contract_version 1.1")
+        }
         val scenarioId = requireString(root, "scenario_id", "scenario")
         if (scenarioId.isBlank()) schema("scenario_id must not be blank")
 
