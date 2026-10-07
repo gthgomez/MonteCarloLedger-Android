@@ -1,7 +1,7 @@
 # MC-06b — Android contract adoption
 
 **Campaign:** MonteCarlo semantic foundation
-**Contract:** 1.1, pinned at `912b89d` (vendored in `app/src/test/resources/contract/`)
+**Contract:** 1.2, pinned at `f5c5e8b` (vendored in `app/src/test/resources/contract/`)
 **Engine (native Kotlin):** `app/src/main/java/com/montecarlo/ledger/contract/`
 
 This document describes how the Android product adopts the canonical contract engine for its
@@ -32,7 +32,8 @@ through `LedgerRepository.contractForecastEnabled` / `getContractForecastEnabled
 | `PaymentEntity` | `expense` recurrence (`amount = -abs(amount_cents)`) |
 | user-moved unpaid `BillOccurrenceEntity` | explicit `expense` event |
 | paid / moved occurrence dates | suppressed with contract 1.1 `occurrence_exclusions` (MCD-0024) |
-| `MonteCarloCalibration` | `simulation` block (ppm scaling, aggregate expense variation) |
+| `MonteCarloCalibration` | `simulation` block (ppm scaling, aggregate + per-category expense variation) |
+| resolved bill category (`TimelineService.resolveCategory`) | `category` on the bill recurrence/event (contract 1.2) |
 
 Adopted rules:
 
@@ -101,9 +102,9 @@ These are product-level choices, flagged here rather than added to the contract:
    only on the horizon), and reporting a fake 0% would violate the "contract defines truth" rule.
    A dedicated "not enough information yet" UX for an empty ledger is a candidate future
    presentation task, not a change to engine semantics.
-2. **Per-category expense variation is not representable.** Contract 1.0 models a single
-   aggregate expense-variation scalar (per-category deferred per MCD-0015), so the adopted
-   simulation uses the aggregate range only.
+2. **Per-category expense variation** is representable in contract 1.2 (MCD-0025): the bridge
+   carries each bill's resolved category and the calibrator's per-category ranges; uncategorized
+   bills fall back to the aggregate scalar range.
 3. **Daily fan chart is non-normative.** Contract 1.0 exposes no per-day path percentiles, so
    the fan chart continues to use the native daily walk (with B-05/B-06 fixed) while all
    headline aggregates come from the contract. `MonteCarloResult.most_common_first_negative_date`

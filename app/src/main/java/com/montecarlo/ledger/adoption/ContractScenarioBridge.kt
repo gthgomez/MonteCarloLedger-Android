@@ -39,8 +39,8 @@ import kotlin.math.roundToInt
  */
 object ContractScenarioBridge {
 
-    /** Contract revision these scenarios declare (occurrence exclusions, MCD-0024). */
-    private const val CONTRACT_VERSION = "1.1"
+    /** Contract revision these scenarios declare (occurrence exclusions + per-category variation). */
+    private const val CONTRACT_VERSION = "1.2"
 
     data class Inputs(
         val startingBalanceCents: Long,
@@ -51,6 +51,8 @@ object ContractScenarioBridge {
         val simulation: ContractSimulationParams? = null,
         val horizonDays: Int = 90,
         val scenarioId: String = "dashboard",
+        /** Resolved bill categories (contract 1.2): payment id -> category. */
+        val paymentCategories: Map<Int, String> = emptyMap(),
     )
 
     /** Builds the canonical scenario. Callers pass `asOf` from the UI/ViewModel clock boundary. */
@@ -81,6 +83,7 @@ object ContractScenarioBridge {
                     type = "expense",
                     sequence = null,
                     inputIndex = inputIndex++,
+                    category = inputs.paymentCategories[payment.id],
                 )
             )
         }
@@ -91,7 +94,8 @@ object ContractScenarioBridge {
             recurrenceForIncome(income, inputs.asOf, endExclusive)?.let(recurrences::add)
         }
         activePayments.forEach { payment ->
-            buildPaymentRecurrence(payment, inputs.asOf, endExclusive, suppressed)?.let {
+            val category = inputs.paymentCategories[payment.id]
+            buildPaymentRecurrence(payment, inputs.asOf, endExclusive, suppressed, category)?.let {
                 recurrences.add(it.recurrence)
                 exclusions.addAll(it.exclusions)
             }
@@ -113,8 +117,8 @@ object ContractScenarioBridge {
     /**
      * Maps a [MonteCarloCalibration] onto the contract's simulation block.
      *
-     * Contract 1.0 models a single aggregate expense variation scalar; per-category variation
-     * is a deferred 2.0 candidate (MCD-0015) and is intentionally not representable here.
+     * Contract 1.2 (MCD-0025) represents per-category expense variation; the calibrator's ranges
+     * are carried through, with the scalar range as the fallback for uncategorized bills.
      */
     fun simulationParams(
         calibration: MonteCarloCalibration,
@@ -128,6 +132,7 @@ object ContractScenarioBridge {
         incomeVariationMax = calibration.incomeVariationMax,
         expenseVariationMin = calibration.expenseVariationMin,
         expenseVariationMax = calibration.expenseVariationMax,
+        expenseCategoryVariation = calibration.expenseCategoryVariation,
         surpriseProbabilityPpm = (calibration.surpriseProbability * 1_000_000.0).roundToInt().coerceIn(0, 1_000_000),
         surpriseAmountMin = calibration.surpriseAmountMin,
         surpriseAmountMax = calibration.surpriseAmountMax,
@@ -171,6 +176,7 @@ object ContractScenarioBridge {
         asOf: LocalDate,
         endExclusive: LocalDate,
         suppressed: Set<Pair<Int, String>>,
+        category: String?,
     ): PaymentRecurrence? {
         val start = LedgerDate.parseIsoOrNull(payment.next_date) ?: return null
         val amount = -abs(payment.amount_cents)
@@ -186,6 +192,7 @@ object ContractScenarioBridge {
             anchorDay = payment.day_of_month ?: start.dayOfMonth,
             endDate = null,
             expectedAmountCents = null,
+            category = category,
         )
         val inWindow = ContractEngine.generateOccurrences(recurrence, endExclusive)
             .filter { !it.isBefore(asOf) }

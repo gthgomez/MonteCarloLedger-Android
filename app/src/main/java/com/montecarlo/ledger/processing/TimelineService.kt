@@ -166,7 +166,7 @@ object TimelineService {
     }
 
     /** Categorizes a bill by its name using user rules; null when no rule matches. */
-    private fun resolveCategory(
+    fun resolveCategory(
         name: String,
         rules: List<TransactionRuleEntity>,
     ): String? {

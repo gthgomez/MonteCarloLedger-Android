@@ -27,6 +27,8 @@ data class ContractEvent(
     val sequence: Int?,
     /** Position of the event in the scenario's `events` array (expanded recurrences continue after). */
     val inputIndex: Int,
+    /** Optional expense category, used for contract 1.2 per-category variation. */
+    val category: String? = null,
 ) {
     /** Contract default: income sorts first (0), expense/adjustment after (1). */
     val effectiveSequence: Int get() = sequence ?: if (type == "income") 0 else 1
@@ -42,6 +44,8 @@ data class ContractRecurrence(
     val anchorDay: Int?,
     val endDate: LocalDate?,
     val expectedAmountCents: Long?,
+    /** Optional expense category inherited by generated occurrences (contract 1.2). */
+    val category: String? = null,
 )
 
 data class ContractSimulationParams(
@@ -58,6 +62,8 @@ data class ContractSimulationParams(
     val quantileNum: Int = 1,
     val quantileDen: Int = 10,
     val reserveCents: Long = 0,
+    /** Per-category expense variation (contract 1.2, MCD-0025): category -> inclusive percent range. */
+    val expenseCategoryVariation: Map<String, IntRange> = emptyMap(),
 )
 
 /** A single `(recurrence_id, date)` occurrence to suppress from expansion (contract 1.1, MCD-0024). */
@@ -85,23 +91,24 @@ data class ContractScenario(
 
 object ContractScenarioParser {
 
-    private val EVENT_KEYS = setOf("id", "name", "date", "amount_cents", "type", "sequence")
+    private val EVENT_KEYS = setOf("id", "name", "category", "date", "amount_cents", "type", "sequence")
     private val RECURRENCE_KEYS = setOf(
-        "id", "name", "type", "amount_cents", "frequency", "start_date",
+        "id", "name", "category", "type", "amount_cents", "frequency", "start_date",
         "end_date", "anchor_day", "expected_amount_cents",
     )
     private val SIMULATION_KEYS = setOf(
         "runs", "seed", "income_variation_min", "income_variation_max",
-        "expense_variation_min", "expense_variation_max", "surprise_probability_ppm",
-        "surprise_check_interval_days", "surprise_amount_min", "surprise_amount_max",
-        "quantile_num", "quantile_den", "reserve_cents",
+        "expense_variation_min", "expense_variation_max", "expense_category_variation",
+        "surprise_probability_ppm", "surprise_check_interval_days", "surprise_amount_min",
+        "surprise_amount_max", "quantile_num", "quantile_den", "reserve_cents",
     )
+    private val CATEGORY_RANGE_KEYS = setOf("category", "min", "max")
     private val SCENARIO_KEYS = setOf(
         "contract_version", "scenario_id", "as_of", "starting_balance_cents",
         "horizon_days", "events", "recurrences", "occurrence_exclusions", "simulation",
     )
     private val EXCLUSION_KEYS = setOf("recurrence_id", "date")
-    private val SUPPORTED_CONTRACT_VERSIONS = setOf("1.0", "1.1")
+    private val SUPPORTED_CONTRACT_VERSIONS = setOf("1.0", "1.1", "1.2")
     private val FREQUENCIES = setOf(
         "weekly", "biweekly", "semimonthly", "monthly", "bimonthly",
         "quarterly", "semiannually", "annually", "onetime",
@@ -190,6 +197,7 @@ object ContractScenarioParser {
             type = type,
             sequence = sequence,
             inputIndex = index,
+            category = obj.getStringOrNull("category"),
         )
     }
 
@@ -217,7 +225,27 @@ object ContractScenarioParser {
             anchorDay = anchor,
             endDate = endDate,
             expectedAmountCents = expected,
+            category = obj.getStringOrNull("category"),
         )
+    }
+
+    private fun parseCategoryRanges(element: JsonElement?): Map<String, IntRange> {
+        if (element == null || element is JsonNull) return emptyMap()
+        val array = element as? JsonArray ?: schema("expense_category_variation must be an array")
+        val result = LinkedHashMap<String, IntRange>()
+        array.forEachIndexed { index, el ->
+            val obj = el as? JsonObject ?: schema("expense_category_variation[$index] must be an object")
+            rejectUnknown(obj, CATEGORY_RANGE_KEYS, "expense_category_variation[$index]")
+            val category = requireString(obj, "category", "expense_category_variation[$index]")
+            val min = requireInt(obj, "min", "expense_category_variation[$index]")
+            val max = requireInt(obj, "max", "expense_category_variation[$index]")
+            if (min > max) schema("expense_category_variation '$category': min > max")
+            if (result.containsKey(category)) {
+                schema("duplicate expense_category_variation category '$category'")
+            }
+            result[category] = min..max
+        }
+        return result
     }
 
     private fun parseSimulation(element: JsonElement): ContractSimulationParams {
@@ -248,6 +276,7 @@ object ContractScenarioParser {
         if (quantileNum > quantileDen) schema("quantile must be <= 1")
         val reserve = obj.longOrNull("reserve_cents") ?: defaults.reserveCents
         if (reserve < 0) schema("reserve_cents must be >= 0")
+        val categoryVariation = parseCategoryRanges(obj["expense_category_variation"])
 
         return ContractSimulationParams(
             runs = runs,
@@ -263,6 +292,7 @@ object ContractScenarioParser {
             quantileNum = quantileNum,
             quantileDen = quantileDen,
             reserveCents = reserve,
+            expenseCategoryVariation = categoryVariation,
         )
     }
 

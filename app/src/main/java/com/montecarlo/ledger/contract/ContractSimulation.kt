@@ -36,7 +36,12 @@ object ContractSimulation {
                         amount = maxOf(0L, ContractMoney.scaleCentsByPercent(amount, pct.toLong()))
                     }
                 } else {
-                    if (params.expenseVariationMin != 0 || params.expenseVariationMax != 0) {
+                    // Contract 1.2: a matching category range overrides the scalar expense range.
+                    val categoryRange = event.category?.let { params.expenseCategoryVariation[it] }
+                    if (categoryRange != null && !categoryRange.isEmpty()) {
+                        val pct = rng.nextInt(categoryRange.first, categoryRange.last)
+                        amount = minOf(0L, ContractMoney.scaleCentsByPercent(amount, pct.toLong()))
+                    } else if (params.expenseVariationMin != 0 || params.expenseVariationMax != 0) {
                         val pct = rng.nextInt(params.expenseVariationMin, params.expenseVariationMax)
                         amount = minOf(0L, ContractMoney.scaleCentsByPercent(amount, pct.toLong()))
                     }
