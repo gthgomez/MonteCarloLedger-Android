@@ -101,7 +101,7 @@ class ContractScenarioBridgeTest {
         assertFalse(dates.contains(LocalDate.of(2025, 12, 15)))
     }
 
-    /** Paid template dates are suppressed by advancing the recurrence's lower bound. */
+    /** Paid template dates are suppressed with contract 1.1 `occurrence_exclusions` (MCD-0024). */
     @Test
     fun paidOccurrenceSuppressesTheMatchingTemplateDate() {
         val scenario = build(
@@ -120,6 +120,35 @@ class ContractScenarioBridgeTest {
         val dates = ContractEngine.inWindowBaseEvents(scenario).map { it.date }
 
         assertEquals(listOf(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 3, 1)), dates)
+    }
+
+    /**
+     * MC-07/C5 + MCD-0024: a paid occurrence in the MIDDLE of the window is suppressed.
+     * The old prefix-only suppression (advancing the lower bound) could not express this.
+     */
+    @Test
+    fun paidMiddleOccurrenceIsSuppressedNotOnlyAPrefix() {
+        val scenario = build(
+            payments = listOf(payment(id = 5, dayOfMonth = 1, nextDate = "2026-01-01")),
+            occurrences = listOf(
+                BillOccurrenceEntity(
+                    id = 12,
+                    payment_id = 5,
+                    due_date = "2026-02-01",
+                    amount_cents = 10_000L,
+                    is_paid = 1,
+                )
+            ),
+            horizonDays = 90,
+        )
+
+        val dates = ContractEngine.inWindowBaseEvents(scenario).map { it.date }
+
+        assertEquals(
+            listOf(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 1)),
+            dates,
+        )
+        assertEquals(1, scenario.occurrenceExclusions.size)
     }
 
     /** User-moved unpaid occurrences become explicit events. */

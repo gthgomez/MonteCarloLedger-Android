@@ -60,6 +60,12 @@ data class ContractSimulationParams(
     val reserveCents: Long = 0,
 )
 
+/** A single `(recurrence_id, date)` occurrence to suppress from expansion (contract 1.1, MCD-0024). */
+data class ContractRecurrenceExclusion(
+    val recurrenceId: String,
+    val date: LocalDate,
+)
+
 data class ContractScenario(
     val scenarioId: String,
     val asOf: LocalDate,
@@ -68,6 +74,10 @@ data class ContractScenario(
     val events: List<ContractEvent>,
     val recurrences: List<ContractRecurrence>,
     val simulation: ContractSimulationParams?,
+    /** Declared contract version, echoed into the result (contract 1.1). */
+    val contractVersion: String = "1.0",
+    /** Generated occurrences to omit, matched on `(recurrence_id, date)` (contract 1.1, MCD-0024). */
+    val occurrenceExclusions: List<ContractRecurrenceExclusion> = emptyList(),
 ) {
     /** Inclusive lower bound, exclusive upper bound of the contract forecast window. */
     val windowEndExclusive: LocalDate get() = asOf.plusDays(horizonDays.toLong())
@@ -88,8 +98,10 @@ object ContractScenarioParser {
     )
     private val SCENARIO_KEYS = setOf(
         "contract_version", "scenario_id", "as_of", "starting_balance_cents",
-        "horizon_days", "events", "recurrences", "simulation",
+        "horizon_days", "events", "recurrences", "occurrence_exclusions", "simulation",
     )
+    private val EXCLUSION_KEYS = setOf("recurrence_id", "date")
+    private val SUPPORTED_CONTRACT_VERSIONS = setOf("1.0", "1.1")
     private val FREQUENCIES = setOf(
         "weekly", "biweekly", "semimonthly", "monthly", "bimonthly",
         "quarterly", "semiannually", "annually", "onetime",
@@ -100,9 +112,9 @@ object ContractScenarioParser {
     fun parse(element: JsonElement): ContractScenario {
         val root = element as? JsonObject ?: schema("scenario must be an object")
         rejectUnknown(root, SCENARIO_KEYS, "scenario")
-        requireString(root, "contract_version", "scenario")
-        if (root.getString("contract_version") != "1.0") {
-            schema("contract_version must be \"1.0\"")
+        val contractVersion = requireString(root, "contract_version", "scenario")
+        if (contractVersion !in SUPPORTED_CONTRACT_VERSIONS) {
+            schema("contract_version must be one of ${SUPPORTED_CONTRACT_VERSIONS.sorted()}")
         }
         val scenarioId = requireString(root, "scenario_id", "scenario")
         if (scenarioId.isBlank()) schema("scenario_id must not be blank")
@@ -125,6 +137,8 @@ object ContractScenarioParser {
 
         val recurrences = (root["recurrences"] as? JsonArray)?.map { parseRecurrence(it) } ?: emptyList()
 
+        val exclusions = (root["occurrence_exclusions"] as? JsonArray)?.map { parseExclusion(it) } ?: emptyList()
+
         val simulation = root["simulation"]?.let { parseSimulation(it) }
 
         // Sign invariants (contracts/ledger.md): evaluated after structure so the code is precise.
@@ -140,7 +154,17 @@ object ContractScenarioParser {
             events = events,
             recurrences = recurrences,
             simulation = simulation,
+            contractVersion = contractVersion,
+            occurrenceExclusions = exclusions,
         )
+    }
+
+    private fun parseExclusion(element: JsonElement): ContractRecurrenceExclusion {
+        val obj = element as? JsonObject ?: schema("occurrence_exclusion must be an object")
+        rejectUnknown(obj, EXCLUSION_KEYS, "occurrence_exclusion")
+        val recurrenceId = requireString(obj, "recurrence_id", "occurrence_exclusion")
+        val date = parseDate(requireString(obj, "date", "occurrence_exclusion"), "occurrence_exclusion.date")
+        return ContractRecurrenceExclusion(recurrenceId = recurrenceId, date = date)
     }
 
     private fun parseEvent(element: JsonElement, index: Int): ContractEvent {

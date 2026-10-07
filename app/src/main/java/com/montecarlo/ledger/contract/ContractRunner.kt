@@ -37,6 +37,8 @@ object ContractRunner {
                 firstNegativeDate = forecast.firstNegativeDate,
             ),
             risk = risk,
+            // Echo the scenario's declared version so a 1.0 scenario stays byte-identical.
+            contractVersion = scenario.contractVersion,
         )
     }
 }

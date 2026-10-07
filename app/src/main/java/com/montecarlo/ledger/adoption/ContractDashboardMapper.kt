@@ -1,6 +1,10 @@
 package com.montecarlo.ledger.adoption
 
+import com.montecarlo.ledger.contract.ContractEngine
+import com.montecarlo.ledger.contract.ContractMoney
 import com.montecarlo.ledger.contract.ContractResult
+import com.montecarlo.ledger.contract.ContractScenario
+import com.montecarlo.ledger.processing.BalanceForecastRow
 import com.montecarlo.ledger.processing.ForecastSummary
 import com.montecarlo.ledger.processing.MonteCarloResult
 
@@ -22,6 +26,20 @@ import com.montecarlo.ledger.processing.MonteCarloResult
  * percentiles are distinct families.
  */
 object ContractDashboardMapper {
+
+    /**
+     * Canonical display rows: the contract's ordered in-window events with running balances
+     * (MCD-0002/0003/0021). A display adapter over [ContractEngine.inWindowBaseEvents] and
+     * [ContractMoney.checkedAdd] — it reuses the contract's own recurrence and ordering, so the
+     * rendered rows cannot disagree with the canonical forecast.
+     */
+    fun toBalanceForecastRows(scenario: ContractScenario): List<BalanceForecastRow> {
+        var balance = scenario.startingBalanceCents
+        return ContractEngine.inWindowBaseEvents(scenario).map { event ->
+            balance = ContractMoney.checkedAdd(balance, event.amountCents)
+            BalanceForecastRow(date = event.date, balanceCents = balance)
+        }
+    }
 
     fun toForecastSummary(result: ContractResult): ForecastSummary {
         val forecast = result.forecast

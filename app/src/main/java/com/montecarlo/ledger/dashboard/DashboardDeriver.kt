@@ -26,6 +26,7 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.RecurringCandidate
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
+import com.montecarlo.ledger.processing.BalanceForecastRow
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.BudgetPacingEngine
 import com.montecarlo.ledger.processing.ForecastEngine
@@ -114,7 +115,8 @@ class DashboardDeriver {
         val incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
         val cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
         val currentCashFlowWindow = cashFlowWindows.firstOrNull()
-        val dailyBudgetCents = currentCashFlowWindow?.dailySafeSpendCents
+        // Native per-window pacing heuristic; used only when the contract path is inactive.
+        val nativeDailyBudgetCents = currentCashFlowWindow?.dailySafeSpendCents
             ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
 
         // Calibrate simulation ranges from the user's own history instead of hardcoded
@@ -144,6 +146,14 @@ class DashboardDeriver {
         // low point, which the UI already labels "lowest balance over next 90 days".
         val safeToSpend = forecastSummary.safeToSpendCents ?: forecastSummary.projectedLowPointCents
         val mc = adopted?.monteCarloResult ?: nativeMc
+        // MC-07/C2: when the contract path supplies safe-to-spend, the daily budget is a product
+        // heuristic derived from it, so it cannot contradict the canonical value shown beside it.
+        // With the adoption flag off it remains the native per-window heuristic.
+        val dailyBudgetCents = if (adopted != null) {
+            if (safeToSpend > 0L) safeToSpend / daysUntilPayday else 0L
+        } else {
+            nativeDailyBudgetCents
+        }
         val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
 
         val nextPaydayLabel = nextPaycheck?.let { "Next: ${it.date.formatDateDisplay()} (${daysUntilPayday}d)" } ?: "No upcoming income"
@@ -156,7 +166,10 @@ class DashboardDeriver {
                     else -> "${it.description} • $recurrenceText • ${it.date.formatDateDisplay()}"
                 }
             }
-        val forecastRows = forecastSummary.let { ForecastEngine.buildBalanceForecast(forecastSeedCents, events) }
+        // MC-07/C1: when the contract path is active, display rows come from the canonical
+        // timeline; otherwise the native engine supplies them.
+        val forecastRows = adopted?.forecastRows
+            ?: ForecastEngine.buildBalanceForecast(forecastSeedCents, events)
 
         val driftCents = if (mismatch) ledgerBalanceCents - bankBalanceCents else 0L
         val totalAssetBalance = pack.assets.sumOf { it.balanceCents }
@@ -326,12 +339,16 @@ class DashboardDeriver {
             forecastSummary = ContractDashboardMapper.toForecastSummary(result),
             monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
                 .copy(dailyPercentiles = nativeDailyPercentiles),
+            // MC-07/C1: the display rows are the contract's own ordered events, not a second
+            // recurrence/forecast interpretation.
+            forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
         )
     }.getOrNull()
 
     private data class Adoption(
         val forecastSummary: ForecastSummary,
         val monteCarloResult: MonteCarloResult,
+        val forecastRows: List<BalanceForecastRow>,
     )
 
     /**
