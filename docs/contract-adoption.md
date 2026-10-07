@@ -1,7 +1,7 @@
 # MC-06b — Android contract adoption
 
 **Campaign:** MonteCarlo semantic foundation
-**Contract:** 1.2, pinned at `f5c5e8b` (vendored in `app/src/test/resources/contract/`)
+**Contract:** 2.0, pinned at `c1dea8c` (vendored in `app/src/test/resources/contract/`)
 **Engine (native Kotlin):** `app/src/main/java/com/montecarlo/ledger/contract/`
 
 This document describes how the Android product adopts the canonical contract engine for its
@@ -34,6 +34,7 @@ through `LedgerRepository.contractForecastEnabled` / `getContractForecastEnabled
 | paid / moved occurrence dates | suppressed with contract 1.1 `occurrence_exclusions` (MCD-0024) |
 | `MonteCarloCalibration` | `simulation` block (ppm scaling, aggregate + per-category expense variation) |
 | resolved bill category (`TimelineService.resolveCategory`) | `category` on the bill recurrence/event (contract 1.2) |
+| `DebtEntity` / `DebtItem` | `liabilities` (`ContractLiability`) → `debt` block (contract 2.0, MCD-0026) |
 
 Adopted rules:
 
@@ -121,8 +122,11 @@ These are product-level choices, flagged here rather than added to the contract:
 - **C2 — `dailyBudgetCents` is a PRODUCT_HEURISTIC derived from the canonical safe-to-spend** when
   the contract path is active, so it cannot contradict the canonical value beside it. It is
   guidance, not a financial conclusion; it does not move into the contract.
-- **C3 — `DebtPayoffEngine` is CONTRACT_2_CANDIDATE** (native, non-normative) pending the debt
-  domain campaign.
+- **C3 — `DebtPayoffEngine` is now canonical (contract 2.0, MCD-0026).** `simulateSchedule` is a thin
+  adapter over `ContractDebt.amortize` (mapping `ContractDebtResult` → `DebtPayoffSummary`), and
+  `minimumPaymentCents` delegates to `ContractDebt.minimumPaymentCents`. Its cash-flow overdraft
+  guard runs the **canonical** forecast (`ContractRunner` over `ContractScenario`) instead of the
+  native `ForecastEngine`.
 - **C4 — the fan chart is non-normative** (no per-day path percentiles in the contract).
 
 ## Known limitations

@@ -28,6 +28,16 @@ object ContractRunner {
         } else {
             null
         }
+        // Contract 2.0 (MCD-0026): the debt block is present iff the scenario declares liabilities.
+        // It is deterministic and independent of the cash-ledger forecast and the simulation.
+        val debt = scenario.liabilities?.let {
+            ContractDebt.amortize(
+                asOf = scenario.asOf,
+                liabilities = it,
+                strategy = scenario.debtStrategy,
+                extraMonthlyPaymentCents = scenario.extraMonthlyPaymentCents,
+            )
+        }
         return ContractResult(
             scenarioId = scenario.scenarioId,
             forecast = ContractForecastResult(
@@ -39,6 +49,7 @@ object ContractRunner {
             risk = risk,
             // Echo the scenario's declared version so a 1.0 scenario stays byte-identical.
             contractVersion = scenario.contractVersion,
+            debt = debt,
         )
     }
 }

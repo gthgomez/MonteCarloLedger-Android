@@ -1,10 +1,14 @@
 package com.montecarlo.ledger.processing
 
+import com.montecarlo.ledger.contract.ContractDebt
+import com.montecarlo.ledger.contract.ContractEvent
+import com.montecarlo.ledger.contract.ContractLiability
+import com.montecarlo.ledger.contract.ContractRunner
+import com.montecarlo.ledger.contract.ContractScenario
 import com.montecarlo.ledger.data.DebtKind
 import com.montecarlo.ledger.util.centsToDisplay
-import com.montecarlo.ledger.util.monthlyInterestCents
-import com.montecarlo.ledger.util.scaleCentsByBasisPoints
 import java.time.LocalDate
+import kotlin.math.abs
 
 enum class PayoffStrategy {
     SNOWBALL, // Lowest balance first
@@ -62,26 +66,29 @@ data class DebtSimulationResult(
     val warningMessage: String?,
 )
 
+/**
+ * Product adapter over the canonical contract 2.0 debt domain (`contracts/debt.md`).
+ *
+ * Amortization and the minimum-payment formula both delegate to [ContractDebt]; the cash-flow
+ * overdraft guard runs the canonical forecast ([ContractRunner]) rather than the native
+ * [ForecastEngine]. The public surface ([DebtItem], [DebtPayoffSummary], [MonthlyPayoffStep],
+ * [DebtSimulationResult], and every function below) is unchanged so the Compose screens keep working.
+ */
 object DebtPayoffEngine {
+
+    /** The forecast horizon (days) used by the cash-flow overdraft guard. */
+    private const val OVERDRAFT_HORIZON_DAYS = 90
 
     /**
      * Minimum due this month for [debt] at [balanceCents].
      *
      * Installment debts pay their fixed minimum. Revolving debts (credit cards) use
      * max(flat floor, percent of balance), and a card below its floor is simply paid
-     * in full — matching how issuers actually compute statement minimums.
+     * in full — matching how issuers actually compute statement minimums. Delegates to the
+     * canonical formula in [ContractDebt.minimumPaymentCents].
      */
-    fun minimumPaymentCents(debt: DebtItem, balanceCents: Long): Long {
-        if (balanceCents <= 0L) return 0L
-        if (debt.kind != DebtKind.REVOLVING) {
-            // Cap the fixed installment minimum at the remaining balance so the final
-            // payment pays the debt off exactly instead of driving it negative.
-            return minOf(debt.minPaymentCents, balanceCents)
-        }
-        val percentBased = scaleCentsByBasisPoints(balanceCents, debt.minPaymentPercentBps)
-        val computed = maxOf(percentBased, debt.minPaymentFloorCents)
-        return minOf(computed, balanceCents)
-    }
+    fun minimumPaymentCents(debt: DebtItem, balanceCents: Long): Long =
+        ContractDebt.minimumPaymentCents(debt.toContractLiability(), balanceCents)
 
     fun runSimulation(
         debts: List<DebtItem>,
@@ -113,7 +120,7 @@ object DebtPayoffEngine {
                 val representativeMinimum = minimumPaymentCents(debt, debt.balanceCents)
                 var dueDate = today.withDayOfMonth(debt.dueDayOfMonth.coerceAtMost(today.lengthOfMonth()))
                 if (!dueDate.isAfter(today)) dueDate = dueDate.plusMonths(1)
-                while (!dueDate.isAfter(today.plusDays(90))) {
+                while (!dueDate.isAfter(today.plusDays(OVERDRAFT_HORIZON_DAYS.toLong()))) {
                     val alreadyOnTimeline = updatedEvents.any { event ->
                         event.date == dueDate &&
                             (event.type == "bill" || event.type == "expense") &&
@@ -135,7 +142,7 @@ object DebtPayoffEngine {
                 }
             }
             var extraDate = today
-            val endDate = today.plusDays(90)
+            val endDate = today.plusDays(OVERDRAFT_HORIZON_DAYS.toLong())
 
             while (!extraDate.isAfter(endDate)) {
                 updatedEvents.add(
@@ -149,18 +156,16 @@ object DebtPayoffEngine {
                 extraDate = extraDate.plusMonths(1)
             }
 
-            val forecastSummary = ForecastEngine.calculateForecastSummary(
-                currentBalanceCents,
-                updatedEvents,
-                today,
-            )
+            // Canonical forecast (contract 2.0): the synthetic plus real events are projected as a
+            // scenario with `as_of = today`, and the low point / first-negative date drive the guard.
+            val forecast = ContractRunner.run(overdraftGuardScenario(updatedEvents, currentBalanceCents, today)).forecast
 
             // MCD-0010 / bug B-05: an already-negative opening balance is negative from `today`,
             // so the guard fires even before any synthetic payment lands.
-            if (forecastSummary.projectedLowPointCents < 0L) {
+            if (forecast.minimumBalanceCents < 0L) {
                 causesOverdraft = true
-                overdraftDate = forecastSummary.firstNegativeDate ?: today
-                shortfallCents = -forecastSummary.projectedLowPointCents
+                overdraftDate = forecast.firstNegativeDate ?: today
+                shortfallCents = -forecast.minimumBalanceCents
                 val shortfallDisplay = centsToDisplay(shortfallCents)
                 val extraDisplay = centsToDisplay(extraMonthlyPaymentCents)
                 warningMessage = "Extra payment of $extraDisplay risks an overdraft shortfall of $shortfallDisplay on $overdraftDate."
@@ -181,125 +186,101 @@ object DebtPayoffEngine {
         )
     }
 
+    /**
+     * Builds the canonical scenario used by the overdraft guard. Income events add their magnitude;
+     * every other event (expense/bill) subtracts its magnitude — the same running-balance rule the
+     * native forecast used. Liabilities/recurrences/simulation are intentionally omitted: the guard
+     * only needs the deterministic 90-day forecast.
+     */
+    private fun overdraftGuardScenario(
+        events: List<ForecastEvent>,
+        currentBalanceCents: Long,
+        today: LocalDate,
+    ): ContractScenario {
+        val contractEvents = events.mapIndexed { index, event ->
+            val income = event.type == "income"
+            ContractEvent(
+                id = null,
+                name = event.description,
+                date = event.date,
+                amountCents = if (income) abs(event.amount_cents) else -abs(event.amount_cents),
+                type = if (income) "income" else "expense",
+                sequence = null,
+                inputIndex = index,
+            )
+        }
+        return ContractScenario(
+            scenarioId = "debt-overdraft-guard",
+            asOf = today,
+            startingBalanceCents = currentBalanceCents,
+            horizonDays = OVERDRAFT_HORIZON_DAYS,
+            events = contractEvents,
+            recurrences = emptyList(),
+            simulation = null,
+        )
+    }
+
     fun simulateSchedule(
         debts: List<DebtItem>,
         extraMonthlyPaymentCents: Long,
         strategy: PayoffStrategy,
         startDate: LocalDate,
     ): DebtPayoffSummary {
-        if (debts.isEmpty()) {
-            return DebtPayoffSummary(
-                strategy = strategy,
-                monthsToPayoff = 0,
-                totalInterestCents = 0L,
-                totalPaidCents = 0L,
-                payoffDate = startDate,
-                monthlySchedule = emptyList(),
+        val liabilities = debts.map { it.toContractLiability() }
+        val result = ContractDebt.amortize(
+            asOf = startDate,
+            liabilities = liabilities,
+            strategy = strategy.toContractStrategy(),
+            extraMonthlyPaymentCents = extraMonthlyPaymentCents,
+        )
+
+        val byId = debts.associateBy { it.id.toString() }
+        val schedule = result.schedule.map { step ->
+            val debt = byId.getValue(step.liabilityId)
+            MonthlyPayoffStep(
+                monthNumber = step.month,
+                date = step.date,
+                debtId = debt.id,
+                debtName = debt.name,
+                startingBalanceCents = step.startingBalanceCents,
+                paymentCents = step.paymentCents,
+                interestCents = step.interestCents,
+                principalCents = step.principalCents,
+                endingBalanceCents = step.endingBalanceCents,
             )
         }
 
-        data class DebtState(
-            val item: DebtItem,
-            var currentBalanceCents: Long,
-        )
-
-        val debtStates = debts.map { DebtState(it, it.balanceCents) }.toMutableList()
-        val schedule = mutableListOf<MonthlyPayoffStep>()
-        var monthCount = 0
-        var totalInterestPaidCents = 0L
-        var totalPaidCents = 0L
-        var currentDate = startDate
-        // Negative-amortization debts can compound past the Long range; when that
-        // happens the balance would wrap negative and fake a "converged" result.
-        var balanceOverflowed = false
-
-        val maxMonths = 360 // 30-year safety cap
-
-        while (debtStates.any { it.currentBalanceCents > 0L } &&
-            monthCount < maxMonths &&
-            !balanceOverflowed
-        ) {
-            monthCount++
-            currentDate = currentDate.plusMonths(1)
-
-            // 1. Sort active debts by strategy
-            val activeDebts = debtStates.filter { it.currentBalanceCents > 0L }
-            val targetOrder = when (strategy) {
-                PayoffStrategy.SNOWBALL -> activeDebts.sortedBy { it.currentBalanceCents }
-                PayoffStrategy.AVALANCHE -> activeDebts.sortedByDescending { it.item.aprBasisPoints }
-            }
-
-            var extraPool = extraMonthlyPaymentCents
-
-            // 2. Accrue interest & apply minimum payments
-            for (debt in targetOrder) {
-                // Saturate instead of throwing/wrapping: an unrepresentable balance
-                // means this debt can never converge, so report it honestly.
-                val interestCents = runCatching {
-                    monthlyInterestCents(debt.currentBalanceCents, debt.item.aprBasisPoints)
-                }.getOrDefault(Long.MAX_VALUE)
-                if (interestCents > Long.MAX_VALUE - debt.currentBalanceCents) {
-                    balanceOverflowed = true
-                    break
-                }
-                debt.currentBalanceCents += interestCents
-                totalInterestPaidCents += interestCents
-
-                val minPayment = minimumPaymentCents(debt.item, debt.currentBalanceCents)
-                // Signed principal: negative when the payment cannot cover accrued interest
-                // (negative amortization). Keeps starting - principal == ending on every row.
-                val principal = minPayment - interestCents
-                debt.currentBalanceCents -= minPayment
-                totalPaidCents += minPayment
-
-                schedule.add(
-                    MonthlyPayoffStep(
-                        monthNumber = monthCount,
-                        date = currentDate,
-                        debtId = debt.item.id,
-                        debtName = debt.item.name,
-                        startingBalanceCents = debt.currentBalanceCents + minPayment - interestCents,
-                        paymentCents = minPayment,
-                        interestCents = interestCents,
-                        principalCents = principal,
-                        endingBalanceCents = debt.currentBalanceCents,
-                    )
-                )
-            }
-
-            // 3. Apply extra payment pool to primary target debt
-            for (debt in targetOrder) {
-                if (extraPool <= 0L) break
-                if (debt.currentBalanceCents <= 0L) continue
-
-                val extraPayment = minOf(extraPool, debt.currentBalanceCents)
-                debt.currentBalanceCents -= extraPayment
-                extraPool -= extraPayment
-                totalPaidCents += extraPayment
-
-                val lastIndex = schedule.indexOfLast {
-                    it.debtId == debt.item.id && it.monthNumber == monthCount
-                }
-                if (lastIndex >= 0) {
-                    val last = schedule[lastIndex]
-                    schedule[lastIndex] = last.copy(
-                        paymentCents = last.paymentCents + extraPayment,
-                        principalCents = last.principalCents + extraPayment,
-                        endingBalanceCents = debt.currentBalanceCents,
-                    )
-                }
-            }
-        }
-
-        val remaining = debtStates.any { it.currentBalanceCents > 0L }
         return DebtPayoffSummary(
-            strategy = strategy,
-            monthsToPayoff = monthCount,
-            totalInterestCents = totalInterestPaidCents,
-            totalPaidCents = totalPaidCents,
-            payoffDate = currentDate,
+            strategy = result.strategy.toPayoffStrategy(),
+            monthsToPayoff = result.monthsToPayoff,
+            totalInterestCents = result.totalInterestCents,
+            totalPaidCents = result.totalPaidCents,
+            payoffDate = result.payoffDate,
             monthlySchedule = schedule,
-            didNotConverge = remaining || balanceOverflowed,
+            didNotConverge = result.didNotConverge,
         )
+    }
+
+    /** Maps a product liability onto the canonical contract liability (`contracts/debt.md`). */
+    private fun DebtItem.toContractLiability(): ContractLiability = ContractLiability(
+        id = id.toString(),
+        name = name,
+        balanceCents = balanceCents,
+        aprBasisPoints = aprBasisPoints,
+        minPaymentCents = minPaymentCents,
+        kind = kind,
+        minPaymentPercentBps = minPaymentPercentBps,
+        minPaymentFloorCents = minPaymentFloorCents,
+        dueDayOfMonth = dueDayOfMonth,
+    )
+
+    private fun PayoffStrategy.toContractStrategy(): String = when (this) {
+        PayoffStrategy.SNOWBALL -> "snowball"
+        PayoffStrategy.AVALANCHE -> "avalanche"
+    }
+
+    private fun String.toPayoffStrategy(): PayoffStrategy = when (this) {
+        "avalanche" -> PayoffStrategy.AVALANCHE
+        else -> PayoffStrategy.SNOWBALL
     }
 }
