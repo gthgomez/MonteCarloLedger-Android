@@ -1,6 +1,6 @@
 {
   "source_repo": "https://github.com/gthgomez/MonteCarlo-Ledger",
-  "source_commit": "912b89d148b714ac1ed73f8d8e61816e54143ca7",
+  "source_commit": "90ed406fef153dfd1a75c37e487436fe1ce10429",
   "contract_version": "1.1",
   "files": {
     "contracts/README.md": "df1ea88a346effe845412ef425fce8a1d7717558c67022a8179bc6f487723979",
@@ -9,7 +9,7 @@
     "contracts/money.md": "cfeb113282967db76443fab70d8976bf28a79cae1f7d257a178e3efe16f7b148",
     "contracts/risk.md": "40ac2d059bfa65e6096f73e71ffea0d5f58f89ca5d8b65fe412d3de63506e8dc",
     "contracts/simulation.md": "190428e7dd6bef695aef5bb90b387d72b0302124d9aac170300d1655b247785f",
-    "contracts/timeline.md": "712a12c6a9907df143224349d6aad7ad4886dd2bbba32aa466e6ad4349319460",
+    "contracts/timeline.md": "50afd8de38658a0d541d90c7c4d66c34d248b5ecea8fb3479d7b7a548a109aae",
     "contracts/version.json": "fdc018b2cc78227cdefaba0f70773c544142e958f6486f89d214bac27d5cb4fa",
     "schemas/result.schema.json": "c6c8ad6aa274c6e9955ae350e983983c6fcaf091b23e763d1ba91992d12d5c89",
     "schemas/scenario.schema.json": "c170d26622e9b86e170c0c714cfc63c7f58bd075428d8cd22f87c4d6fa2385ef",
@@ -32,6 +32,7 @@
     "fixtures/deterministic/ordinary-paycheck-expenses.json": "0855c5aae11fc12c169398164b5f885476534a1c65d917a30ee7b4adf0298704",
     "fixtures/deterministic/rent-before-payday.json": "982afbbb30ed9a74ca3c4b501320ede7011b5cf1caa4b8b02ed6ba6be34fb01a",
     "fixtures/deterministic/same-day-income-before-bill.json": "517cf99dde995beb1fdcb018b8227d4029256a198884f987507d999e9b34b807",
+    "fixtures/invalid/exclusion-requires-1-1.json": "b4a6e22e2a9d94b02565c01c54032d6aacb07e8a9b95cc60debe66396ecf8db4",
     "fixtures/invalid/missing-as-of.json": "7267e74df7c22578d1d681a4f794eaa7692aa44a06cd24bb75c536f34501b2a3",
     "fixtures/invalid/money-overflow.json": "faf65c4f5bafef2191b75f33fd0d9c8fbdfff1b25c066b62e266950369e0bf1e",
     "fixtures/invalid/positive-expense.json": "85ee60852de15a3aca5a36d5d9b9f380b2abc2de97f4b0c01180d64bb018cf8a",

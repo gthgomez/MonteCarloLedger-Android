@@ -13,7 +13,11 @@ import kotlinx.serialization.json.longOrNull
  * Motivated by the contract's directive that the conformance runner must validate the scenario
  * against `scenario.schema.json` without pulling a heavy dependency into a proprietary app. It
  * supports exactly the keywords that schema uses: `$ref`/`$defs`, `type`, `required`,
- * `additionalProperties: false`, `properties`, `items`, `enum`, `const`, and `minimum`.
+ * `additionalProperties: false`, `properties`, `items`, `enum`, `const`, and the numeric/length
+ * bounds `minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`/`minLength`/`maxLength`.
+ *
+ * Unknown keywords (e.g. `if`/`then`/`format`) are ignored, not rejected — the contract therefore
+ * must not rely on them for cross-engine parity (see MC-09).
  */
 class MiniJsonSchema(private val root: JsonObject) {
 
@@ -59,16 +63,43 @@ class MiniJsonSchema(private val root: JsonObject) {
                 }
             }
             is JsonPrimitive -> {
-                resolved["minimum"]?.let { min ->
-                    val minValue = (min as? JsonPrimitive)?.longOrNull
-                    val value = instance.longOrNull
-                    if (minValue != null && value != null && value < minValue) {
-                        errors += "$path: $value is less than minimum $minValue"
-                    }
-                }
+                numericBound(resolved, instance, "minimum", path, errors) { v, b -> v < b }
+                numericBound(resolved, instance, "maximum", path, errors) { v, b -> v > b }
+                numericBound(resolved, instance, "exclusiveMinimum", path, errors) { v, b -> v <= b }
+                numericBound(resolved, instance, "exclusiveMaximum", path, errors) { v, b -> v >= b }
+                lengthBound(resolved, instance, "minLength", path, errors) { n, b -> n < b }
+                lengthBound(resolved, instance, "maxLength", path, errors) { n, b -> n > b }
             }
         }
         return errors
+    }
+
+    private fun numericBound(
+        schema: JsonObject,
+        instance: JsonPrimitive,
+        keyword: String,
+        path: String,
+        errors: MutableList<String>,
+        fails: (value: Long, bound: Long) -> Boolean,
+    ) {
+        val bound = (schema[keyword] as? JsonPrimitive)?.longOrNull ?: return
+        if (instance.isString) return
+        val value = instance.longOrNull ?: return
+        if (fails(value, bound)) errors += "$path: $value violates $keyword $bound"
+    }
+
+    private fun lengthBound(
+        schema: JsonObject,
+        instance: JsonPrimitive,
+        keyword: String,
+        path: String,
+        errors: MutableList<String>,
+        fails: (length: Long, bound: Long) -> Boolean,
+    ) {
+        val bound = (schema[keyword] as? JsonPrimitive)?.longOrNull ?: return
+        if (!instance.isString) return
+        val length = instance.content.length.toLong()
+        if (fails(length, bound)) errors += "$path: length $length violates $keyword $bound"
     }
 
     private fun validateObject(
