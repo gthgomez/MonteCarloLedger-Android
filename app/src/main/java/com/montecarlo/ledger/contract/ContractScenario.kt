@@ -84,6 +84,15 @@ data class ContractScenario(
     val contractVersion: String = "1.0",
     /** Generated occurrences to omit, matched on `(recurrence_id, date)` (contract 1.1, MCD-0024). */
     val occurrenceExclusions: List<ContractRecurrenceExclusion> = emptyList(),
+    /**
+     * Declared liabilities (contract 2.0, MCD-0026). `null` means the key was absent (no `debt`
+     * block is emitted); an empty list means `liabilities: []` was declared (a zeroed `debt` block).
+     */
+    val liabilities: List<ContractLiability>? = null,
+    /** Payoff strategy, only meaningful when [liabilities] is present (contract 2.0). */
+    val debtStrategy: String = "snowball",
+    /** Extra monthly payment distributed by the strategy, only meaningful with [liabilities]. */
+    val extraMonthlyPaymentCents: Long = 0,
 ) {
     /** Inclusive lower bound, exclusive upper bound of the contract forecast window. */
     val windowEndExclusive: LocalDate get() = asOf.plusDays(horizonDays.toLong())
@@ -103,12 +112,17 @@ object ContractScenarioParser {
         "surprise_amount_max", "quantile_num", "quantile_den", "reserve_cents",
     )
     private val CATEGORY_RANGE_KEYS = setOf("category", "min", "max")
+    private val LIABILITY_KEYS = setOf(
+        "id", "name", "balance_cents", "apr_basis_points", "min_payment_cents",
+        "kind", "min_payment_percent_bps", "min_payment_floor_cents", "due_day_of_month",
+    )
     private val SCENARIO_KEYS = setOf(
         "contract_version", "scenario_id", "as_of", "starting_balance_cents",
         "horizon_days", "events", "recurrences", "occurrence_exclusions", "simulation",
+        "debt_strategy", "extra_monthly_payment_cents", "liabilities",
     )
     private val EXCLUSION_KEYS = setOf("recurrence_id", "date")
-    private val SUPPORTED_CONTRACT_VERSIONS = setOf("1.0", "1.1", "1.2")
+    private val SUPPORTED_CONTRACT_VERSIONS = setOf("1.0", "1.1", "1.2", "2.0")
     private val FREQUENCIES = setOf(
         "weekly", "biweekly", "semimonthly", "monthly", "bimonthly",
         "quarterly", "semiannually", "annually", "onetime",
@@ -153,6 +167,20 @@ object ContractScenarioParser {
 
         val simulation = root["simulation"]?.let { parseSimulation(it) }
 
+        // Contract 2.0 (MCD-0026): liabilities + the debt strategy. Every optional; `liabilities`
+        // stays null when the key is absent so the emitter knows to omit the `debt` block.
+        val debtStrategy = root.getStringOrNull("debt_strategy") ?: "snowball"
+        ContractDebt.validateStrategy(debtStrategy)
+        val extraMonthlyPayment = root.longOrNull("extra_monthly_payment_cents") ?: 0L
+        if (extraMonthlyPayment < 0) schema("extra_monthly_payment_cents must be >= 0")
+        val liabilitiesElement = root["liabilities"]
+        val liabilities: List<ContractLiability>? = when (liabilitiesElement) {
+            null -> null
+            is JsonArray -> liabilitiesElement.mapIndexed { index, el -> parseLiability(el, index) }
+            else -> schema("scenario.liabilities must be an array")
+        }
+        if (liabilities != null) ContractDebt.validateLiabilities(liabilities)
+
         // Sign invariants (contracts/ledger.md): evaluated after structure so the code is precise.
         events.forEach { validateSign(it.type, it.amountCents, "event '${it.name ?: it.id ?: it.date}'") }
         recurrences.forEach { validateSign(it.type, it.amountCents, "recurrence '${it.id}'") }
@@ -168,6 +196,9 @@ object ContractScenarioParser {
             simulation = simulation,
             contractVersion = contractVersion,
             occurrenceExclusions = exclusions,
+            liabilities = liabilities,
+            debtStrategy = debtStrategy,
+            extraMonthlyPaymentCents = extraMonthlyPayment,
         )
     }
 
@@ -177,6 +208,26 @@ object ContractScenarioParser {
         val recurrenceId = requireString(obj, "recurrence_id", "occurrence_exclusion")
         val date = parseDate(requireString(obj, "date", "occurrence_exclusion"), "occurrence_exclusion.date")
         return ContractRecurrenceExclusion(recurrenceId = recurrenceId, date = date)
+    }
+
+    private fun parseLiability(element: JsonElement, index: Int): ContractLiability {
+        val obj = element as? JsonObject ?: schema("liabilities[$index] must be an object")
+        rejectUnknown(obj, LIABILITY_KEYS, "liabilities[$index]")
+        val id = requireString(obj, "id", "liabilities[$index]")
+        val balance = requireLong(obj, "balance_cents", "liabilities[$index]")
+        val apr = requireInt(obj, "apr_basis_points", "liabilities[$index]")
+        val minPayment = requireLong(obj, "min_payment_cents", "liabilities[$index]")
+        return ContractLiability(
+            id = id,
+            name = obj.getStringOrNull("name"),
+            balanceCents = balance,
+            aprBasisPoints = apr,
+            minPaymentCents = minPayment,
+            kind = obj.getStringOrNull("kind") ?: "installment",
+            minPaymentPercentBps = obj.intOrNull("min_payment_percent_bps") ?: 0,
+            minPaymentFloorCents = obj.longOrNull("min_payment_floor_cents") ?: 0L,
+            dueDayOfMonth = obj.intOrNull("due_day_of_month") ?: 1,
+        )
     }
 
     private fun parseEvent(element: JsonElement, index: Int): ContractEvent {

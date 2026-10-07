@@ -1,5 +1,6 @@
 package com.montecarlo.ledger.contract
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -34,6 +35,8 @@ data class ContractResult(
     val forecast: ContractForecastResult,
     val risk: ContractRiskResult? = null,
     val contractVersion: String = "1.0",
+    /** Contract 2.0 debt block; present iff the scenario declares `liabilities`, else null. */
+    val debt: ContractDebtResult? = null,
 )
 
 /**
@@ -47,6 +50,7 @@ object ContractResultEmitter {
         put("scenario_id", result.scenarioId)
         put("forecast", forecastElement(result.forecast))
         result.risk?.let { put("risk", riskElement(it)) }
+        result.debt?.let { put("debt", debtElement(it)) }
     }
 
     fun toJsonString(result: ContractResult): String =
@@ -73,6 +77,28 @@ object ContractResultEmitter {
         put("ending_balance_p90_cents", r.endingBalanceP90Cents)
         put("projected_low_point_cents", r.projectedLowPointCents)
         put("safe_to_spend_cents", r.safeToSpendCents)
+    }
+
+    private fun debtElement(d: ContractDebtResult): JsonObject = buildJsonObject {
+        put("strategy", d.strategy)
+        put("extra_monthly_payment_cents", d.extraMonthlyPaymentCents)
+        put("months_to_payoff", d.monthsToPayoff)
+        put("payoff_date", d.payoffDate.toString())
+        put("total_interest_cents", d.totalInterestCents)
+        put("total_paid_cents", d.totalPaidCents)
+        put("did_not_converge", d.didNotConverge)
+        put("schedule", JsonArray(d.schedule.map { debtStepElement(it) }))
+    }
+
+    private fun debtStepElement(s: ContractDebtStep): JsonObject = buildJsonObject {
+        put("month", s.month)
+        put("date", s.date.toString())
+        put("liability_id", s.liabilityId)
+        put("starting_balance_cents", s.startingBalanceCents)
+        put("payment_cents", s.paymentCents)
+        put("interest_cents", s.interestCents)
+        put("principal_cents", s.principalCents)
+        put("ending_balance_cents", s.endingBalanceCents)
     }
 
     /** Renders a result as a plain `json`-parseable string (used by the emitter test). */
