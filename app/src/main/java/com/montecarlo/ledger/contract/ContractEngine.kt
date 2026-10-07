@@ -59,6 +59,7 @@ object ContractEngine {
                         type = recurrence.type,
                         sequence = null,
                         inputIndex = nextIndex++,
+                        category = recurrence.category,
                     )
                 )
             }

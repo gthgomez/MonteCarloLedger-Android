@@ -61,6 +61,7 @@ class ContractScenarioBridgeTest {
         startingBalanceCents: Long = 100_000L,
         horizonDays: Int = 90,
         simulation: ContractSimulationParams? = null,
+        paymentCategories: Map<Int, String> = emptyMap(),
     ) = ContractScenarioBridge.build(
         ContractScenarioBridge.Inputs(
             startingBalanceCents = startingBalanceCents,
@@ -70,6 +71,7 @@ class ContractScenarioBridgeTest {
             billOccurrences = occurrences,
             simulation = simulation,
             horizonDays = horizonDays,
+            paymentCategories = paymentCategories,
         )
     )
 
@@ -227,6 +229,21 @@ class ContractScenarioBridgeTest {
 
         assertEquals(1_000_000L, risk.negativeBalanceProbabilityPpm)
         assertTrue(risk.safeToSpendCents < 0L)
+    }
+
+    /** MCD-0025: resolved bill categories reach the recurrence and calibrator ranges reach params. */
+    @Test
+    fun billCategoriesAndCalibrationRangesReachTheContract() {
+        val scenario = build(
+            payments = listOf(payment(id = 7, dayOfMonth = 10, nextDate = "2026-01-10")),
+            paymentCategories = mapOf(7 to "housing"),
+        )
+        assertEquals("housing", scenario.recurrences.single().category)
+
+        val params = ContractScenarioBridge.simulationParams(
+            MonteCarloCalibration.defaults().copy(expenseCategoryVariation = mapOf("food" to 10..20))
+        )
+        assertEquals(10..20, params.expenseCategoryVariation["food"])
     }
 
     /** Calibration defaults map onto the contract simulation block (ppm scaling). */

@@ -319,6 +319,12 @@ class DashboardDeriver {
         calibration: MonteCarloCalibration,
         nativeDailyPercentiles: List<DailyPercentilePoint>,
     ): Adoption? = runCatching {
+        // Contract 1.2: carry each bill's resolved category so per-category variation can match.
+        val paymentCategories = pack.payments
+            .mapNotNull { payment ->
+                TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
+            }
+            .toMap()
         val built = ContractScenarioBridge.build(
             ContractScenarioBridge.Inputs(
                 startingBalanceCents = startingBalanceCents,
@@ -327,6 +333,7 @@ class DashboardDeriver {
                 payments = pack.payments,
                 billOccurrences = pack.billOccurrences,
                 simulation = ContractScenarioBridge.simulationParams(calibration),
+                paymentCategories = paymentCategories,
             )
         )
         // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation

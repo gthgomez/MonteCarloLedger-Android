@@ -33,13 +33,14 @@ class ContractPinTest {
         // -> 9fd8f74 (MC-07 corrected version.json metadata: released -> created_at)
         // -> 90ac33f (MC-08 contract 1.1: occurrence_exclusions + 3 fixtures; MCD-0024)
         // -> 912b89d (MC-08 merged to Ledger master; the snapshot now pins the default branch)
-        // -> 90ed406 (MC-09 enforced that occurrence_exclusions require a 1.1 document).
+        // -> 90ed406 (MC-09 enforced that occurrence_exclusions require a 1.1 document)
+        // -> f5c5e8b (MC-10 contract 1.2: per-category expense variation, MCD-0025).
         // See contract/README.md for the re-pin procedure.
         assertEquals(
-            "90ed406fef153dfd1a75c37e487436fe1ce10429",
+            "f5c5e8bb9ec4daf77a712ba872f468f2d2a986db",
             (pin["source_commit"] as? JsonPrimitive)?.content,
         )
-        assertEquals("1.1", (pin["contract_version"] as? JsonPrimitive)?.content)
+        assertEquals("1.2", (pin["contract_version"] as? JsonPrimitive)?.content)
 
         val expectedDigests = pin["files"]!!.jsonObject.mapValues { (_, v) ->
             (v as JsonPrimitive).content
