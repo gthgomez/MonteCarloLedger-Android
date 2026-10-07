@@ -1,6 +1,6 @@
 {
   "source_repo": "https://github.com/gthgomez/MonteCarlo-Ledger",
-  "source_commit": "d2e621c4bd609fd5c85b6cdd5275686e8412ba17",
+  "source_commit": "9fd8f74294f3bbc4f62d7b502e54613406a89535",
   "contract_version": "1.0",
   "files": {
     "contracts/README.md": "a7c1564416daff2a6d223b8888d77db21fb01f4eb113a7fe0c570fe3de23d3a1",
@@ -10,7 +10,7 @@
     "contracts/risk.md": "40ac2d059bfa65e6096f73e71ffea0d5f58f89ca5d8b65fe412d3de63506e8dc",
     "contracts/simulation.md": "190428e7dd6bef695aef5bb90b387d72b0302124d9aac170300d1655b247785f",
     "contracts/timeline.md": "2bc65a0ae2e846e6d72b9ab33bb4872095331d2fa2b406b3f30eea85f03d4182",
-    "contracts/version.json": "6e2158ce9e1bf17515d9c5d881a79585c1d4921bfec846110ab20f4ab6c6ced5",
+    "contracts/version.json": "b7264c9af8dd1943976d68559802fa26b26d8e72c96de25c0fa392405e0c2a10",
     "schemas/result.schema.json": "b044ed8dcd04aed1f28cd8516582579a74a488d6cc1596f546dbaa7e4afd64ca",
     "schemas/scenario.schema.json": "9f3bb5c2484dbde27e8555f0d31954e6684425f33f8566725380da2b3f7bb239",
     "fixtures/README.md": "72fd1794b3df1e19e983c517070674ef110ad6af5507baf354976b2b1729b4c1",

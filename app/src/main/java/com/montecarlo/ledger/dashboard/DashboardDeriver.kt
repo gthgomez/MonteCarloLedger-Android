@@ -4,7 +4,6 @@ import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.ActionCenterState
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardPrimaryAction
-import com.montecarlo.ledger.FeatureFlags
 import com.montecarlo.ledger.MoneyBucketAccent
 import com.montecarlo.ledger.MoneyBucketState
 import com.montecarlo.ledger.TransactionReviewItem
@@ -27,6 +26,7 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.RecurringCandidate
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
+import com.montecarlo.ledger.processing.BalanceForecastRow
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.BudgetPacingEngine
 import com.montecarlo.ledger.processing.ForecastEngine
@@ -102,12 +102,8 @@ class DashboardDeriver {
             30
         }
 
-        val nativeForecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events)
         val incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
         val cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
-        val currentCashFlowWindow = cashFlowWindows.firstOrNull()
-        val dailyBudgetCents = currentCashFlowWindow?.dailySafeSpendCents
-            ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
 
         // Calibrate simulation ranges from the user's own history instead of hardcoded
         // assumptions; fall back to defaults until enough months exist.
@@ -116,23 +112,23 @@ class DashboardDeriver {
             today = today,
             recurringPatterns = recurringCandidates.map { it.pattern }.toSet(),
         )
-        // The non-normative daily fan chart is not part of Contract 1.0; the native engine
-        // still supplies it (with B-05/B-06 fixed) while the contract governs every headline
-        // number below when the adoption flag is on.
-        val nativeMc = withContext(Dispatchers.Default) {
+        // The non-normative daily fan chart is not part of Contract 1.0; the native engine still
+        // supplies it (with B-05/B-06 fixed). Every headline number below comes from the contract
+        // engine unconditionally (MC-07/D): there is no second financial truth to fall back to.
+        val nativeDailyPercentiles = withContext(Dispatchers.Default) {
             MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
                 .runSimulation(forecastSeedCents, events, today)
+                .dailyPercentiles
         }
-        val adopted = if (FeatureFlags.contractForecastEnabled) {
-            withContext(Dispatchers.Default) {
-                adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
-            }
-        } else {
-            null
+        val adopted = withContext(Dispatchers.Default) {
+            adoptContract(pack, forecastSeedCents, today, calibration, nativeDailyPercentiles)
         }
-        val forecastSummary = adopted?.forecastSummary ?: nativeForecastSummary
+        val forecastSummary = adopted.forecastSummary
         val safeToSpend = forecastSummary.safeToSpendCents
-        val mc = adopted?.monteCarloResult ?: nativeMc
+        val mc = adopted.monteCarloResult
+        // MC-07/C2: the daily budget is a product heuristic derived from the canonical
+        // safe-to-spend, so it cannot contradict the canonical number shown beside it.
+        val dailyBudgetCents = if (safeToSpend > 0L) safeToSpend / daysUntilPayday else 0L
         val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
 
         val nextPaydayLabel = nextPaycheck?.let { "Next: ${it.date.formatDateDisplay()} (${daysUntilPayday}d)" } ?: "No upcoming income"
@@ -145,7 +141,7 @@ class DashboardDeriver {
                     else -> "${it.description} • $recurrenceText • ${it.date.formatDateDisplay()}"
                 }
             }
-        val forecastRows = forecastSummary.let { ForecastEngine.buildBalanceForecast(forecastSeedCents, events) }
+        val forecastRows = adopted.forecastRows
 
         val driftCents = if (mismatch) ledgerBalanceCents - bankBalanceCents else 0L
         val totalAssetBalance = pack.assets.sumOf { it.balanceCents }
@@ -285,8 +281,12 @@ class DashboardDeriver {
 
     /**
      * Runs the canonical contract engine over repository data and maps the result onto the
-     * dashboard's state types. Returns null on any contract error so the caller falls back to
-     * the legacy engines rather than rendering a broken dashboard.
+     * dashboard's state types.
+     *
+     * The contract path is unconditional (MC-07/D). A contract error propagates to the
+     * ViewModel's error state instead of falling back to a second engine, because keeping two
+     * financial truths is exactly what this campaign removes. Contract MCD-0023: the simulation
+     * is defined for any scenario, so an empty ledger must not be special-cased to 0% risk.
      */
     private fun adoptContract(
         pack: ReportingPackage,
@@ -294,8 +294,8 @@ class DashboardDeriver {
         asOf: LocalDate,
         calibration: MonteCarloCalibration,
         nativeDailyPercentiles: List<DailyPercentilePoint>,
-    ): Adoption? = runCatching {
-        val built = ContractScenarioBridge.build(
+    ): Adoption {
+        val scenario = ContractScenarioBridge.build(
             ContractScenarioBridge.Inputs(
                 startingBalanceCents = startingBalanceCents,
                 asOf = asOf,
@@ -305,22 +305,20 @@ class DashboardDeriver {
                 simulation = ContractScenarioBridge.simulationParams(calibration),
             )
         )
-        // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation
-        // depends only on the horizon and surprise parameters, never on whether scheduled
-        // activity exists, so we must not zero out risk for an empty ledger here.
-        val scenario = built
         val result = ContractRunner.run(scenario)
         val runs = scenario.simulation?.runs ?: 500
-        Adoption(
+        return Adoption(
             forecastSummary = ContractDashboardMapper.toForecastSummary(result),
             monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
                 .copy(dailyPercentiles = nativeDailyPercentiles),
+            forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
         )
-    }.getOrNull()
+    }
 
     private data class Adoption(
         val forecastSummary: ForecastSummary,
         val monteCarloResult: MonteCarloResult,
+        val forecastRows: List<BalanceForecastRow>,
     )
 
     /**
