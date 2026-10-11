@@ -1,6 +1,14 @@
 # MonteCarlo Ledger Privacy Policy
 
-> **Play Store URL placeholder:** `TODO_PRIVACY_URL`
+> **Public policy URL (use this in Play Console):**
+> <https://raw.githubusercontent.com/gthgomez/MonteCarloLedger-Android/main/PRIVACY.md>
+> (human-readable rendering: <https://github.com/gthgomez/MonteCarloLedger-Android/blob/main/PRIVACY.md>)
+>
+> **Not live yet:** the branch that updates this file has not merged, so `main` still serves
+> the earlier *placeholder* policy at this URL. After the signed-release PR merges, the URL
+> serves the text below and is final.
+> Last verified reachable: 2026-10-11 (HTTP 200) — **re-verify before entering it in Play
+> Console** (re-verification due 2026-11-11).
 
 ## Summary
 
@@ -28,4 +36,9 @@ You can erase all local data from **Settings → Security & Privacy → Erase al
 
 ## Contact
 
-Full policy URL: `TODO_PRIVACY_URL` (to be published before Play Store release)
+Full policy URL: <https://raw.githubusercontent.com/gthgomez/MonteCarloLedger-Android/main/PRIVACY.md>
+
+Once this file is merged to `main`, the repository `gthgomez/MonteCarloLedger-Android` is
+public, so that raw URL is publicly viewable without authentication and can be entered
+directly in the Play Console "Privacy policy" field. (Until the merge lands, the URL still
+serves the placeholder policy — see the note at the top of this file.)
