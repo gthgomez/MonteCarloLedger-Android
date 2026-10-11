@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.dashboard
 
 import com.montecarlo.ledger.DashboardConfig
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.LedgerRepository
 import com.montecarlo.ledger.data.TransactionEntity
 import kotlinx.coroutines.runBlocking
@@ -13,6 +14,9 @@ import java.time.LocalDate
 class DashboardDeriverTest {
 
     private val today = LocalDate.of(2026, 8, 21)
+
+    /** Id of the credit account that a linked, active debt routes its charges into. */
+    private val creditAccountId = 42L
 
     private fun emptyPack(txns: List<TransactionEntity> = emptyList()) = ReportingPackage(
         incomes = emptyList(),
@@ -90,5 +94,97 @@ class DashboardDeriverTest {
         assertTrue(derivation.reconciliationMismatch)
         assertEquals(Pair(-1_500L, 99_999L), derivation.reconciliationDetails)
         assertTrue(derivation.uiState.bankLedgerMismatch)
+    }
+
+    @Test
+    fun derive_creditAccountChargeReducesNetWorthByChargeOnce() = runBlocking {
+        val cardCharge = TransactionEntity(
+            description = "Card purchase",
+            amount_cents = -6_000L,
+            date = "2026-08-12",
+            type = "expense",
+            category = "shopping",
+            account_id = creditAccountId,
+        )
+        val creditDebt = DebtEntity(
+            name = "Visa",
+            balanceCents = 6_000L,
+            aprBasisPoints = 1_999,
+            minimumPaymentCents = 2_500L,
+            dueDayOfMonth = 15,
+            linkedAccountId = creditAccountId,
+            isActive = true,
+        )
+
+        val charged = DashboardDeriver().derive(
+            emptyPack(listOf(cardCharge)).copy(debts = listOf(creditDebt)),
+            today,
+        )
+        val uncharged = DashboardDeriver().derive(
+            emptyPack().copy(debts = listOf(creditDebt.copy(balanceCents = 0L))),
+            today,
+        )
+
+        assertEquals(
+            -6_000L,
+            charged.uiState.totalNetWorthCents - uncharged.uiState.totalNetWorthCents,
+        )
+    }
+
+    @Test
+    fun derive_openingReconciledBalanceCountsOnceInNetWorth() = runBlocking {
+        val pack = emptyPack().copy(
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 500_000L, isReconciled = true),
+        )
+
+        val derivation = DashboardDeriver().derive(pack, today)
+
+        assertEquals(500_000L, derivation.uiState.totalNetWorthCents)
+    }
+
+    @Test
+    fun derive_creditChargeDoesNotFalselyTriggerReconciliationMismatch() = runBlocking {
+        val cashIncome = TransactionEntity(
+            description = "Paycheck",
+            amount_cents = 10_000L,
+            date = "2026-08-05",
+            type = "income",
+            category = "income",
+        )
+        val cashExpense = TransactionEntity(
+            description = "Groceries",
+            amount_cents = -1_500L,
+            date = "2026-08-10",
+            type = "expense",
+            category = "food",
+        )
+        val cardCharge = TransactionEntity(
+            description = "Card purchase",
+            amount_cents = -6_000L,
+            date = "2026-08-12",
+            type = "expense",
+            category = "shopping",
+            account_id = creditAccountId,
+        )
+        val creditDebt = DebtEntity(
+            name = "Visa",
+            balanceCents = 6_000L,
+            aprBasisPoints = 1_999,
+            minimumPaymentCents = 2_500L,
+            dueDayOfMonth = 15,
+            linkedAccountId = creditAccountId,
+            isActive = true,
+        )
+        // Cash movements net to 8_500; the card charge is a liability, not cash.
+        val pack = emptyPack(listOf(cashIncome, cashExpense, cardCharge)).copy(
+            debts = listOf(creditDebt),
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 8_500L, isReconciled = true),
+        )
+
+        val derivation = DashboardDeriver().derive(pack, today)
+
+        assertFalse(derivation.reconciliationMismatch)
+        assertFalse(derivation.uiState.bankLedgerMismatch)
+        assertEquals(null, derivation.reconciliationDetails)
     }
 }

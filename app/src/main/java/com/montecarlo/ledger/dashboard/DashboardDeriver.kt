@@ -91,10 +91,17 @@ class DashboardDeriver {
             today = today,
         )
 
+        val creditRoutedAccountIds = pack.debts
+            .filter { it.isActive && it.linkedAccountId != null }
+            .mapNotNull { it.linkedAccountId }
+            .toSet()
         val ledgerBalanceCents = pack.txns.sumOf { it.amount_cents }
+        val cashLedgerCents = pack.txns
+            .filter { it.account_id == null || it.account_id !in creditRoutedAccountIds }
+            .sumOf { it.amount_cents }
         val bankBalanceCents = pack.balanceState.bankBalanceCents
         val reconciled = pack.balanceState.isReconciled
-        val mismatch = reconciled && bankBalanceCents != ledgerBalanceCents
+        val mismatch = reconciled && bankBalanceCents != cashLedgerCents
         // Until the user confirms a reconciled balance, keep forecasts anchored to the
         // live transaction ledger so first-run balances don't collapse to zero.
         val forecastSeedCents = BalanceSeedResolver.resolve(
@@ -171,10 +178,11 @@ class DashboardDeriver {
         val forecastRows = adopted?.forecastRows
             ?: ForecastEngine.buildBalanceForecast(forecastSeedCents, events)
 
-        val driftCents = if (mismatch) ledgerBalanceCents - bankBalanceCents else 0L
+        val driftCents = if (mismatch) cashLedgerCents - bankBalanceCents else 0L
         val totalAssetBalance = pack.assets.sumOf { it.balanceCents }
         val totalDebtBalance = pack.debts.filter { it.isActive }.sumOf { it.balanceCents }
-        val totalNetWorthCents = ledgerBalanceCents + totalAssetBalance - totalDebtBalance
+        val cashBalanceCents = if (reconciled) bankBalanceCents else cashLedgerCents
+        val totalNetWorthCents = cashBalanceCents + totalAssetBalance - totalDebtBalance
 
         val dailyVelocityCents = kotlin.math.abs(flowSummary.outflowCents) / 30
         val runwayDays = BudgetPacingEngine.clampedRunwayDays(
@@ -303,7 +311,7 @@ class DashboardDeriver {
         return DashboardDerivation(
             uiState = uiState,
             reconciliationMismatch = mismatch,
-            reconciliationDetails = if (mismatch) Pair(ledgerBalanceCents, bankBalanceCents) else null,
+            reconciliationDetails = if (mismatch) Pair(cashLedgerCents, bankBalanceCents) else null,
         )
     }
 
@@ -587,7 +595,7 @@ class DashboardDeriver {
 data class DashboardDerivation(
     val uiState: AppUiState,
     val reconciliationMismatch: Boolean,
-    /** Pair(ledgerBalanceCents, bankBalanceCents) while mismatched. */
+    /** Pair(cashLedgerCents, bankBalanceCents) while mismatched. */
     val reconciliationDetails: Pair<Long, Long>?,
 )
 
