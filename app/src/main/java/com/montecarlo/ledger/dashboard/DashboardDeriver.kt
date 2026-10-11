@@ -45,7 +45,6 @@ import com.montecarlo.ledger.processing.TimelineService
 import com.montecarlo.ledger.ui.formatDateDisplay
 import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.centsToDisplay
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -164,7 +163,7 @@ class DashboardDeriver {
             MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
                 .runSimulation(forecastSeedCents, events, today)
         }
-        val contractOutcome: ContractCalculationResult? = if (contractForecastEnabled) {
+        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = if (contractForecastEnabled) {
             withContext(Dispatchers.Default) {
                 adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
             }
@@ -292,6 +291,7 @@ class DashboardDeriver {
             hasIncome = pack.incomes.isNotEmpty(),
             hasBills = pack.payments.isNotEmpty(),
             overdraftRecommendations = overdraftRecommendations,
+            canonicalForecastStatus = canonicalStatus,
         )
         val trustSignals = buildTrustSignals(
             updatedAt = LocalDateTime.now(),
@@ -376,9 +376,12 @@ class DashboardDeriver {
             categoryBudgetRows = categoryBudgetRows,
             transactionRules = pack.rules,
             pacingResult = pacingResult,
-            // The non-normative daily fan chart is not governed by the contract, so the native
-            // engine keeps supplying it (with B-05/B-06 fixed) even in contract mode.
-            monteCarloDailyPercentiles = nativeMc.dailyPercentiles,
+            // WS2/F3: the fan chart is gated on the canonical status. When the contract engine is
+            // the active engine the daily percentiles come from the canonical result (which carries
+            // the non-normative overlay captured at the last success, so a Stale chart stays
+            // internally consistent); when the calculation is withheld the fan is empty rather than
+            // silently showing native-engine paths. Native mode keeps the native percentiles.
+            monteCarloDailyPercentiles = mc.dailyPercentiles,
             monteCarloResult = mc,
             monteCarloBasisLabel = basisLabel(calibration),
             forecastInsights = com.montecarlo.ledger.processing.MonteCarloInsights.generate(
@@ -406,6 +409,10 @@ class DashboardDeriver {
      * its reason and timestamp — it is never collapsed into `null` and never silently swallowed. The
      * caller decides how to degrade (fail closed, or show a retained stale result); it must not fall
      * back to the native engines while the contract engine is the active, enabled engine.
+     *
+     * The run is routed through the shared [canonicalCalculation] helper so it catches only
+     * [Exception] (WS2/F4: fatal `Error`s propagate) and re-throws coroutine cancellation, and so the
+     * same failure contract is shared with the home-screen widget (WS2/F1).
      */
     private fun adoptContract(
         pack: ReportingPackage,
@@ -413,50 +420,39 @@ class DashboardDeriver {
         asOf: LocalDate,
         calibration: MonteCarloCalibration,
         nativeDailyPercentiles: List<DailyPercentilePoint>,
-    ): ContractCalculationResult =
-        try {
-            // Contract 1.2: carry each bill's resolved category so per-category variation can match.
-            val paymentCategories = pack.payments
-                .mapNotNull { payment ->
-                    TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
-                }
-                .toMap()
-            val built = ContractScenarioBridge.build(
-                ContractScenarioBridge.Inputs(
-                    startingBalanceCents = startingBalanceCents,
-                    asOf = asOf,
-                    incomes = pack.incomes,
-                    payments = pack.payments,
-                    billOccurrences = pack.billOccurrences,
-                    simulation = ContractScenarioBridge.simulationParams(calibration),
-                    paymentCategories = paymentCategories,
-                )
+    ): ContractCalculationResult<CanonicalAdoption> = canonicalCalculation {
+        // Contract 1.2: carry each bill's resolved category so per-category variation can match.
+        val paymentCategories = pack.payments
+            .mapNotNull { payment ->
+                TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
+            }
+            .toMap()
+        val built = ContractScenarioBridge.build(
+            ContractScenarioBridge.Inputs(
+                startingBalanceCents = startingBalanceCents,
+                asOf = asOf,
+                incomes = pack.incomes,
+                payments = pack.payments,
+                billOccurrences = pack.billOccurrences,
+                simulation = ContractScenarioBridge.simulationParams(calibration),
+                paymentCategories = paymentCategories,
             )
-            // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation
-            // depends only on the horizon and surprise parameters, never on whether scheduled
-            // activity exists, so we must not zero out risk for an empty ledger here.
-            val scenario = built
-            val result = ContractRunner.run(scenario)
-            val runs = scenario.simulation?.runs ?: 500
-            ContractCalculationResult.Success(
-                CanonicalAdoption(
-                    forecastSummary = ContractDashboardMapper.toForecastSummary(result),
-                    monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
-                        .copy(dailyPercentiles = nativeDailyPercentiles),
-                    // MC-07/C1: the display rows are the contract's own ordered events, not a second
-                    // recurrence/forecast interpretation.
-                    forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
-                )
-            )
-        } catch (cancellation: CancellationException) {
-            // Never treat coroutine cancellation as a contract failure.
-            throw cancellation
-        } catch (failure: Throwable) {
-            ContractCalculationResult.Failure(
-                reason = failure.message ?: failure::class.java.simpleName,
-                at = LocalDateTime.now(),
-            )
-        }
+        )
+        // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation
+        // depends only on the horizon and surprise parameters, never on whether scheduled
+        // activity exists, so we must not zero out risk for an empty ledger here.
+        val scenario = built
+        val result = ContractRunner.run(scenario)
+        val runs = scenario.simulation?.runs ?: 500
+        CanonicalAdoption(
+            forecastSummary = ContractDashboardMapper.toForecastSummary(result),
+            monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
+                .copy(dailyPercentiles = nativeDailyPercentiles),
+            // MC-07/C1: the display rows are the contract's own ordered events, not a second
+            // recurrence/forecast interpretation.
+            forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
+        )
+    }
 
     /**
      * Honest provenance for the simulation: calibrated from real history, or an
@@ -608,9 +604,16 @@ class DashboardDeriver {
         hasIncome: Boolean,
         hasBills: Boolean,
         overdraftRecommendations: List<com.montecarlo.ledger.processing.OverdraftRecommendation> = emptyList(),
+        canonicalForecastStatus: CanonicalForecastStatus = CanonicalForecastStatus.Live,
     ): ActionCenterState {
         val forecastUnlocked = reconciled
+        // WS2/F2: a withheld canonical calculation must not read as "no risk". When the contract
+        // engine failed with no retained result the headline numbers are neutral zeros, so the risk
+        // label and the safe-to-spend caption explicitly say the forecast is unavailable instead of
+        // rendering "Stable forecast" / "Safe to spend" beside $0.
+        val forecastAvailable = canonicalForecastStatus != CanonicalForecastStatus.Failed
         val riskLabel = when {
+            !forecastAvailable -> "Unavailable"
             !hasIncome || !hasBills -> "Add income and bills"
             !reconciled -> "Confirm bank balance"
             safeToSpendCents < 0 -> "Shortfall projected"
@@ -635,6 +638,7 @@ class DashboardDeriver {
             DashboardPrimaryAction.RecordSpending -> "Record spending"
         }
         val caption = when {
+            !forecastAvailable -> "Forecast unavailable"
             !reconciled -> "Provisional until balance confirmed"
             safeToSpendCents < 0 -> "Lowest balance over next 90 days"
             else -> "Safe to spend"
@@ -649,6 +653,7 @@ class DashboardDeriver {
             forecastUnlocked = forecastUnlocked,
             safeToSpendCaption = caption,
             overdraftRecommendations = overdraftRecommendations,
+            forecastAvailable = forecastAvailable,
         )
     }
 

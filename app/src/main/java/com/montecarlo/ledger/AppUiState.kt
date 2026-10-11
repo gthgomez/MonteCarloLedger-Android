@@ -132,6 +132,12 @@ data class ActionCenterState(
     /** False until the user confirms bank balance — safe-to-spend is provisional. */
     val forecastUnlocked: Boolean = false,
     val safeToSpendCaption: String = "Safe to spend",
+    /**
+     * WS2/F2: false when the canonical contract calculation was withheld, so the neutral zeros in
+     * [safeToSpendCents]/[forecastRiskLabel] must be presented as "unavailable" rather than as a
+     * genuine "no risk" / "$0" result.
+     */
+    val forecastAvailable: Boolean = true,
     val overdraftRecommendations: List<com.montecarlo.ledger.processing.OverdraftRecommendation> = emptyList(),
 )
 

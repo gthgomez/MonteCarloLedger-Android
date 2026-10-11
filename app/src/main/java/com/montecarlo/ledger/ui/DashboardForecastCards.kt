@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.AppUiState
+import com.montecarlo.ledger.CanonicalForecastStatus
 import com.montecarlo.ledger.util.centsToDisplay
 import com.montecarlo.ledger.util.centsToDisplayWhole
 import com.montecarlo.ledger.util.centsToDollarInputString
@@ -119,18 +120,54 @@ internal fun PlanAheadCard(uiState: AppUiState) {
         )
     }
 }
+/**
+ * WS2/F2: the rendered 3-month estimate, collapsed into one testable value.
+ *
+ * When the canonical contract calculation failed with no retained result the deriver fills the
+ * Monte Carlo fields with neutral zeros. Rendering those as "$0 / $0 / $0" and "0.0%" would read as
+ * "no risk", so the card shows a neutral "Unavailable" state driven by
+ * [AppUiState.canonicalForecastStatus] instead.
+ */
+internal data class MonteCarloDisplay(
+    val lower: String,
+    val typical: String,
+    val higher: String,
+    val risk: String,
+    val withheld: Boolean,
+)
+
+internal fun monteCarloDisplay(uiState: AppUiState): MonteCarloDisplay =
+    if (uiState.canonicalForecastStatus == CanonicalForecastStatus.Failed) {
+        MonteCarloDisplay(
+            lower = "—",
+            typical = "—",
+            higher = "—",
+            risk = "Unavailable",
+            withheld = true,
+        )
+    } else {
+        MonteCarloDisplay(
+            lower = centsToDisplayWhole(uiState.monteCarlo10thCents),
+            typical = centsToDisplayWhole(uiState.monteCarlo50thCents),
+            higher = centsToDisplayWhole(uiState.monteCarlo90thCents),
+            risk = String.format("%.1f", uiState.probabilityNegativePct),
+            withheld = false,
+        )
+    }
+
 @Composable
 internal fun MonteCarloCard(uiState: AppUiState) {
     var showHelp by remember { mutableStateOf(false) }
-    val mcLowerStr = "${centsToDisplayWhole(uiState.monteCarlo10thCents)}"
-    val mcTypicalStr = "${centsToDisplayWhole(uiState.monteCarlo50thCents)}"
-    val mcHigherStr = "${centsToDisplayWhole(uiState.monteCarlo90thCents)}"
-    val mcRiskStr = String.format("%.1f", uiState.probabilityNegativePct)
+    val display = monteCarloDisplay(uiState)
+    val mcLowerStr = display.lower
+    val mcTypicalStr = display.typical
+    val mcHigherStr = display.higher
+    val mcRiskStr = display.risk
     GlassCard(
         modifier = Modifier
             .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
             .semantics {
-                stateDescription = "3-month estimate: lower $mcLowerStr, typical $mcTypicalStr, higher $mcHigherStr. Risk of running low: $mcRiskStr%"
+                stateDescription = "3-month estimate: lower $mcLowerStr, typical $mcTypicalStr, higher $mcHigherStr. Risk of running low: $mcRiskStr"
             },
         tint = GlassTint.Teal,
         surfaceStyle = GlassSurfaceStyle.Standard
@@ -161,7 +198,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Lower", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(
-                        "${centsToDisplayWhole(uiState.monteCarlo10thCents)}",
+                        display.lower,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = if (uiState.monteCarlo10thCents < 0) GlassTokens.ErrorRed else GlassTokens.Cyan
@@ -170,7 +207,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Typical", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(
-                        "${centsToDisplayWhole(uiState.monteCarlo50thCents)}",
+                        display.typical,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = GlassTokens.TextPrimary
@@ -179,7 +216,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Higher", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextDim)
                     Text(
-                        "${centsToDisplayWhole(uiState.monteCarlo90thCents)}",
+                        display.higher,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = GlassTokens.PositiveGreen
@@ -187,9 +224,13 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                 }
             }
             Text(
-                "Risk of running low: ${String.format("%.1f", uiState.probabilityNegativePct)}%",
+                if (display.withheld) {
+                    "Risk of running low: unavailable"
+                } else {
+                    "Risk of running low: ${display.risk}%"
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (uiState.probabilityNegativePct > 25) GlassTokens.ErrorRed
+                color = if (!display.withheld && uiState.probabilityNegativePct > 25) GlassTokens.ErrorRed
                 else GlassTokens.TextSecondary
             )
             uiState.monteCarloBasisLabel?.takeIf { it.isNotBlank() }?.let { basis ->
