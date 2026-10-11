@@ -240,6 +240,28 @@ internal fun MonteCarloCard(uiState: AppUiState) {
                     color = GlassTokens.TextDim
                 )
             }
+            // WS4: the probability above is a simulation output that has not been validated
+            // out-of-sample. Say so, and say it louder when the model is also on default assumptions.
+            uiState.riskProbabilityProvenance?.let { provenance ->
+                val marker = when {
+                    provenance.sufficiency == com.montecarlo.ledger.DataSufficiency.InsufficientData ->
+                        "Unverified — insufficient history to calibrate this probability"
+                    provenance.origin == com.montecarlo.ledger.AssumptionOrigin.Unverified ->
+                        "Unverified — not validated out-of-sample"
+                    else -> null
+                }
+                marker?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (provenance.sufficiency == com.montecarlo.ledger.DataSufficiency.InsufficientData) {
+                            GlassTokens.ErrorRed
+                        } else {
+                            GlassTokens.TextDim
+                        }
+                    )
+                }
+            }
             uiState.projectedTroubleDateLabel?.let {
                 Text("Projected first negative-balance date: $it", style = MaterialTheme.typography.labelSmall, color = GlassTokens.ErrorRed)
             }
@@ -252,7 +274,7 @@ internal fun MonteCarloCard(uiState: AppUiState) {
             title = { Text("How the 3-month estimate works", color = GlassTokens.TextPrimary) },
             text = {
                 Text(
-                    "We run your upcoming income and bills through 500 different scenarios in the app (the home-screen widget uses a lighter 100-run sample). Each scenario adds random variation to your income and expenses calibrated from your spending history — or default assumptions until there is enough history — plus occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below \$0 at any point in the next 90 days.\n\nThese estimates are for planning only and are not financial advice.",
+                    "We run your upcoming income and bills through 500 different scenarios in the app (the home-screen widget uses a lighter 100-run sample). Each scenario adds random variation to your income and expenses calibrated from your spending history — or default assumptions until there is enough history — plus occasional surprise expenses. The results show you the range of possible outcomes — from worst case (10th percentile) to typical (median) to best case (90th percentile). Overdraft risk is the chance your projected balance goes below \$0 at any point in the next 90 days.\n\nThe risk percentage is a simulation estimate and has not been validated against your actual out-of-sample outcomes, so it is shown as unverified. These estimates are for planning only and are not financial advice.",
                     color = GlassTokens.TextSecondary,
                 )
             },
