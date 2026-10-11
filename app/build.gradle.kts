@@ -1,8 +1,52 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.21"
     id("com.google.devtools.ksp")
 }
+
+// ---------------------------------------------------------------------------
+// Release signing plumbing (see docs/RELEASE.md for the full scheme).
+//
+// The release keystore is NEVER committed. Credentials are read from, in order
+// of precedence:
+//   1. Environment variables: ANDROID_KEYSTORE_PATH, ANDROID_KEY_ALIAS,
+//      ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD (used by release CI
+//      when repo secrets are configured).
+//   2. Root-level `keystore.properties` (gitignored, machine-local):
+//        storeFile=/abs/or/relative/path/to/release.jks
+//        storePassword=...
+//        keyAlias=...
+//        keyPassword=...
+//
+// When none of these are present the release build still succeeds and simply
+// produces an UNSIGNED APK, so local `assembleRelease` and CI keep working for
+// every developer. Missing signing is a distribution blocker (Play upload),
+// never a build blocker.
+// ---------------------------------------------------------------------------
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(envName: String, propertyName: String): String? =
+    System.getenv(envName)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFilePath = signingValue("ANDROID_KEYSTORE_PATH", "storeFile")
+val releaseStorePassword = signingValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
+
+val hasReleaseSigning = listOf(
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
 
 // Room DatabaseVerifier embeds SQLite JDBC, which extracts a native lib into a temp dir that
 // must be readable/writable/executable. Windows C:\WINDOWS\TEMP\ often fails that check.
@@ -43,18 +87,57 @@ android {
         applicationId = "com.montecarlo.ledger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+
+        // Versioning scheme (documented in docs/RELEASE.md):
+        //   versionName = MAJOR.MINOR.PATCH (human-facing, SemVer-style)
+        //   versionCode = strictly increasing integer, bumped on EVERY Play upload
+        //                 (never reused, never decreased — Play rejects re-use).
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                // rootProject.file() resolves relative paths against the repo
+                // root and passes absolute paths through unchanged.
+                storeFile = rootProject.file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                // Never log or print credential material.
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Sign only when a keystore was actually provided. Otherwise the
+            // release build intentionally falls through to
+            // app-release-unsigned.apk so CI and local builds never break.
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
+
+    // Surface the signing mode once per configuration so builds are never
+    // silently signed or silently unsigned.
+    logger.lifecycle(
+        if (hasReleaseSigning) {
+            "Release signing: ENABLED (keystore '${releaseStoreFilePath}', alias '${releaseKeyAlias}')"
+        } else {
+            "Release signing: DISABLED — no keystore.properties / ANDROID_KEYSTORE_* env; " +
+                "release output will be UNSIGNED (app-release-unsigned.apk)."
+        }
+    )
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

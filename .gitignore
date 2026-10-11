@@ -10,6 +10,8 @@ captures/
 # Local machine config and signing secrets
 local.properties
 **/local.properties
+keystore.properties
+**/keystore.properties
 DesignSystem/build/
 DesignSystem/.gradle/
 .env

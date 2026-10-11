@@ -1,0 +1,81 @@
+# MonteCarloLedger — release build gate
+#
+# Purpose: keep the R8/minified release path compiling. This is a SEPARATE
+# workflow from "Android CI" so the required "Android CI" check name and its
+# job graph are untouched.
+#
+# Signing is optional here: with no keystore secrets/keystore.properties the job
+# still passes and produces app-release-unsigned.apk. If the four
+# ANDROID_KEYSTORE_* secrets are configured, the same command produces a signed
+# artifact. See docs/RELEASE.md.
+name: Android Release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: android-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-assemble:
+    name: assembleRelease (R8/minify)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Require DesignSystem composite
+        run: |
+          if [ ! -f DesignSystem/build.gradle.kts ]; then
+            echo "::error::In-repo DesignSystem missing (includeBuild). Cannot build standalone."
+            exit 1
+          fi
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # Passed through only if the repo/org secrets exist; otherwise empty and
+      # the build falls back to an unsigned APK (still a valid gate).
+      - name: Assemble release
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Report artifact signing status
+        run: |
+          ls -l app/build/outputs/apk/release/ || true
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            echo "Release output: SIGNED (app-release.apk)"
+          elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            echo "Release output: UNSIGNED (app-release-unsigned.apk) — no signing secrets configured."
+          else
+            echo "::error::No release APK produced."
+            exit 1
+          fi
+
+      - name: Upload unit/release build reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-reports
+          path: app/build/reports/
+          if-no-files-found: ignore
