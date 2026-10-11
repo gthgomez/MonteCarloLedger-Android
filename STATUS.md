@@ -89,12 +89,17 @@ This section is additive; the historical text above is preserved as written but 
 2. **Versioning scheme** — `versionCode = 2`, `versionName = "1.1.0"`. Scheme documented in
    [docs/RELEASE.md](docs/RELEASE.md) (`versionName` = SemVer, `versionCode` = strictly increasing upload counter).
 3. **Release CI gate** — new workflow `.github/workflows/android-release.yml` ("Android Release") runs
-   `:app:assembleRelease --no-daemon` (no `continue-on-error`). The required **"Android CI"** check and its
+   `:app:assembleRelease --no-daemon` (no `continue-on-error`). On `push`/`workflow_dispatch` a step decodes
+   the `ANDROID_KEYSTORE_BASE64` secret to `$RUNNER_TEMP/keystore.jks` and exports `ANDROID_KEYSTORE_PATH` +
+   alias/passwords for a signed build; on `pull_request` that step is skipped so no signing credentials reach
+   PR builds (the unsigned release build still runs as the gate). The required **"Android CI"** check and its
    workflow file are untouched.
 4. **Diagnostics** — Gradle configuration now logs `Release signing: ENABLED|DISABLED …` once per build,
    so an unsigned artifact can never be mistaken for a signed one.
-5. **Docs** — `PRIVACY.md` placeholders replaced with the live public URL
-   <https://github.com/gthgomez/MonteCarloLedger-Android/blob/main/PRIVACY.md> (reachable, HTTP 200 on 2026-10-11);
+5. **Docs** — `PRIVACY.md` placeholders replaced with the public policy URL
+   <https://raw.githubusercontent.com/gthgomez/MonteCarloLedger-Android/main/PRIVACY.md> (reachable, HTTP 200 on
+   2026-10-11; the URL serves this file only **after the branch merges** — until then `main` still shows the
+   placeholder);
    `QA_CHECKLIST.md` now records real executed results and marks device/Play items NOT RUN.
    New `docs/RELEASE.md` is the authoritative release/signing document.
 

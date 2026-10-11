@@ -4,10 +4,22 @@
 # workflow from "Android CI" so the required "Android CI" check name and its
 # job graph are untouched.
 #
-# Signing is optional here: with no keystore secrets/keystore.properties the job
-# still passes and produces app-release-unsigned.apk. If the four
-# ANDROID_KEYSTORE_* secrets are configured, the same command produces a signed
-# artifact. See docs/RELEASE.md.
+# Signing is optional and CI-only. The same `:app:assembleRelease` command is
+# run on every event, but the signing environment differs by event:
+#
+#   * pull_request — NO signing credentials are placed in the environment
+#     (a same-repo PR could otherwise exfiltrate them). The job still runs the
+#     full release compile gate and produces app-release-unsigned.apk.
+#   * push / workflow_dispatch — if the ANDROID_KEYSTORE_BASE64 secret is set, a
+#     step decodes it to $RUNNER_TEMP/keystore.jks and exports
+#     ANDROID_KEYSTORE_PATH / alias / passwords, so the build produces a signed
+#     app-release.apk. If the secret is unset the build is unsigned and still
+#     passes.
+#
+# The keystore is supplied as base64 (not as a path secret): a path secret would
+# point at a file that does not exist on the ephemeral runner. Local
+# keystore.properties support is unchanged (see app/build.gradle.kts).
+# See docs/RELEASE.md.
 name: Android Release
 
 on:
@@ -50,14 +62,40 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # Passed through only if the repo/org secrets exist; otherwise empty and
-      # the build falls back to an unsigned APK (still a valid gate).
-      - name: Assemble release
+      # Decode the base64 keystore secret onto the ephemeral runner and export
+      # the ANDROID_KEYSTORE_* variables for the build step. Restricted to
+      # non-PR events: on pull_request this step is skipped entirely, so the
+      # signing environment is never present for PR builds.
+      #
+      # Secret values are passed in via `env:` (never interpolated into the
+      # script text) and are never echoed; only the alias and the (non-secret)
+      # materialized path are logged.
+      - name: Materialize release keystore (non-PR only)
+        if: github.event_name != 'pull_request'
         env:
-          ANDROID_KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "${ANDROID_KEYSTORE_BASE64}" ]; then
+            echo "No ANDROID_KEYSTORE_BASE64 secret configured — release build will be UNSIGNED."
+            exit 0
+          fi
+          KEYSTORE_PATH="${RUNNER_TEMP}/keystore.jks"
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+          chmod 600 "${KEYSTORE_PATH}"
+          {
+            echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_PATH}"
+            echo "ANDROID_KEY_ALIAS=${ANDROID_KEY_ALIAS}"
+            echo "ANDROID_KEYSTORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}"
+            echo "ANDROID_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}"
+          } >> "${GITHUB_ENV}"
+          echo "Release keystore materialized at ${KEYSTORE_PATH} (alias '${ANDROID_KEY_ALIAS}')."
+
+      # On PR events the step above is skipped, so this is an unsigned build.
+      # Either way this step is the release compile gate.
+      - name: Assemble release
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Report artifact signing status

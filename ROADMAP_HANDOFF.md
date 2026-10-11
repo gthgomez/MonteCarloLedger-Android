@@ -5,8 +5,10 @@
 > **Package Namespace:** `com.montecarlo.ledger`  
 > **Build Commands:** `./gradlew :app:testDebugUnitTest --no-daemon` | `./gradlew :app:assembleRelease --no-daemon`
 >
-> *(The legacy Windows-local path `C:\Workspace\Project_Android\MonteCarloLedger` and the `.\gradlew.bat`
-> invocations were removed on 2026-10-11 — see the WS5 update section at the end of this file.)*
+> *(The legacy Windows-local checkout path `C:\Workspace\Project_Android\MonteCarloLedger` and the `.\gradlew.bat`
+> command invocations are gone from the runnable instructions — every build/verify command below uses
+> `./gradlew … --no-daemon`. The old path still appears inside dead `file:///C:/Workspace/...` evidence links
+> in §1, kept only as historical record — see the WS5 update section at the end of this file.)*
 
 ---
 
@@ -35,9 +37,9 @@
 
 When validating modifications:
 
-1. **Unit Test Suite**: Run `.\gradlew.bat :app:testDebugUnitTest --no-daemon`. All 182 unit tests must pass cleanly.
-2. **Release Build Assembly**: Run `.\gradlew.bat :app:assembleRelease --no-daemon`. Must produce unsigned (or signed) release APK with 0 compilation or R8 errors.
-3. **Instrumented Migration (when device/emulator available)**: `.\gradlew.bat :app:connectedDebugAndroidTest --tests com.montecarlo.ledger.data.MigrationTest --no-daemon`.
+1. **Unit Test Suite**: Run `./gradlew :app:testDebugUnitTest --no-daemon`. All 368 unit tests must pass cleanly.
+2. **Release Build Assembly**: Run `./gradlew :app:assembleRelease --no-daemon`. Must produce unsigned (or signed) release APK with 0 compilation or R8 errors.
+3. **Instrumented Migration (when device/emulator available)**: `./gradlew :app:connectedDebugAndroidTest --tests com.montecarlo.ledger.data.MigrationTest --no-daemon`.
 
 ---
 
@@ -56,15 +58,35 @@ historical sections above; where the two disagree, **this section wins**.
 | Repository location `C:\Workspace\Project_Android\MonteCarloLedger`; `.\gradlew.bat …` | Canonical repo `github.com/gthgomez/MonteCarloLedger-Android`; use `./gradlew … --no-daemon` | Header corrected above; all `file:///C:/Workspace/...` links in §1 are dead and kept only as historical record |
 | "assembleRelease produces `app-release-unsigned.apk`. Not store-signed." | Still unsigned **by default**, but a real signing path now exists and produces a signed APK when credentials are supplied | `app/build.gradle.kts` `signingConfigs.release`; [docs/RELEASE.md](docs/RELEASE.md) |
 
+### WS5 review fixes — 2026-10-11
+
+An independent review of this branch corrected three release-path defects:
+
+- **CI signing actually works now.** The first cut passed `secrets.ANDROID_KEYSTORE_PATH` as a bare path, but
+  nothing materialized a keystore on the ephemeral runner, so configuring the secrets would have failed
+  `assembleRelease` with "keystore not found". The workflow now stores the keystore as base64
+  (`ANDROID_KEYSTORE_BASE64`), decodes it to `$RUNNER_TEMP/keystore.jks`, and exports
+  `ANDROID_KEYSTORE_PATH` / alias / passwords for the build.
+- **Signing secrets no longer reach PR builds.** The signing env is provided only on non-PR events
+  (`push` / `workflow_dispatch`); `pull_request` still runs the unsigned release compile gate but with no
+  credentials in scope.
+- **Doc honesty.** This file's stale `.\gradlew.bat` verification commands (and the "182 tests" count) are
+  updated to `./gradlew … --no-daemon` / 368 tests, and `PRIVACY.md` now marks its URL as not-live-until-merged
+  and points at the stable `raw.githubusercontent.com` form.
+
 ### New artifacts from WS5
 
 - `app/build.gradle.kts` — gated `signingConfigs.release` (env vars or gitignored `keystore.properties`);
   `versionCode = 2`, `versionName = "1.1.0"`; logs `Release signing: ENABLED|DISABLED` each build.
 - `.github/workflows/android-release.yml` — "Android Release" gate running `:app:assembleRelease --no-daemon`.
-  The required "Android CI" workflow/check is unchanged.
+  On `push`/`workflow_dispatch` a non-PR-gated step decodes the `ANDROID_KEYSTORE_BASE64` secret to
+  `$RUNNER_TEMP/keystore.jks` and exports `ANDROID_KEYSTORE_PATH` + alias/passwords so the run is signed;
+  on `pull_request` that step is skipped so no signing credentials reach PR builds (the unsigned release
+  build still runs). The required "Android CI" workflow/check is unchanged.
 - `docs/RELEASE.md` — authoritative versioning + signing + release-command documentation.
-- `PRIVACY.md` — placeholders replaced with the live public URL
-  <https://github.com/gthgomez/MonteCarloLedger-Android/blob/main/PRIVACY.md> (HTTP 200 verified 2026-10-11).
+- `PRIVACY.md` — placeholders replaced with the public policy URL
+  <https://raw.githubusercontent.com/gthgomez/MonteCarloLedger-Android/main/PRIVACY.md> (the served policy is
+  still the placeholder until this branch merges; HTTP 200 verified 2026-10-11).
 - `QA_CHECKLIST.md` — rewritten into an execution record: build/unit/static items marked with real results,
   device/Play items explicitly NOT RUN with reasons.
 - `.gitignore` — `keystore.properties` / `**/keystore.properties` added.
@@ -80,7 +102,9 @@ historical sections above; where the two disagree, **this section wins**.
 
 ### Next-session priorities
 
-1. Owner supplies release keystore + CI secrets (or `keystore.properties`) → produce a signed `.aab`/`.apk`.
+1. Owner supplies the release keystore as the `ANDROID_KEYSTORE_BASE64` repo secret plus
+   `ANDROID_KEY_ALIAS` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD` (or a local
+   `keystore.properties`) → produce a signed `.aab`/`.apk`.
 2. Run `connectedDebugAndroidTest` on a device/emulator to close the migration-matrix evidence gap.
 3. Manual UI pass against `QA_CHECKLIST.md` §5 and §2 filter/search items.
 4. Play Console setup: listing, data-safety form, privacy-policy URL entry.
