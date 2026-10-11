@@ -2,6 +2,7 @@ package com.montecarlo.ledger.dashboard
 
 import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.ActionCenterState
+import com.montecarlo.ledger.CanonicalForecastStatus
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardPrimaryAction
 import com.montecarlo.ledger.MoneyBucketAccent
@@ -59,6 +60,20 @@ import java.time.temporal.ChronoUnit
  * plumbing, and so the ViewModel stays a state holder instead of a calculator.
  */
 class DashboardDeriver {
+
+    /**
+     * Last canonical (contract) result that succeeded, stamped with when it was computed (WS2).
+     *
+     * Persistence note: this is intentionally in-memory rather than a settings-table row.
+     * [DashboardDeriver] is a deliberately persistence-free, Android-free derivation unit (its whole
+     * design goal is to be testable without Room/plumbing), and a canonical result is a rich,
+     * structured value (quantile summary, ordered rows, Monte Carlo percentiles) that has no
+     * serialization contract in the settings store. [com.montecarlo.ledger.MainViewModel] holds a
+     * single long-lived instance, so retention survives every re-derivation for the life of the
+     * process. On a cold start there is no retained value and the dashboard fails closed instead
+     * (see [CanonicalForecastStatus.Failed]) — it never silently switches engines.
+     */
+    private var lastKnownCanonical: RetainedCanonical? = null
 
     /**
      * [contractForecastEnabled] is the persisted adoption flag (MC-06b) supplied by the caller from
@@ -148,27 +163,81 @@ class DashboardDeriver {
             MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
                 .runSimulation(forecastSeedCents, events, today)
         }
-        val adopted = if (contractForecastEnabled) {
+        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = if (contractForecastEnabled) {
             withContext(Dispatchers.Default) {
                 adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
             }
         } else {
             null
         }
-        val forecastSummary = adopted?.forecastSummary ?: nativeForecastSummary
+
+        // WS2: when the contract fails, keep the last known valid canonical result so the headline
+        // numbers never silently degrade onto the legacy native engines.
+        val canonical: CanonicalAdoption? = when (contractOutcome) {
+            is ContractCalculationResult.Success -> {
+                lastKnownCanonical = RetainedCanonical(contractOutcome.value, LocalDateTime.now())
+                contractOutcome.value
+            }
+            is ContractCalculationResult.Failure -> lastKnownCanonical?.value
+            null -> null
+        }
+
+        val canonicalFailure = contractOutcome as? ContractCalculationResult.Failure
+        val canonicalStatus = when {
+            !contractForecastEnabled -> CanonicalForecastStatus.Native
+            contractOutcome is ContractCalculationResult.Success -> CanonicalForecastStatus.Live
+            lastKnownCanonical != null -> CanonicalForecastStatus.Stale
+            else -> CanonicalForecastStatus.Failed
+        }
+        val canonicalAsOf = when (canonicalStatus) {
+            CanonicalForecastStatus.Live, CanonicalForecastStatus.Stale ->
+                lastKnownCanonical?.computedAt?.format(CANONICAL_TIMESTAMP)
+            CanonicalForecastStatus.Failed, CanonicalForecastStatus.Native -> null
+        }
+
+        // Headline conclusions. The canonical contract engine supplies them whenever it is the
+        // active engine — live on success, retained (marked stale) on failure. The native engines are
+        // used ONLY in the deliberate user-selected `Native` mode. A failed canonical engine with no
+        // retained result fails closed with neutral values; native numbers are never substituted.
+        val forecastSummary: ForecastSummary
+        val mc: MonteCarloResult
+        val forecastRows: List<BalanceForecastRow>
+        val dailyBudgetCents: Long
+        when (canonicalStatus) {
+            CanonicalForecastStatus.Live, CanonicalForecastStatus.Stale -> {
+                val canonicalResult = checkNotNull(canonical) {
+                    "canonical headline values missing for status $canonicalStatus"
+                }
+                forecastSummary = canonicalResult.forecastSummary
+                mc = canonicalResult.monteCarloResult
+                forecastRows = canonicalResult.forecastRows
+                // MC-07/C2: the daily budget is a product heuristic derived from the canonical
+                // safe-to-spend so it cannot contradict the value shown beside it.
+                val canonicalSafeToSpend =
+                    forecastSummary.safeToSpendCents ?: forecastSummary.projectedLowPointCents
+                dailyBudgetCents = if (canonicalSafeToSpend > 0L) {
+                    canonicalSafeToSpend / daysUntilPayday
+                } else {
+                    0L
+                }
+            }
+            CanonicalForecastStatus.Failed -> {
+                forecastSummary = FAIL_CLOSED_FORECAST_SUMMARY
+                mc = FAIL_CLOSED_MONTE_CARLO
+                forecastRows = emptyList()
+                dailyBudgetCents = 0L
+            }
+            CanonicalForecastStatus.Native -> {
+                forecastSummary = nativeForecastSummary
+                mc = nativeMc
+                forecastRows = ForecastEngine.buildBalanceForecast(forecastSeedCents, events)
+                dailyBudgetCents = nativeDailyBudgetCents
+            }
+        }
         // MCD-0008: only the contract path models a trough distribution, so only it can supply a
         // genuine quantile-based safe-to-spend. The native path falls back to its deterministic
         // low point, which the UI already labels "lowest balance over next 90 days".
         val safeToSpend = forecastSummary.safeToSpendCents ?: forecastSummary.projectedLowPointCents
-        val mc = adopted?.monteCarloResult ?: nativeMc
-        // MC-07/C2: when the contract path supplies safe-to-spend, the daily budget is a product
-        // heuristic derived from it, so it cannot contradict the canonical value shown beside it.
-        // With the adoption flag off it remains the native per-window heuristic.
-        val dailyBudgetCents = if (adopted != null) {
-            if (safeToSpend > 0L) safeToSpend / daysUntilPayday else 0L
-        } else {
-            nativeDailyBudgetCents
-        }
         val scheduledBillBurdenCents = events.filter { it.type == "bill" }.sumOf { it.amount_cents }
 
         val nextPaydayLabel = nextPaycheck?.let { "Next: ${it.date.formatDateDisplay()} (${daysUntilPayday}d)" } ?: "No upcoming income"
@@ -181,10 +250,6 @@ class DashboardDeriver {
                     else -> "${it.description} • $recurrenceText • ${it.date.formatDateDisplay()}"
                 }
             }
-        // MC-07/C1: when the contract path is active, display rows come from the canonical
-        // timeline; otherwise the native engine supplies them.
-        val forecastRows = adopted?.forecastRows
-            ?: ForecastEngine.buildBalanceForecast(forecastSeedCents, events)
 
         val driftCents = if (mismatch) cashLedgerCents - bankBalanceCents else 0L
         val totalAssetBalance = pack.assets.sumOf { it.balanceCents }
@@ -226,6 +291,7 @@ class DashboardDeriver {
             hasIncome = pack.incomes.isNotEmpty(),
             hasBills = pack.payments.isNotEmpty(),
             overdraftRecommendations = overdraftRecommendations,
+            canonicalForecastStatus = canonicalStatus,
         )
         val trustSignals = buildTrustSignals(
             updatedAt = LocalDateTime.now(),
@@ -234,6 +300,9 @@ class DashboardDeriver {
             forecastSeedCents = forecastSeedCents,
             eventCount = events.size,
             reviewCount = reviewItems.size,
+            canonicalStatus = canonicalStatus,
+            canonicalFailureReason = canonicalFailure?.reason,
+            canonicalAsOf = canonicalAsOf,
         )
 
         // Pacing Sparkline Calculation
@@ -307,6 +376,11 @@ class DashboardDeriver {
             categoryBudgetRows = categoryBudgetRows,
             transactionRules = pack.rules,
             pacingResult = pacingResult,
+            // WS2/F3: the fan chart is gated on the canonical status. When the contract engine is
+            // the active engine the daily percentiles come from the canonical result (which carries
+            // the non-normative overlay captured at the last success, so a Stale chart stays
+            // internally consistent); when the calculation is withheld the fan is empty rather than
+            // silently showing native-engine paths. Native mode keeps the native percentiles.
             monteCarloDailyPercentiles = mc.dailyPercentiles,
             monteCarloResult = mc,
             monteCarloBasisLabel = basisLabel(calibration),
@@ -315,6 +389,9 @@ class DashboardDeriver {
                 today = today,
                 calibration = calibration,
             ),
+            canonicalForecastStatus = canonicalStatus,
+            canonicalForecastError = canonicalFailure?.reason,
+            canonicalForecastAsOf = canonicalAsOf,
         )
 
         return DashboardDerivation(
@@ -326,8 +403,16 @@ class DashboardDeriver {
 
     /**
      * Runs the canonical contract engine over repository data and maps the result onto the
-     * dashboard's state types. Returns null on any contract error so the caller falls back to
-     * the legacy engines rather than rendering a broken dashboard.
+     * dashboard's state types.
+     *
+     * WS2: a contract failure is returned as an explicit [ContractCalculationResult.Failure] carrying
+     * its reason and timestamp — it is never collapsed into `null` and never silently swallowed. The
+     * caller decides how to degrade (fail closed, or show a retained stale result); it must not fall
+     * back to the native engines while the contract engine is the active, enabled engine.
+     *
+     * The run is routed through the shared [canonicalCalculation] helper so it catches only
+     * [Exception] (WS2/F4: fatal `Error`s propagate) and re-throws coroutine cancellation, and so the
+     * same failure contract is shared with the home-screen widget (WS2/F1).
      */
     private fun adoptContract(
         pack: ReportingPackage,
@@ -335,7 +420,7 @@ class DashboardDeriver {
         asOf: LocalDate,
         calibration: MonteCarloCalibration,
         nativeDailyPercentiles: List<DailyPercentilePoint>,
-    ): Adoption? = runCatching {
+    ): ContractCalculationResult<CanonicalAdoption> = canonicalCalculation {
         // Contract 1.2: carry each bill's resolved category so per-category variation can match.
         val paymentCategories = pack.payments
             .mapNotNull { payment ->
@@ -359,7 +444,7 @@ class DashboardDeriver {
         val scenario = built
         val result = ContractRunner.run(scenario)
         val runs = scenario.simulation?.runs ?: 500
-        Adoption(
+        CanonicalAdoption(
             forecastSummary = ContractDashboardMapper.toForecastSummary(result),
             monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
                 .copy(dailyPercentiles = nativeDailyPercentiles),
@@ -367,13 +452,7 @@ class DashboardDeriver {
             // recurrence/forecast interpretation.
             forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
         )
-    }.getOrNull()
-
-    private data class Adoption(
-        val forecastSummary: ForecastSummary,
-        val monteCarloResult: MonteCarloResult,
-        val forecastRows: List<BalanceForecastRow>,
-    )
+    }
 
     /**
      * Honest provenance for the simulation: calibrated from real history, or an
@@ -525,9 +604,16 @@ class DashboardDeriver {
         hasIncome: Boolean,
         hasBills: Boolean,
         overdraftRecommendations: List<com.montecarlo.ledger.processing.OverdraftRecommendation> = emptyList(),
+        canonicalForecastStatus: CanonicalForecastStatus = CanonicalForecastStatus.Live,
     ): ActionCenterState {
         val forecastUnlocked = reconciled
+        // WS2/F2: a withheld canonical calculation must not read as "no risk". When the contract
+        // engine failed with no retained result the headline numbers are neutral zeros, so the risk
+        // label and the safe-to-spend caption explicitly say the forecast is unavailable instead of
+        // rendering "Stable forecast" / "Safe to spend" beside $0.
+        val forecastAvailable = canonicalForecastStatus != CanonicalForecastStatus.Failed
         val riskLabel = when {
+            !forecastAvailable -> "Unavailable"
             !hasIncome || !hasBills -> "Add income and bills"
             !reconciled -> "Confirm bank balance"
             safeToSpendCents < 0 -> "Shortfall projected"
@@ -552,6 +638,7 @@ class DashboardDeriver {
             DashboardPrimaryAction.RecordSpending -> "Record spending"
         }
         val caption = when {
+            !forecastAvailable -> "Forecast unavailable"
             !reconciled -> "Provisional until balance confirmed"
             safeToSpendCents < 0 -> "Lowest balance over next 90 days"
             else -> "Safe to spend"
@@ -566,6 +653,7 @@ class DashboardDeriver {
             forecastUnlocked = forecastUnlocked,
             safeToSpendCaption = caption,
             overdraftRecommendations = overdraftRecommendations,
+            forecastAvailable = forecastAvailable,
         )
     }
 
@@ -576,9 +664,12 @@ class DashboardDeriver {
         forecastSeedCents: Long,
         eventCount: Int,
         reviewCount: Int,
+        canonicalStatus: CanonicalForecastStatus,
+        canonicalFailureReason: String?,
+        canonicalAsOf: String?,
     ): List<TrustSignal> {
         val formatter = DateTimeFormatter.ofPattern("h:mm a")
-        return listOf(
+        val signals = mutableListOf(
             TrustSignal(
                 label = "Data freshness",
                 value = "Updated ${updatedAt.format(formatter)}",
@@ -598,8 +689,74 @@ class DashboardDeriver {
                 level = if (reconciled) TrustSignalLevel.Good else TrustSignalLevel.Attention,
             ),
         )
+        // WS2: make a canonical-calculation failure visible instead of hiding a silent engine switch.
+        when (canonicalStatus) {
+            CanonicalForecastStatus.Stale -> signals += TrustSignal(
+                label = "Forecast engine",
+                value = "Using last valid result",
+                detail = buildString {
+                    append("Canonical calculation failed")
+                    canonicalAsOf?.let { append(" — showing result as of $it") }
+                    canonicalFailureReason?.let { append(". $it") }
+                },
+                level = TrustSignalLevel.Warning,
+            )
+            CanonicalForecastStatus.Failed -> signals += TrustSignal(
+                label = "Forecast engine",
+                value = "Calculation failed",
+                detail = "Canonical calculation failed and no previous result is available; " +
+                    "forecast, safe-to-spend and risk are withheld." +
+                    (canonicalFailureReason?.let { " $it" } ?: ""),
+                level = TrustSignalLevel.Warning,
+            )
+            CanonicalForecastStatus.Live, CanonicalForecastStatus.Native -> Unit
+        }
+        return signals
+    }
+
+    private companion object {
+        /** Timestamp format for the retained canonical result's "as of" label. */
+        val CANONICAL_TIMESTAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
+        /**
+         * Fail-closed forecast summary used when the canonical engine failed and no prior valid
+         * result exists: no low point, no ending balance, and no implied spendable amount.
+         */
+        val FAIL_CLOSED_FORECAST_SUMMARY = ForecastSummary(
+            projectedLowPointCents = 0L,
+            lowestBalanceDate = null,
+            endingBalanceCents = 0L,
+            firstNegativeDate = null,
+            safeToSpendCents = null,
+        )
+
+        /**
+         * Fail-closed Monte Carlo result used when the canonical engine failed and no prior valid
+         * result exists. The neutral zeros are deliberate: no native-engine number is presented, and
+         * [AppUiState.canonicalForecastStatus] = [CanonicalForecastStatus.Failed] plus the
+         * `Forecast engine` trust signal are the authoritative signals that risk is *unavailable*,
+         * not zero.
+         */
+        val FAIL_CLOSED_MONTE_CARLO = MonteCarloResult(
+            worst_10_balance_cents = 0L,
+            median_balance_cents = 0L,
+            best_90_balance_cents = 0L,
+            probability_negative_pct = 0.0,
+            runs = 0,
+            negative_runs = 0,
+            most_common_first_negative_date = null,
+            negative_window_start = null,
+            negative_window_end = null,
+            dailyPercentiles = emptyList(),
+        )
     }
 }
+
+/** In-memory retention of the last known valid canonical result, stamped with its compute time. */
+private data class RetainedCanonical(
+    val value: CanonicalAdoption,
+    val computedAt: LocalDateTime,
+)
 
 data class DashboardDerivation(
     val uiState: AppUiState,
