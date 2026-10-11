@@ -22,10 +22,10 @@ import org.junit.runner.RunWith
 /**
  * Migration matrix torture tests.
  *
- * Every historically supported upgrade path must reach the current schema (v16)
+ * Every historically supported upgrade path must reach the current schema (v17)
  * without dropping, corrupting, or misrepresenting user financial state. We
  * exercise:
- *   - the schema-exported chain 9 -> 16 with representative data
+ *   - the schema-exported chain 9 -> 17 with representative data
  *   - the previously untested 14 -> 15 migration
  *   - hand-built legacy databases (v1 and v5) upgraded through the FULL chain
  *     and then OPENED through Room so entity mapping is exercised, not just SQL
@@ -60,6 +60,7 @@ class MigrationMatrixTest {
         AppDatabase.MIGRATION_13_14_FOR_TEST,
         AppDatabase.MIGRATION_14_15_FOR_TEST,
         AppDatabase.MIGRATION_15_16_FOR_TEST,
+        AppDatabase.MIGRATION_16_17_FOR_TEST,
     )
 
     @After
@@ -72,11 +73,11 @@ class MigrationMatrixTest {
     }
 
     // ---------------------------------------------------------------------
-    // Schema-exported chain: 9 -> 16
+    // Schema-exported chain: 9 -> 17
     // ---------------------------------------------------------------------
 
     @Test
-    fun fullChain9To16_preservesRepresentativeLedgerData() {
+    fun fullChain9To17_preservesRepresentativeLedgerData() {
         val name = "migration-fullchain"
         val db9 = helper.createDatabase(name, 9)
 
@@ -112,8 +113,8 @@ class MigrationMatrixTest {
         db9.close()
 
         val migrated = helper.runMigrationsAndValidate(
-            name, 16, true,
-            *fullChain.drop(8).toTypedArray() // 9_10 .. 15_16
+            name, 17, true,
+            *fullChain.drop(8).toTypedArray() // 9_10 .. 16_17
         )
 
         // Ledger rows survive.
@@ -150,6 +151,13 @@ class MigrationMatrixTest {
         assertEquals(0, debtsCount.getInt(0))
         debtsCount.close()
 
+        // The 16 -> 17 hop seeds the contract-adoption flag default-ON so an existing
+        // install adopts the contract engine without a manual opt-in.
+        val contractFlag = migrated.query("SELECT value FROM settings WHERE key = 'contract_forecast_enabled'")
+        assertTrue("contract_forecast_enabled must be seeded by the 16->17 hop", contractFlag.moveToFirst())
+        assertEquals("true", contractFlag.getString(0))
+        contractFlag.close()
+
         migrated.close()
     }
 
@@ -178,7 +186,7 @@ class MigrationMatrixTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun legacyV1To16_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
+    fun legacyV1To17_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
         val name = "migration-legacy-v1"
         createLegacyDb(
             name,
@@ -200,7 +208,7 @@ class MigrationMatrixTest {
             .addMigrations(*fullChain.toTypedArray())
             .build()
         try {
-            assertEquals("Room must run the whole chain on open", 16, room.openHelper.writableDatabase.version)
+            assertEquals("Room must run the whole chain on open", 17, room.openHelper.writableDatabase.version)
 
             val transactions = room.transactionDao().getAll().first()
             assertEquals(1, transactions.size)
@@ -223,13 +231,16 @@ class MigrationMatrixTest {
             val defaultAccount = room.accountDao().getDefault()
             assertNotNull(defaultAccount)
             assertEquals(98765L, defaultAccount!!.balanceCents)
+
+            // 16 -> 17 seeds the contract flag on a legacy install too.
+            assertEquals("true", room.settingsDao().getValue("contract_forecast_enabled"))
         } finally {
             room.close()
         }
     }
 
     @Test
-    fun legacyV5To16_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
+    fun legacyV5To17_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
         val name = "migration-legacy-v5"
         createLegacyDb(
             name,
@@ -251,7 +262,7 @@ class MigrationMatrixTest {
             .addMigrations(*fullChain.toTypedArray())
             .build()
         try {
-            assertEquals(16, room.openHelper.writableDatabase.version)
+            assertEquals(17, room.openHelper.writableDatabase.version)
 
             val txn = room.transactionDao().getAll().first().single()
             assertEquals("Coffee", txn.description)
@@ -293,7 +304,7 @@ class MigrationMatrixTest {
             .addMigrations(*fullChain.toTypedArray())
             .build()
         try {
-            assertEquals(16, room.openHelper.writableDatabase.version)
+            assertEquals(17, room.openHelper.writableDatabase.version)
             val count = room.transactionDao().getAll().first().size
             assertEquals("every legacy transaction must survive", 2000, count)
             val total = room.transactionDao().getTotalBalanceCents().first() ?: 0L
@@ -330,11 +341,12 @@ class MigrationMatrixTest {
         db12.close()
 
         val migrated = helper.runMigrationsAndValidate(
-            name, 16, true,
+            name, 17, true,
             AppDatabase.MIGRATION_12_13_FOR_TEST,
             AppDatabase.MIGRATION_13_14_FOR_TEST,
             AppDatabase.MIGRATION_14_15_FOR_TEST,
             AppDatabase.MIGRATION_15_16_FOR_TEST,
+            AppDatabase.MIGRATION_16_17_FOR_TEST,
         )
 
         val budgets = migrated.query("SELECT id, category, limitCents FROM category_budgets")

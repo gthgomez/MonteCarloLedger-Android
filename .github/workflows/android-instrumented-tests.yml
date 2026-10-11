@@ -1,0 +1,130 @@
+# Device-side verification (V5 in docs/SHIP_STANDARD.md).
+#
+# The 13 `app/src/androidTest` classes (~37 tests) that cover onboarding/dashboard,
+# CSV import, income/bill forecast end-to-end, payments, add-transaction and the Room
+# migration matrix never ran in CI before this workflow, so a broken migration (e.g. the
+# missing 16 -> 17 hop) or a broken Compose flow could merge green.
+#
+# This is a SEPARATE workflow on purpose: `.github/workflows/android-ci.yml` and its job
+# ("Unit tests + assembleDebug", part of the required `Android CI` check) are left byte-for-byte
+# untouched, so the required check name and its semantics are preserved. This job is additive.
+#
+# Trigger / flakiness policy:
+#   - runs on every `pull_request` targeting `main` (the useful default) and on manual dispatch.
+#   - hosted AVDs are the only device available to this repo (no self-hosted runner), and they
+#     are slower (~10 min) and historically more flaky than unit tests. If a flake is ever
+#     observed, set the repository variable `INSTRUMENTED_TESTS_ENABLED=false` to make PR runs
+#     opt-out: the job then reports an explicit `::notice::` explaining that it was skipped,
+#     while `workflow_dispatch` always runs it.
+#   - `continue-on-error` is deliberately NOT used: a failing instrumented test fails the job.
+name: Android Instrumented Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: android-instrumented-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  connected-android-tests:
+    name: connectedDebugAndroidTest (API 34 emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Decide whether to run
+        id: gate
+        env:
+          INSTRUMENTED_TESTS_ENABLED: ${{ vars.INSTRUMENTED_TESTS_ENABLED }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$INSTRUMENTED_TESTS_ENABLED" != "false" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Instrumented tests skipped: repository variable INSTRUMENTED_TESTS_ENABLED=false. This is an explicit opt-out, not a pass — run 'Android Instrumented Tests' via workflow_dispatch to verify on a device."
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        if: steps.gate.outputs.run == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Require DesignSystem composite
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          if [ ! -f DesignSystem/build.gradle.kts ]; then
+            echo "::error::In-repo DesignSystem missing (includeBuild). Cannot build standalone."
+            exit 1
+          fi
+
+      - name: Grant execute permission for gradlew
+        if: steps.gate.outputs.run == 'true'
+        run: chmod +x gradlew
+
+      # ubuntu-latest has hardware acceleration available, but /dev/kvm is not world-writable
+      # by default; the emulator needs it or it falls back to painfully slow software rendering.
+      - name: Enable KVM group perms
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Cache the AVD so the boot snapshot is reused instead of regenerated on every run.
+      - name: AVD cache
+        id: avd-cache
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ runner.os }}-api34-google_apis-x86_64-v1
+
+      - name: Create AVD and generate snapshot for caching
+        if: steps.gate.outputs.run == 'true' && steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+
+      - name: Run instrumented tests
+        if: steps.gate.outputs.run == 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Upload instrumented test reports
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-reports
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: ignore

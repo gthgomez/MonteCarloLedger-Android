@@ -116,6 +116,16 @@ Workflow: `.github/workflows/android-ci.yml`
 - **Gates:** `:app:testDebugUnitTest`, `:app:assembleDebug`
 - **JDK:** 17
 
+Workflow: `.github/workflows/android-instrumented-tests.yml` (V5 automation)
+
+- **Triggers:** PR to `main`, manual dispatch
+- **Gate:** `:app:connectedDebugAndroidTest` on an API 34 `google_apis` x86_64 AVD
+  (`reactivecircus/android-emulator-runner`, KVM enabled, AVD + Gradle caches)
+- **Escalation:** a failure fails the job — `continue-on-error` is not used. If a hosted-emulator
+  flake is observed, set the repository variable `INSTRUMENTED_TESTS_ENABLED=false` to make PR
+  runs opt-out (the job then prints an explicit skip notice); `workflow_dispatch` always runs it.
+- **Does not replace `Android CI`:** the required `Android CI` check stays exactly as it was.
+
 ### DesignSystem composite
 
 This repo **vendors** `DesignSystem/` for standalone clone and CI.
