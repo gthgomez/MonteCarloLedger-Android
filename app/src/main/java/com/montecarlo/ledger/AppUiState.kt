@@ -68,7 +68,42 @@ data class AppUiState(
     val monteCarloBasisLabel: String? = null,
     /** Plain-language explanations of what drives the 3-month estimate. */
     val forecastInsights: List<com.montecarlo.ledger.processing.ForecastInsight> = emptyList(),
+    /**
+     * Which engine produced the headline financial conclusions (WS2). When the contract engine is
+     * enabled and its calculation fails, the UI shows the last known valid canonical result marked
+     * [CanonicalForecastStatus.Stale] (or fails closed as [CanonicalForecastStatus.Failed]) instead
+     * of silently substituting the legacy native engines.
+     */
+    val canonicalForecastStatus: CanonicalForecastStatus = CanonicalForecastStatus.Live,
+    /** Human-readable reason the canonical contract calculation failed; null when it succeeded. */
+    val canonicalForecastError: String? = null,
+    /**
+     * Timestamp (ISO-like `yyyy-MM-dd HH:mm`) of the canonical result backing the headline numbers.
+     * Set for [CanonicalForecastStatus.Live] and, importantly, [CanonicalForecastStatus.Stale] so a
+     * retained value is always labelled with its as-of time. Null when no canonical value is shown.
+     */
+    val canonicalForecastAsOf: String? = null,
 )
+
+/**
+ * Provenance of the headline financial conclusions (WS2).
+ *
+ * [Native] is a deliberate, user-selected mode (contract engine disabled) — not a fallback. Every
+ * other state means the contract engine is (or was) the canonical engine.
+ */
+enum class CanonicalForecastStatus {
+    /** Contract engine enabled and its latest calculation succeeded. */
+    Live,
+
+    /** Contract engine enabled but the latest calculation failed; the retained last known valid result is shown, marked stale. */
+    Stale,
+
+    /** Contract engine enabled, the calculation failed, and there is no prior valid result — headline numbers fail closed. */
+    Failed,
+
+    /** Contract engine disabled by the user; the native engine is the intended engine. */
+    Native,
+}
 
 enum class DashboardWidget {
     ActionCenter, ReviewInbox, MoneyBuckets, TrustLayer, Balance, Monitoring, NetWorth, Goal, PlanAhead, MonteCarlo
