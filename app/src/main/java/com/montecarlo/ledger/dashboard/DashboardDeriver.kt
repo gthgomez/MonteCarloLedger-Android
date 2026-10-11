@@ -167,13 +167,18 @@ class DashboardDeriver {
             MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
                 .runSimulation(forecastSeedCents, events, today)
         }
-        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = if (contractForecastEnabled) {
-            withContext(Dispatchers.Default) {
-                adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
+        // WS6: the canonical bridge inputs are built inside [adoptContract] and handed back, so a
+        // "what if" comparison is always measured against the exact scenario this dashboard ran.
+        val contractRun: Pair<ContractScenarioBridge.Inputs?, ContractCalculationResult<CanonicalAdoption>>? =
+            if (contractForecastEnabled) {
+                withContext(Dispatchers.Default) {
+                    adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
+                }
+            } else {
+                null
             }
-        } else {
-            null
-        }
+        val scenarioInputs: ContractScenarioBridge.Inputs? = contractRun?.first
+        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = contractRun?.second
 
         // WS2: when the contract fails, keep the last known valid canonical result so the headline
         // numbers never silently degrade onto the legacy native engines.
@@ -414,6 +419,36 @@ class DashboardDeriver {
             uiState = uiState,
             reconciliationMismatch = mismatch,
             reconciliationDetails = if (mismatch) Pair(cashLedgerCents, bankBalanceCents) else null,
+            scenarioInputs = scenarioInputs,
+        )
+    }
+
+    /**
+     * Builds the canonical scenario inputs for the current ledger snapshot (MC-06b bridge).
+     *
+     * Contract 1.2: carries each bill's resolved category so per-category variation can match.
+     * Shared by the dashboard derivation and the WS6 "what if" comparisons, so there is exactly one
+     * translation from product rows to contract primitives.
+     */
+    private fun buildScenarioInputs(
+        pack: ReportingPackage,
+        startingBalanceCents: Long,
+        asOf: LocalDate,
+        calibration: MonteCarloCalibration,
+    ): ContractScenarioBridge.Inputs {
+        val paymentCategories = pack.payments
+            .mapNotNull { payment ->
+                TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
+            }
+            .toMap()
+        return ContractScenarioBridge.Inputs(
+            startingBalanceCents = startingBalanceCents,
+            asOf = asOf,
+            incomes = pack.incomes,
+            payments = pack.payments,
+            billOccurrences = pack.billOccurrences,
+            simulation = ContractScenarioBridge.simulationParams(calibration),
+            paymentCategories = paymentCategories,
         )
     }
 
@@ -429,6 +464,11 @@ class DashboardDeriver {
      * The run is routed through the shared [canonicalCalculation] helper so it catches only
      * [Exception] (WS2/F4: fatal `Error`s propagate) and re-throws coroutine cancellation, and so the
      * same failure contract is shared with the home-screen widget (WS2/F1).
+     *
+     * WS6: returns the bridge inputs the run was built from alongside the outcome (null when the
+     * bridge itself failed), so the "what if" comparisons reuse this exact scenario. Building the
+     * inputs stays inside the same [canonicalCalculation] block as the run, so a bridge failure is
+     * still an explicit contract failure rather than an uncaught exception.
      */
     private fun adoptContract(
         pack: ReportingPackage,
@@ -436,38 +476,26 @@ class DashboardDeriver {
         asOf: LocalDate,
         calibration: MonteCarloCalibration,
         nativeDailyPercentiles: List<DailyPercentilePoint>,
-    ): ContractCalculationResult<CanonicalAdoption> = canonicalCalculation {
-        // Contract 1.2: carry each bill's resolved category so per-category variation can match.
-        val paymentCategories = pack.payments
-            .mapNotNull { payment ->
-                TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
-            }
-            .toMap()
-        val built = ContractScenarioBridge.build(
-            ContractScenarioBridge.Inputs(
-                startingBalanceCents = startingBalanceCents,
-                asOf = asOf,
-                incomes = pack.incomes,
-                payments = pack.payments,
-                billOccurrences = pack.billOccurrences,
-                simulation = ContractScenarioBridge.simulationParams(calibration),
-                paymentCategories = paymentCategories,
+    ): Pair<ContractScenarioBridge.Inputs?, ContractCalculationResult<CanonicalAdoption>> {
+        var inputs: ContractScenarioBridge.Inputs? = null
+        val outcome = canonicalCalculation {
+            inputs = buildScenarioInputs(pack, startingBalanceCents, asOf, calibration)
+            // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation
+            // depends only on the horizon and surprise parameters, never on whether scheduled
+            // activity exists, so we must not zero out risk for an empty ledger here.
+            val scenario = ContractScenarioBridge.build(inputs!!)
+            val result = ContractRunner.run(scenario)
+            val runs = scenario.simulation?.runs ?: 500
+            CanonicalAdoption(
+                forecastSummary = ContractDashboardMapper.toForecastSummary(result),
+                monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
+                    .copy(dailyPercentiles = nativeDailyPercentiles),
+                // MC-07/C1: the display rows are the contract's own ordered events, not a second
+                // recurrence/forecast interpretation.
+                forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
             )
-        )
-        // Contract MCD-0023: the simulation is defined for any scenario. Surprise generation
-        // depends only on the horizon and surprise parameters, never on whether scheduled
-        // activity exists, so we must not zero out risk for an empty ledger here.
-        val scenario = built
-        val result = ContractRunner.run(scenario)
-        val runs = scenario.simulation?.runs ?: 500
-        CanonicalAdoption(
-            forecastSummary = ContractDashboardMapper.toForecastSummary(result),
-            monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
-                .copy(dailyPercentiles = nativeDailyPercentiles),
-            // MC-07/C1: the display rows are the contract's own ordered events, not a second
-            // recurrence/forecast interpretation.
-            forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),
-        )
+        }
+        return inputs to outcome
     }
 
     /**
@@ -867,6 +895,13 @@ data class DashboardDerivation(
     val reconciliationMismatch: Boolean,
     /** Pair(cashLedgerCents, bankBalanceCents) while mismatched. */
     val reconciliationDetails: Pair<Long, Long>?,
+    /**
+     * WS6: the exact canonical scenario inputs this derivation ran, so the "what if" comparisons
+     * (purchase / delayed paycheck) measure their hypothetical against the scenario already on
+     * screen. Null when the contract engine is not the active engine, in which case there is no
+     * canonical scenario to compare against.
+     */
+    val scenarioInputs: ContractScenarioBridge.Inputs? = null,
 )
 
 data class ReportingPackage(
