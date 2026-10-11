@@ -462,9 +462,10 @@ class MainViewModel @JvmOverloads constructor(
                 repo.allIncome,
                 repo.allPayments,
                 repo.allTransactions,
+                repo.allAccounts,
                 repo.balanceState,
-            ) { incomes, payments, txns, balanceState ->
-                LedgerReportingData(incomes, payments, txns, balanceState)
+            ) { incomes, payments, txns, accounts, balanceState ->
+                LedgerReportingData(incomes, payments, txns, accounts, balanceState)
             }
             val planningCore = combine(
                 repo.allBillOccurrences,
@@ -491,6 +492,7 @@ class MainViewModel @JvmOverloads constructor(
                     incomes = ledger.incomes,
                     payments = ledger.payments,
                     txns = ledger.txns,
+                    accounts = ledger.accounts,
                     balanceState = ledger.balanceState,
                     billOccurrences = planning.billOccurrences,
                     assets = planning.assets,

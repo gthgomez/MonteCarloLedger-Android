@@ -26,6 +26,7 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.RecurringCandidate
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
+import com.montecarlo.ledger.data.isCreditAccount
 import com.montecarlo.ledger.processing.BalanceForecastRow
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.BudgetPacingEngine
@@ -91,21 +92,28 @@ class DashboardDeriver {
             today = today,
         )
 
-        val creditRoutedAccountIds = pack.debts
-            .filter { it.isActive && it.linkedAccountId != null }
-            .mapNotNull { it.linkedAccountId }
+        // Cash vs card routing mirrors LedgerRepository.applyTransactionSideEffects exactly: it is
+        // the ACCOUNT TYPE that decides, never whether some debt happens to be linked. A txn with no
+        // account id is always cash; a credit-type account's charges live on the card liability
+        // (counted once, as debt) instead of the bank. Deriving this from debt linkage instead would
+        // both invent a drift for a non-credit account with a linked debt and count a credit account
+        // without a linked debt as cash — the deposit/withdrawal surfaces the repo never moved.
+        val creditAccountIds = pack.accounts
+            .filter { it.isCreditAccount() }
+            .map { it.id }
             .toSet()
         val ledgerBalanceCents = pack.txns.sumOf { it.amount_cents }
         val cashLedgerCents = pack.txns
-            .filter { it.account_id == null || it.account_id !in creditRoutedAccountIds }
+            .filter { it.account_id == null || it.account_id !in creditAccountIds }
             .sumOf { it.amount_cents }
         val bankBalanceCents = pack.balanceState.bankBalanceCents
         val reconciled = pack.balanceState.isReconciled
         val mismatch = reconciled && bankBalanceCents != cashLedgerCents
-        // Until the user confirms a reconciled balance, keep forecasts anchored to the
-        // live transaction ledger so first-run balances don't collapse to zero.
+        // Until the user confirms a reconciled balance, keep forecasts anchored to the live CASH
+        // ledger so first-run balances don't collapse to zero and a card charge (which never left
+        // the bank) cannot understate the forecast, safe-to-spend or the money buckets.
         val forecastSeedCents = BalanceSeedResolver.resolve(
-            ledgerBalanceCents,
+            cashLedgerCents,
             bankBalanceCents,
             reconciled
         )
@@ -257,6 +265,7 @@ class DashboardDeriver {
             isLoading = false,
             bankBalanceCents = bankBalanceCents,
             ledgerBalanceCents = ledgerBalanceCents,
+            cashLedgerCents = cashLedgerCents,
             isBalanceReconciled = reconciled,
             safeToSpendCents = safeToSpend,
             incomeContributionCents = incomeContribution,
@@ -603,6 +612,11 @@ data class ReportingPackage(
     val incomes: List<IncomeEntity>,
     val payments: List<PaymentEntity>,
     val txns: List<TransactionEntity>,
+    /**
+     * Money accounts. Their `type` is the single source of truth for cash-vs-card routing and
+     * must mirror what the repository saw when it applied the transaction side effects.
+     */
+    val accounts: List<com.montecarlo.ledger.data.AccountEntity>,
     val balanceState: LedgerRepository.BalanceState,
     val billOccurrences: List<BillOccurrenceEntity>,
     val assets: List<com.montecarlo.ledger.data.AssetEntity>,
@@ -617,6 +631,7 @@ data class LedgerReportingData(
     val incomes: List<IncomeEntity>,
     val payments: List<PaymentEntity>,
     val txns: List<TransactionEntity>,
+    val accounts: List<com.montecarlo.ledger.data.AccountEntity>,
     val balanceState: LedgerRepository.BalanceState,
 )
 

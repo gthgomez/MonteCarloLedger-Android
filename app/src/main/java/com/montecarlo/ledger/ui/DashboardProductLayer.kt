@@ -524,7 +524,7 @@ internal fun OverLimitCategoriesCard(rows: List<CategoryBudgetRow>) {
 @Composable
 internal fun BalanceDriftBanner(
     driftCents: Long,
-    ledgerBalanceCents: Long,
+    cashLedgerCents: Long,
     bankBalanceCents: Long,
     onReconcile: () -> Unit,
     modifier: Modifier = Modifier,
@@ -535,7 +535,7 @@ internal fun BalanceDriftBanner(
         modifier = modifier
             .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight)
             .semantics {
-                stateDescription = "Balances drifted: app total ${centsToDisplay(ledgerBalanceCents)} " +
+                stateDescription = "Balances drifted: app cash total ${centsToDisplay(cashLedgerCents)} " +
                     "is ${centsToDisplay(absDrift)} $direction bank balance ${centsToDisplay(bankBalanceCents)}"
             },
         tint = GlassTint.Error,
@@ -549,7 +549,7 @@ internal fun BalanceDriftBanner(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Your app total (${centsToDisplay(ledgerBalanceCents)}) is " +
+                "Your app cash total (${centsToDisplay(cashLedgerCents)}) is " +
                     "${centsToDisplay(absDrift)} $direction your saved bank balance " +
                     "(${centsToDisplay(bankBalanceCents)}).",
                 style = MaterialTheme.typography.bodyMedium,
