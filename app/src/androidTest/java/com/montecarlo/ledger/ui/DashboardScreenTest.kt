@@ -100,25 +100,50 @@ class DashboardScreenTest {
                     mismatch = false,
                     details = null,
                     onboardingProgress = OnboardingProgress(
+                        reconciliationCompleted = true,
                         firstIncomeCompleted = true,
+                        firstBillCompleted = true,
+                        firstGoalCompleted = true,
                     ),
                     onDismissMismatch = {},
                     onConfirmMismatch = {},
                     onAddIncome = {},
                     onAddPayment = {},
                     onAddTransaction = {},
-                    forcedWidthClass = WindowWidthClass.Expanded,
+                    forcedWidthClass = WindowWidthClass.Compact,
                 )
             }
         }
 
-        composeRule.onNodeWithTag(DashboardTestTags.BALANCE_CARD).performScrollTo().assertIsDisplayed()
-        composeRule.onAllNodesWithText("Bank balance not confirmed").assertCountEquals(1)
-        composeRule.onAllNodesWithText("\$123.45").assertCountEquals(1)
-        composeRule.onAllNodesWithText("Forecasts use your app balance until you confirm a bank balance.").assertCountEquals(1)
-        composeRule.onAllNodesWithText("App total").assertCountEquals(1)
-        composeRule.onNodeWithText("\$119.00").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Starting point").assertCountEquals(1)
+        // The compact dashboard is a LazyColumn, so only the cards inside the viewport are
+        // composed: the balance card and the setup-complete card (the card that owns the
+        // provisional safe-to-spend figure) never fit on one phone-sized viewport. Each group of
+        // assertions therefore scrolls the lazy container to the card that owns it and counts
+        // inside that card, exactly like completedSetup_showsMonitoringModeFinishCard. The
+        // balance card is still rendered unreconciled, so its content is unchanged.
+        val dashboardScroller = composeRule.onNode(hasScrollAction())
+
+        dashboardScroller.performScrollToNode(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        composeRule.onNodeWithTag(DashboardTestTags.BALANCE_CARD).assertIsDisplayed()
+        composeRule.onAllNodes(
+            hasText("Bank balance not confirmed") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onAllNodes(
+            hasText("\$123.45") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onAllNodes(
+            hasText("Forecasts use your app balance until you confirm a bank balance.") and
+                hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onAllNodes(
+            hasText("App total") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onNodeWithText("\$119.00").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodes(
+            hasText("Starting point") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
+
+        dashboardScroller.performScrollToNode(hasText("Provisional safe-to-spend"))
         composeRule.onAllNodesWithText("Provisional safe-to-spend").assertCountEquals(1)
         composeRule.onAllNodesWithText("\$75.00").assertCountEquals(1)
     }
