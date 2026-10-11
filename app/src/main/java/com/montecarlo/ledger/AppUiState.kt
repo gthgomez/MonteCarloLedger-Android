@@ -83,7 +83,23 @@ data class AppUiState(
      * retained value is always labelled with its as-of time. Null when no canonical value is shown.
      */
     val canonicalForecastAsOf: String? = null,
-)
+    /**
+     * True when the risk model is running on default assumptions because the ledger does not yet
+     * cover [com.montecarlo.ledger.processing.MonteCarloCalibration.MIN_CALIBRATED_MONTHS] months
+     * (WS4). This is the explicit INSUFFICIENT-DATA state: defaults are never presented as calibrated.
+     */
+    val riskModelInsufficientData: Boolean = false,
+    /**
+     * Per-assumption provenance for the risk model and its displayed probability (WS4): where each
+     * input came from (user-entered / history-derived / unverified) and whether the probability has
+     * been validated out-of-sample.
+     */
+    val assumptionProvenance: List<AssumptionProvenance> = emptyList(),
+) {
+    /** The provenance row for the displayed overdraft probability, if any (WS4). */
+    val riskProbabilityProvenance: AssumptionProvenance?
+        get() = assumptionProvenance.firstOrNull { it.label == AssumptionProvenance.RISK_PROBABILITY_LABEL }
+}
 
 /**
  * Provenance of the headline financial conclusions (WS2).
@@ -103,6 +119,55 @@ enum class CanonicalForecastStatus {
 
     /** Contract engine disabled by the user; the native engine is the intended engine. */
     Native,
+}
+
+/**
+ * Where a headline risk-model assumption comes from (WS4).
+ *
+ * Deliberately orthogonal to [CanonicalForecastStatus]: that records *which engine* produced a
+ * number, while this records whether the *inputs — and the probability itself —* are trusted.
+ */
+enum class AssumptionOrigin {
+    /** Supplied directly by the user (e.g. a bank balance they confirmed). */
+    UserEntered,
+
+    /** Derived from the user's own logged history (calibrated statistics). */
+    HistoryDerived,
+
+    /**
+     * A default/assumed value, or a probability that has not been validated out-of-sample.
+     * This is the honest label for anything the app cannot yet stand behind.
+     */
+    Unverified,
+}
+
+/** Whether the risk model had enough evidence to make a claim at all (WS4). */
+enum class DataSufficiency {
+    Sufficient,
+    /** Running on defaults because history is below the calibrated floor — never "calibrated". */
+    InsufficientData,
+}
+
+/**
+ * One line of honest provenance for a risk-model assumption or output (WS4).
+ *
+ * @param label short human-readable name, also used as the stable key for the displayed probability.
+ * @param value the value the label describes (already display-formatted).
+ * @param origin where the value came from.
+ * @param sufficiency whether there was enough data to support it.
+ * @param detail a one-sentence explanation for the trust layer.
+ */
+data class AssumptionProvenance(
+    val label: String,
+    val value: String,
+    val origin: AssumptionOrigin,
+    val sufficiency: DataSufficiency,
+    val detail: String,
+) {
+    companion object {
+        /** Stable label/key for the displayed overdraft probability row. */
+        const val RISK_PROBABILITY_LABEL = "Risk probability"
+    }
 }
 
 enum class DashboardWidget {

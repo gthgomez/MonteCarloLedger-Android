@@ -2,7 +2,10 @@ package com.montecarlo.ledger.dashboard
 
 import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.ActionCenterState
+import com.montecarlo.ledger.AssumptionOrigin
+import com.montecarlo.ledger.AssumptionProvenance
 import com.montecarlo.ledger.CanonicalForecastStatus
+import com.montecarlo.ledger.DataSufficiency
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardPrimaryAction
 import com.montecarlo.ledger.MoneyBucketAccent
@@ -51,6 +54,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 /**
  * Pure-ish derivation pipeline for the dashboard: turns one consistent snapshot of
@@ -293,6 +297,15 @@ class DashboardDeriver {
             overdraftRecommendations = overdraftRecommendations,
             canonicalForecastStatus = canonicalStatus,
         )
+        // WS4: honest provenance for the risk model. The displayed probability is always labelled
+        // "Unverified" until it has been validated out-of-sample, and defaults are flagged
+        // InsufficientData so they are never presented as calibrated.
+        val assumptionProvenance = buildAssumptionProvenance(
+            calibration = calibration,
+            reconciled = reconciled,
+            forecastSeedCents = forecastSeedCents,
+            probabilityNegativePct = mc.probability_negative_pct,
+        )
         val trustSignals = buildTrustSignals(
             updatedAt = LocalDateTime.now(),
             reconciled = reconciled,
@@ -303,6 +316,7 @@ class DashboardDeriver {
             canonicalStatus = canonicalStatus,
             canonicalFailureReason = canonicalFailure?.reason,
             canonicalAsOf = canonicalAsOf,
+            assumptionProvenance = assumptionProvenance,
         )
 
         // Pacing Sparkline Calculation
@@ -392,6 +406,8 @@ class DashboardDeriver {
             canonicalForecastStatus = canonicalStatus,
             canonicalForecastError = canonicalFailure?.reason,
             canonicalForecastAsOf = canonicalAsOf,
+            riskModelInsufficientData = !calibration.isCalibrated,
+            assumptionProvenance = assumptionProvenance,
         )
 
         return DashboardDerivation(
@@ -466,6 +482,75 @@ class DashboardDeriver {
         } else {
             "Default assumptions — ${MonteCarloCalibration.MIN_CALIBRATED_MONTHS - calibration.monthsCovered} more month(s) personalizes this"
         }
+    }
+
+    /**
+     * WS4: typed provenance for the risk model. Three distinct origins are surfaced explicitly:
+     *
+     *  - [AssumptionOrigin.UserEntered] — the forecast seed anchored to a bank balance the user confirmed.
+     *  - [AssumptionOrigin.HistoryDerived] — variation ranges calibrated from enough logged history.
+     *  - [AssumptionOrigin.Unverified] — default assumptions (with [DataSufficiency.InsufficientData])
+     *    and, always, the displayed overdraft probability, which has not been validated out-of-sample.
+     *
+     * The probability row is deliberately `Unverified` even when the inputs are calibrated: having
+     * enough history to calibrate variance does not prove the resulting probability is accurate.
+     */
+    private fun buildAssumptionProvenance(
+        calibration: MonteCarloCalibration,
+        reconciled: Boolean,
+        forecastSeedCents: Long,
+        probabilityNegativePct: Double,
+    ): List<AssumptionProvenance> {
+        val sufficiency =
+            if (calibration.isCalibrated) DataSufficiency.Sufficient else DataSufficiency.InsufficientData
+
+        val seedProvenance = if (reconciled) {
+            AssumptionProvenance(
+                label = "Forecast balance",
+                value = centsToDisplay(forecastSeedCents),
+                origin = AssumptionOrigin.UserEntered,
+                sufficiency = DataSufficiency.Sufficient,
+                detail = "Anchored to the bank balance you confirmed.",
+            )
+        } else {
+            AssumptionProvenance(
+                label = "Forecast balance",
+                value = centsToDisplay(forecastSeedCents),
+                origin = AssumptionOrigin.HistoryDerived,
+                sufficiency = DataSufficiency.Sufficient,
+                detail = "Derived from your logged transactions; confirm your bank balance to pin it.",
+            )
+        }
+
+        val variationProvenance = AssumptionProvenance(
+            label = "Income & expense variation",
+            value = "±${calibration.incomeVariationMax}% income · ±${calibration.expenseVariationMax}% expense",
+            origin = if (calibration.isCalibrated) AssumptionOrigin.HistoryDerived else AssumptionOrigin.Unverified,
+            sufficiency = sufficiency,
+            detail = when {
+                calibration.isCalibrated ->
+                    "Calibrated from ${calibration.monthsCovered} months of your logged history."
+                calibration.monthsCovered == 0 ->
+                    "Default assumptions — no history to calibrate from yet."
+                else ->
+                    "Default assumptions — only ${calibration.monthsCovered} month(s) logged; " +
+                        "${MonteCarloCalibration.MIN_CALIBRATED_MONTHS} months calibrates the bands."
+            },
+        )
+
+        val probabilityProvenance = AssumptionProvenance(
+            label = AssumptionProvenance.RISK_PROBABILITY_LABEL,
+            value = "${String.format(Locale.ROOT, "%.1f", probabilityNegativePct)}%",
+            origin = AssumptionOrigin.Unverified,
+            sufficiency = sufficiency,
+            detail = if (calibration.isCalibrated) {
+                "Not validated out-of-sample — treat as indicative, not calibrated."
+            } else {
+                "Built on default assumptions and not validated out-of-sample — treat as indicative."
+            },
+        )
+
+        return listOf(seedProvenance, variationProvenance, probabilityProvenance)
     }
 
     private fun MonteCarloCalibration.toParams(includeDailyPercentiles: Boolean): MonteCarloParams =
@@ -667,6 +752,7 @@ class DashboardDeriver {
         canonicalStatus: CanonicalForecastStatus,
         canonicalFailureReason: String?,
         canonicalAsOf: String?,
+        assumptionProvenance: List<AssumptionProvenance>,
     ): List<TrustSignal> {
         val formatter = DateTimeFormatter.ofPattern("h:mm a")
         val signals = mutableListOf(
@@ -710,6 +796,24 @@ class DashboardDeriver {
                 level = TrustSignalLevel.Warning,
             )
             CanonicalForecastStatus.Live, CanonicalForecastStatus.Native -> Unit
+        }
+        // WS4: surface where each risk-model assumption came from. This is the visible half of the
+        // provenance contract — the probability reads "Unverified" even when the inputs are calibrated.
+        assumptionProvenance.forEach { provenance ->
+            signals += TrustSignal(
+                label = provenance.label,
+                value = when (provenance.origin) {
+                    AssumptionOrigin.UserEntered -> "User-entered"
+                    AssumptionOrigin.HistoryDerived -> "From history"
+                    AssumptionOrigin.Unverified -> "Unverified"
+                },
+                detail = provenance.detail,
+                level = when {
+                    provenance.sufficiency == DataSufficiency.InsufficientData -> TrustSignalLevel.Warning
+                    provenance.origin == AssumptionOrigin.Unverified -> TrustSignalLevel.Attention
+                    else -> TrustSignalLevel.Good
+                },
+            )
         }
         return signals
     }
