@@ -278,7 +278,7 @@ private fun DashboardCompactBody(
             item {
                 BalanceDriftBanner(
                     driftCents = uiState.driftCents,
-                    ledgerBalanceCents = uiState.ledgerBalanceCents,
+                    cashLedgerCents = uiState.cashLedgerCents,
                     bankBalanceCents = uiState.bankBalanceCents,
                     onReconcile = onCheckBalance,
                 )
@@ -476,7 +476,7 @@ private fun DashboardGridBody(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 BalanceDriftBanner(
                     driftCents = uiState.driftCents,
-                    ledgerBalanceCents = uiState.ledgerBalanceCents,
+                    cashLedgerCents = uiState.cashLedgerCents,
                     bankBalanceCents = uiState.bankBalanceCents,
                     onReconcile = onCheckBalance,
                 )

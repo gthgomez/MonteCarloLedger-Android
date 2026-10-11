@@ -56,6 +56,7 @@ class ContractAdoptionDashboardTest {
                 )
             ),
             txns = txns,
+            accounts = emptyList(),
             balanceState = LedgerRepository.BalanceState(bankBalanceCents = 200_000L, isReconciled = true),
             billOccurrences = emptyList(),
             assets = emptyList(),

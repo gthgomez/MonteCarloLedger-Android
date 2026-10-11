@@ -21,3 +21,12 @@ data class AccountEntity(
     val isDefault: Boolean = false,
     val lastUpdated: String,
 )
+
+/**
+ * Single source of truth for cash-vs-card routing: only the account's TYPE decides it.
+ *
+ * A credit-type account's charges raise its linked card liability instead of moving cash; every
+ * other account (and a `null` account id) moves the bank. Both the repository's transaction side
+ * effects and the dashboard's cash ledger must use this predicate so they can never disagree.
+ */
+fun AccountEntity.isCreditAccount(): Boolean = type.equals("credit", ignoreCase = true)

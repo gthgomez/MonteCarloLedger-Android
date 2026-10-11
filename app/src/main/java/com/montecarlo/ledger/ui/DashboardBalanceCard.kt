@@ -49,6 +49,20 @@ import com.montecarlo.ledger.processing.CategoryBudgetRow
 import dev.chrisbanes.haze.HazeState
 
 
+/**
+ * The reconciliation difference line for the balance card, or null when the app's CASH ledger
+ * already agrees with the confirmed bank balance.
+ *
+ * Uses the deriver's cash-basis signal ([AppUiState.bankLedgerMismatch]/[AppUiState.driftCents])
+ * rather than subtracting the all-transaction ledger locally, so a credit-card charge — money the
+ * bank never saw move — cannot show a red "Difference" on an otherwise reconciled dashboard.
+ */
+internal fun balanceDifferenceLabel(uiState: AppUiState): String? {
+    if (!uiState.bankLedgerMismatch) return null
+    val direction = if (uiState.driftCents >= 0) "app cash total above bank" else "bank above app cash total"
+    return "Difference: ${centsToDisplay(kotlin.math.abs(uiState.driftCents))} $direction"
+}
+
 @Composable
 internal fun BalanceCard(
     reconciled: Boolean,
@@ -189,11 +203,12 @@ internal fun BalanceCard(
                 }
             }
             // Legend moved to showHelpDialog
-            if (showForecastCards && uiState.ledgerBalanceCents != uiState.bankBalanceCents) {
-                val differenceCents = ledgerBalanceCents - bankBalanceCents
-                val diffLabel = if (differenceCents >= 0) "ledger above bank" else "bank above ledger"
+            // F2: driven by the deriver's cash-basis signal, never by an ad-hoc all-txn subtraction.
+            // A credit-card charge never moved the bank, so it must not raise a difference here.
+            val differenceLabel = balanceDifferenceLabel(uiState)
+            if (showForecastCards && differenceLabel != null) {
                 Text(
-                    text = "Difference: ${centsToDisplay(kotlin.math.abs(differenceCents))} $diffLabel",
+                    text = differenceLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = GlassTokens.ErrorRed
                 )
