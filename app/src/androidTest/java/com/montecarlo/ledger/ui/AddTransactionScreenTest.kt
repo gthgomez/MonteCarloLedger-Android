@@ -96,7 +96,9 @@ class AddTransactionScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Show advanced entry types").assertIsDisplayed()
+        // The product labels the toggle "Show all entry types" / "Hide all entry types"
+        // (AddTransactionScreen); income + adjustment stay hidden until it is tapped.
+        composeRule.onNodeWithText("Show all entry types").assertIsDisplayed()
         composeRule.onAllNodesWithText("Adjustment").assertCountEquals(0)
     }
 }

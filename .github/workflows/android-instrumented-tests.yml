@@ -17,6 +17,19 @@
 #     opt-out: the job then reports an explicit `::notice::` explaining that it was skipped,
 #     while `workflow_dispatch` always runs it.
 #   - `continue-on-error` is deliberately NOT used: a failing instrumented test fails the job.
+#
+# Emulator rendering policy (headless):
+#   - the AVD is a `google_apis` API 34 x86_64 image booted with the headless software
+#     renderer (`-no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none`)
+#     and with window/transition/animator scales forced to 0.
+#   - the test run always COLD BOOTS (`-no-snapshot-load -no-snapshot-save`). Restoring a
+#     snapshot hands the emulator a framebuffer/GL state captured by a previous emulator
+#     process, which is what produces the `DisplaySurfaceGlContextHelper context was
+#     preempted by others` / `Failed to restore previous context` / `Failed to bind to
+#     texture: invalid color buffer` noise and can leave the display surface unusable.
+#     A cold boot costs ~1 min more but always builds a fresh SwiftShader context.
+#   - `emulator-boot-timeout` is raised to 15 min because software rendering boots slower
+#     than a host-GPU boot; the job itself is capped at 60 min.
 name: Android Instrumented Tests
 
 on:
@@ -84,7 +97,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # Cache the AVD so the boot snapshot is reused instead of regenerated on every run.
+      # Cache the AVD (device definition + adb keys) so it is not re-created on every run.
+      # The key is bumped whenever the emulator options change so an AVD/snapshot built by an
+      # older, differently-configured emulator is never reused.
       - name: AVD cache
         id: avd-cache
         if: steps.gate.outputs.run == 'true'
@@ -93,9 +108,9 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-${{ runner.os }}-api34-google_apis-x86_64-v1
+          key: avd-${{ runner.os }}-api34-google_apis-x86_64-v2
 
-      - name: Create AVD and generate snapshot for caching
+      - name: Create AVD for caching
         if: steps.gate.outputs.run == 'true' && steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -103,9 +118,10 @@ jobs:
           target: google_apis
           arch: x86_64
           force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: false
-          script: echo "Generated AVD snapshot for caching."
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-load -no-snapshot-save
+          emulator-boot-timeout: 900
+          disable-animations: true
+          script: echo "Created AVD for caching."
 
       - name: Run instrumented tests
         if: steps.gate.outputs.run == 'true'
@@ -115,9 +131,15 @@ jobs:
           target: google_apis
           arch: x86_64
           force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-load -no-snapshot-save
+          emulator-boot-timeout: 900
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: |
+            # Record the renderer actually in use so the next run can be checked against the
+            # assumptions above (expect `ro.hardware.egl=swiftshader`).
+            echo "ro.hardware.egl=$(adb shell getprop ro.hardware.egl | tr -d '\r')"
+            echo "ro.kernel.qemu=$(adb shell getprop ro.kernel.qemu | tr -d '\r')"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
 
       - name: Upload instrumented test reports
         if: always() && steps.gate.outputs.run == 'true'
