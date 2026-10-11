@@ -2,8 +2,13 @@ package com.montecarlo.ledger.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -319,14 +324,41 @@ class DashboardScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Setup complete").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Tracking is on").performScrollTo().assertIsDisplayed()
+        // The compact dashboard is a LazyColumn: the monitoring card sits below the fold and is
+        // not composed until it is scrolled to, so the assertions must scroll lazily.
+        val dashboardScroller = composeRule.onNode(hasScrollAction())
+
+        dashboardScroller.performScrollToNode(hasTestTag(DashboardTestTags.MONITORING_MODE_CARD))
+        composeRule.onNodeWithText("Setup complete").assertIsDisplayed()
+        composeRule.onNodeWithText("Tracking is on").assertIsDisplayed()
         composeRule.onNodeWithText("The app will watch your balance and forecast without the setup checklist.").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Bank balance").assertCountEquals(4)
-        composeRule.onAllNodesWithText("App total").assertCountEquals(2)
+        // Counters are scoped to the card that owns them: a phone-sized viewport never composes
+        // the balance card and the monitoring card at the same time, so a global count would be
+        // viewport dependent. The per-card totals still add up to the card's full label set.
+        composeRule.onAllNodes(
+            hasText("Bank balance") and hasAnyAncestor(hasTestTag(DashboardTestTags.MONITORING_MODE_CARD))
+        ).assertCountEquals(2)
+        composeRule.onAllNodes(
+            hasText("App total") and hasAnyAncestor(hasTestTag(DashboardTestTags.MONITORING_MODE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onAllNodes(
+            hasText("Starting point") and hasAnyAncestor(hasTestTag(DashboardTestTags.MONITORING_MODE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onNode(
+            hasText("Safe to spend") and hasAnyAncestor(hasTestTag(DashboardTestTags.MONITORING_MODE_CARD))
+        ).assertIsDisplayed()
+
+        dashboardScroller.performScrollToNode(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        composeRule.onAllNodes(
+            hasText("Bank balance") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(2)
+        composeRule.onAllNodes(
+            hasText("App total") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
+        composeRule.onAllNodes(
+            hasText("Starting point") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
+        ).assertCountEquals(1)
         composeRule.onNodeWithContentDescription("How to read these numbers").performScrollTo().assertIsDisplayed()
-        composeRule.onAllNodesWithText("Starting point").assertCountEquals(2)
-        composeRule.onNodeWithText("Safe to spend").assertIsDisplayed()
         composeRule.onAllNodesWithText("Log paycheck").assertCountEquals(0)
         composeRule.onAllNodesWithText("Add bill").assertCountEquals(0)
         composeRule.onAllNodesWithText("Record spending").assertCountEquals(0)

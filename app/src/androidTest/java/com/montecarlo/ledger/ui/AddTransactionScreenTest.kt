@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import com.montecarlo.ledger.AppTheme
 import com.montecarlo.ledger.data.BillOccurrenceEntity
@@ -70,7 +71,9 @@ class AddTransactionScreenTest {
         composeRule.onNodeWithText("Amount ($)").performTextInput("50")
         composeRule.onNodeWithContentDescription("Bill link selector").performClick()
         composeRule.onNodeWithText("Rent • due", substring = true).performClick()
-        composeRule.onNodeWithText("Save").performClick()
+        // The form is taller than a phone viewport: Save sits below the fold and must be
+        // scrolled into view before the tap can reach it.
+        composeRule.onNodeWithText("Save").performScrollTo().performClick()
 
         composeRule.runOnIdle {
             val result = saved.value

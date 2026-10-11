@@ -1,11 +1,11 @@
 package com.montecarlo.ledger.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.performScrollToNode
 import com.montecarlo.ledger.AppTheme
 import com.montecarlo.ledger.AppUiState
 import com.montecarlo.ledger.data.CategorySpend
@@ -58,12 +58,19 @@ class AnalysisScreenTest {
             }
         }
 
+        // AnalysisContent is a single LazyColumn, so "everything on one scroll" is exercised by
+        // scrolling that one container to each section in order instead of flinging the root.
+        val analysisScroll = composeRule.onNode(hasScrollAction())
+
+        analysisScroll.performScrollToNode(hasText("Analysis"))
         composeRule.onNodeWithText("Analysis").assertIsDisplayed()
+        analysisScroll.performScrollToNode(hasText("Cash flow overview"))
         composeRule.onNodeWithText("Cash flow overview").assertIsDisplayed()
+        analysisScroll.performScrollToNode(hasText("Spending by category (30d)"))
         composeRule.onNodeWithText("Spending by category (30d)").assertIsDisplayed()
+        analysisScroll.performScrollToNode(hasText("Recent manual adjustments"))
         composeRule.onNodeWithText("Recent manual adjustments").assertIsDisplayed()
-        composeRule.onRoot().performTouchInput { swipeUp() }
-        composeRule.onRoot().performTouchInput { swipeUp() }
+        analysisScroll.performScrollToNode(hasText("90-day forecast"))
         composeRule.onNodeWithText("90-day forecast").assertIsDisplayed()
     }
 }
