@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.montecarlo.ledger.AppTheme
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.TransactionEntity
@@ -44,7 +45,10 @@ class CsvImportDialogTest {
         }
 
         composeRule.onNodeWithText("Import CSV").assertIsDisplayed()
-        composeRule.onNodeWithText("Import").performClick()
+        // The sheet body is a scrollable column; the action button sits below the fold on a
+        // phone-sized viewport, so scroll it into view before tapping it (the tap has to land
+        // on a visible node). Same intent as before: pressing Import invokes onImport.
+        composeRule.onNodeWithText("Import").performScrollTo().performClick()
 
         composeRule.runOnIdle {
             assertTrue(clicked)
@@ -82,7 +86,7 @@ class CsvImportDialogTest {
         }
 
         composeRule.onNodeWithText("Import bills CSV").assertIsDisplayed()
-        composeRule.onNodeWithText("Import").performClick()
+        composeRule.onNodeWithText("Import").performScrollTo().performClick()
 
         composeRule.runOnIdle {
             assertTrue(clicked)

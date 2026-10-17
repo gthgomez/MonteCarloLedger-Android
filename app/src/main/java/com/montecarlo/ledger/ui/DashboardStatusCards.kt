@@ -385,7 +385,9 @@ internal fun MonitoringModeCard(
     uiState: AppUiState,
 ) {
     GlassCard(
-        modifier = Modifier.heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight),
+        modifier = Modifier
+            .testTag(DashboardTestTags.MONITORING_MODE_CARD)
+            .heightIn(min = UiLayoutTokens.DashboardSupportCardMinHeight),
         tint = GlassTint.Cyan,
         surfaceStyle = GlassSurfaceStyle.Standard
     ) {
