@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.room.Room
@@ -70,7 +71,9 @@ class IncomeBillForecastEndToEndTest {
             .performTextInput("Paycheck")
         composeRule.onNodeWithContentDescription("Income amount input field")
             .performTextInput("1200")
-        composeRule.onNodeWithContentDescription("Save income entry").performClick()
+        composeRule.onNodeWithContentDescription("Save income entry")
+            .performScrollTo()
+            .performClick()
 
         waitForViewModelState("Paycheck should be persisted") {
             viewModel.allIncome.value.any { it.name == "Paycheck" && it.amount_cents == 120_000L }
@@ -86,7 +89,9 @@ class IncomeBillForecastEndToEndTest {
             .performTextInput("50")
         composeRule.onNodeWithContentDescription("Bill recurrence selector").performClick()
         composeRule.onNodeWithText("One-time").performClick()
-        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Save")
+            .performScrollTo()
+            .performClick()
 
         waitForViewModelState("Rent bill should be persisted") {
             viewModel.allPayments.value.any { it.name == "Rent" && it.amount_cents == 5_000L }
