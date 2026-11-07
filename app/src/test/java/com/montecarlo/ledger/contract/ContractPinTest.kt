@@ -35,10 +35,11 @@ class ContractPinTest {
         // -> 912b89d (MC-08 merged to Ledger master; the snapshot now pins the default branch)
         // -> 90ed406 (MC-09 enforced that occurrence_exclusions require a 1.1 document)
         // -> f5c5e8b (MC-10 contract 1.2: per-category expense variation, MCD-0025)
-        // -> c1dea8c (MC-11 contract 2.0: debt/liability domain, MCD-0026).
+        // -> c1dea8c (MC-11 contract 2.0: debt/liability domain, MCD-0026)
+        // -> 01f5090 (Contract 2.0 promoted from draft to released, 2026-11-07).
         // See contract/README.md for the re-pin procedure.
         assertEquals(
-            "c1dea8cd73e133d2a4adc5940d817f0147366a60",
+            "01f5090055c61ad7b59f5cc7073de07518f50700",
             (pin["source_commit"] as? JsonPrimitive)?.content,
         )
         assertEquals("2.0", (pin["contract_version"] as? JsonPrimitive)?.content)
