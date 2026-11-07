@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.widget
 
 import com.montecarlo.ledger.CanonicalForecastStatus
+import com.montecarlo.ledger.adoption.CanonicalSimulationConfig
 import com.montecarlo.ledger.adoption.ContractDashboardMapper
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
@@ -127,14 +128,20 @@ internal fun deriveWidgetForecast(
                 billOccurrences = occurrences,
                 // Contract MCD-0023: the simulation is defined for any scenario; an empty ledger
                 // must not be given a fabricated 0% risk.
-                simulation = ContractScenarioBridge.simulationParams(calibration, runs = WIDGET_RUNS),
+                simulation = ContractScenarioBridge.simulationParams(
+                    calibration,
+                    runs = CanonicalSimulationConfig.RUNS,
+                ),
                 paymentCategories = paymentCategories,
             )
         )
         val result = ContractRunner.run(built)
         CanonicalAdoption(
             forecastSummary = ContractDashboardMapper.toForecastSummary(result),
-            monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, WIDGET_RUNS),
+            monteCarloResult = ContractDashboardMapper.toMonteCarloResult(
+                result,
+                CanonicalSimulationConfig.RUNS,
+            ),
             forecastRows = ContractDashboardMapper.toBalanceForecastRows(built),
         )
     }
@@ -177,8 +184,6 @@ private fun MonteCarloCalibration.toWidgetParams(): MonteCarloParams =
         surpriseAmountMax = surpriseAmountMax,
         includeDailyPercentiles = false,
     )
-
-private const val WIDGET_RUNS = 100
 
 private fun riskLabel(safeToSpendCents: Long, probabilityNegativePct: Double): String = when {
     safeToSpendCents < 0 -> "Shortfall Projected"

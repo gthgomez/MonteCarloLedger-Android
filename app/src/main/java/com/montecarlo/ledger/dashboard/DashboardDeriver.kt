@@ -10,6 +10,7 @@ import com.montecarlo.ledger.MoneyBucketState
 import com.montecarlo.ledger.TransactionReviewItem
 import com.montecarlo.ledger.TrustSignal
 import com.montecarlo.ledger.TrustSignalLevel
+import com.montecarlo.ledger.adoption.CanonicalSimulationConfig
 import com.montecarlo.ledger.adoption.ContractDashboardMapper
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
@@ -443,7 +444,7 @@ class DashboardDeriver {
         // activity exists, so we must not zero out risk for an empty ledger here.
         val scenario = built
         val result = ContractRunner.run(scenario)
-        val runs = scenario.simulation?.runs ?: 500
+        val runs = scenario.simulation?.runs ?: CanonicalSimulationConfig.RUNS
         CanonicalAdoption(
             forecastSummary = ContractDashboardMapper.toForecastSummary(result),
             monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
