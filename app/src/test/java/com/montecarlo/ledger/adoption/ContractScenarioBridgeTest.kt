@@ -75,6 +75,16 @@ class ContractScenarioBridgeTest {
         )
     )
 
+    /** MCD-0027: every product builder stamps the same (latest released) contract version. */
+    @Test
+    fun builtScenarioDeclaresTheLatestReleasedContractVersion() {
+        val scenario = build(
+            incomes = listOf(income()),
+            payments = listOf(payment(1)),
+        )
+        assertEquals("2.0", scenario.contractVersion)
+    }
+
     /** B-07 / MCD-0022: `anchor_day` is derived from the start day and preserved across clamping. */
     @Test
     fun monthlyPaymentWithNullDayOfMonthKeepsTheAnchorAcrossClampedMonths() {

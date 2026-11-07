@@ -39,8 +39,16 @@ import kotlin.math.roundToInt
  */
 object ContractScenarioBridge {
 
-    /** Contract revision these scenarios declare (occurrence exclusions + per-category variation). */
-    private const val CONTRACT_VERSION = "1.2"
+    /**
+     * Contract revision these scenarios declare.
+     *
+     * MCD-0027: product-built scenarios stamp the latest released version, exactly like the Python
+     * and TypeScript builders. Declaring 1.2 here made an Android scenario carry different version
+     * metadata from the identical scenario built elsewhere. The scenario content is unchanged (no
+     * liabilities are emitted by this bridge), so this is a metadata alignment, not a financial
+     * semantic change.
+     */
+    private const val CONTRACT_VERSION = "2.0"
 
     data class Inputs(
         val startingBalanceCents: Long,
