@@ -20,7 +20,7 @@ import kotlin.random.Random
  */
 class RiskBacktestTest {
 
-    private val today = LocalDate.of(2026, 12, 31)
+    private val today = LocalDate.of(2027, 1, 31)
 
     private fun expense(description: String, cents: Long, date: String, category: String) =
         TransactionEntity(

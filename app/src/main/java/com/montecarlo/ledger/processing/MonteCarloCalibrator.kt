@@ -74,9 +74,14 @@ object MonteCarloCalibrator {
     ): MonteCarloCalibration {
         if (transactions.isEmpty()) return MonteCarloCalibration.defaults()
 
+        // Only completed calendar months describe realized behaviour: a future-dated
+        // row has not happened, and the current month is still accumulating, so
+        // including either would fabricate a variance the ledger does not support.
+        val todayMonth = YearMonth.from(today)
         val dated = transactions.mapNotNull { txn ->
             val date = runCatching { LocalDate.parse(txn.date.trim()) }.getOrNull() ?: return@mapNotNull null
-            txn to YearMonth.from(date)
+            val month = YearMonth.from(date)
+            if (month >= todayMonth) null else txn to month
         }
 
         if (dated.isEmpty()) return MonteCarloCalibration.defaults()

@@ -1,5 +1,8 @@
 package com.montecarlo.ledger.processing
 
+import com.montecarlo.ledger.util.safeAddCents
+import com.montecarlo.ledger.util.safeNegateCents
+import com.montecarlo.ledger.util.safeSubtractCents
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.max
@@ -63,7 +66,11 @@ object ForecastEngine {
         var lowestBalance = balanceCents
 
         for (event in events.sortedWith(EVENT_COMPARATOR)) {
-            runningBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
+            runningBalance = if (event.type == "income") {
+                safeAddCents(runningBalance, event.amount_cents)
+            } else {
+                safeSubtractCents(runningBalance, event.amount_cents)
+            }
             lowestBalance = minOf(lowestBalance, runningBalance)
         }
 
@@ -110,8 +117,8 @@ object ForecastEngine {
             var billCents = 0L
             val openingIncomeEvents = windowEvents.filter { it.date == windowStart && it.type == "income" }
             openingIncomeEvents.forEach { event ->
-                incomeCents += event.amount_cents
-                runningBalance += event.amount_cents
+                incomeCents = safeAddCents(incomeCents, event.amount_cents)
+                runningBalance = safeAddCents(runningBalance, event.amount_cents)
             }
             // MCD-0010 / bug B-05: the window's opening balance is itself a low-point candidate.
             // Initialising from `runningBalance` ignored an already-negative opening balance
@@ -120,11 +127,11 @@ object ForecastEngine {
 
             windowEvents.filterNot { it.date == windowStart && it.type == "income" }.forEach { event ->
                 if (event.type == "income") {
-                    incomeCents += event.amount_cents
-                    runningBalance += event.amount_cents
+                    incomeCents = safeAddCents(incomeCents, event.amount_cents)
+                    runningBalance = safeAddCents(runningBalance, event.amount_cents)
                 } else {
-                    billCents += event.amount_cents
-                    runningBalance -= event.amount_cents
+                    billCents = safeAddCents(billCents, event.amount_cents)
+                    runningBalance = safeSubtractCents(runningBalance, event.amount_cents)
                 }
                 lowestBalance = minOf(lowestBalance, runningBalance)
             }
@@ -141,7 +148,7 @@ object ForecastEngine {
                 endingBalanceCents = runningBalance,
                 safeToSpendCents = safeToSpend,
                 dailyPacingCents = safeToSpend / days,
-                shortfallCents = (-lowestBalance).coerceAtLeast(0L),
+                shortfallCents = if (lowestBalance < 0L) safeNegateCents(lowestBalance) else 0L,
                 days = days,
             )
         }
@@ -160,10 +167,10 @@ object ForecastEngine {
 
         for (event in sorted) {
             if (event.type == "income") {
-                runningProjected += event.amount_cents
+                runningProjected = safeAddCents(runningProjected, event.amount_cents)
             } else {
-                runningProjected -= event.amount_cents
-                runningCash -= event.amount_cents
+                runningProjected = safeSubtractCents(runningProjected, event.amount_cents)
+                runningCash = safeSubtractCents(runningCash, event.amount_cents)
             }
             if (runningProjected < lowestProjected) lowestProjected = runningProjected
             if (runningCash < minCash) minCash = runningCash
@@ -171,14 +178,18 @@ object ForecastEngine {
 
         val safeToSpend = maxOf(0L, lowestProjected)
         val currentCashContribution = maxOf(0L, minCash)
-        val contribution = safeToSpend - currentCashContribution
+        val contribution = safeSubtractCents(safeToSpend, currentCashContribution)
         return maxOf(0L, contribution)
     }
 
     fun buildBalanceForecast(balanceCents: Long, events: List<ForecastEvent>): List<BalanceForecastRow> {
         var runningBalance = balanceCents
         return events.sortedWith(EVENT_COMPARATOR).map { event ->
-            runningBalance += if (event.type == "income") event.amount_cents else -event.amount_cents
+            runningBalance = if (event.type == "income") {
+                safeAddCents(runningBalance, event.amount_cents)
+            } else {
+                safeSubtractCents(runningBalance, event.amount_cents)
+            }
             BalanceForecastRow(
                 date = event.date,
                 balanceCents = runningBalance,

@@ -33,6 +33,7 @@ import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.isCreditAccount
 import com.montecarlo.ledger.processing.BalanceForecastRow
+import com.montecarlo.ledger.processing.CashFlowWindow
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.BudgetPacingEngine
 import com.montecarlo.ledger.processing.ForecastEngine
@@ -146,14 +147,6 @@ class DashboardDeriver {
             30
         }
 
-        val nativeForecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events, today)
-        val incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
-        val cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
-        val currentCashFlowWindow = cashFlowWindows.firstOrNull()
-        // Native per-window pacing heuristic; used only when the contract path is inactive.
-        val nativeDailyBudgetCents = currentCashFlowWindow?.dailyPacingCents
-            ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
-
         // Calibrate simulation ranges from the user's own history instead of hardcoded
         // assumptions; fall back to defaults until enough months exist.
         val calibration = MonteCarloCalibrator.calibrate(
@@ -161,19 +154,12 @@ class DashboardDeriver {
             today = today,
             recurringPatterns = recurringCandidates.map { it.pattern }.toSet(),
         )
-        // The non-normative daily fan chart is not part of Contract 1.0; the native engine
-        // still supplies it (with B-05/B-06 fixed) while the contract governs every headline
-        // number below when the adoption flag is on.
-        val nativeMc = withContext(Dispatchers.Default) {
-            MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
-                .runSimulation(forecastSeedCents, events, today)
-        }
         // WS6: the canonical bridge inputs are built inside [adoptContract] and handed back, so a
         // "what if" comparison is always measured against the exact scenario this dashboard ran.
         val contractRun: Pair<ContractScenarioBridge.Inputs?, ContractCalculationResult<CanonicalAdoption>>? =
             if (contractForecastEnabled) {
                 withContext(Dispatchers.Default) {
-                    adoptContract(pack, forecastSeedCents, today, calibration, nativeMc.dailyPercentiles)
+                    adoptContract(pack, forecastSeedCents, today, calibration)
                 }
             } else {
                 null
@@ -213,6 +199,8 @@ class DashboardDeriver {
         val mc: MonteCarloResult
         val forecastRows: List<BalanceForecastRow>
         val dailyBudgetCents: Long
+        var incomeContribution = 0L
+        var cashFlowWindows: List<CashFlowWindow> = emptyList()
         when (canonicalStatus) {
             CanonicalForecastStatus.Live, CanonicalForecastStatus.Stale -> {
                 val canonicalResult = checkNotNull(canonical) {
@@ -230,6 +218,13 @@ class DashboardDeriver {
                 } else {
                     0L
                 }
+                if (canonicalStatus == CanonicalForecastStatus.Live) {
+                    // Secondary native metrics are safe only when the canonical calculation for
+                    // this ledger succeeded. A stale result keeps its canonical headline; an
+                    // overflowing new ledger must not be re-read through unchecked native paths.
+                    incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
+                    cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
+                }
             }
             CanonicalForecastStatus.Failed -> {
                 forecastSummary = FAIL_CLOSED_FORECAST_SUMMARY
@@ -238,10 +233,17 @@ class DashboardDeriver {
                 dailyBudgetCents = 0L
             }
             CanonicalForecastStatus.Native -> {
-                forecastSummary = nativeForecastSummary
-                mc = nativeMc
+                forecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events, today)
+                mc = withContext(Dispatchers.Default) {
+                    MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
+                        .runSimulation(forecastSeedCents, events, today)
+                }
                 forecastRows = ForecastEngine.buildBalanceForecast(forecastSeedCents, events)
-                dailyBudgetCents = nativeDailyBudgetCents
+                cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
+                val currentCashFlowWindow = cashFlowWindows.firstOrNull()
+                dailyBudgetCents = currentCashFlowWindow?.dailyPacingCents
+                    ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
+                incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
             }
         }
         // MCD-0008: only the contract path models a trough distribution, so only it can supply a
@@ -476,7 +478,6 @@ class DashboardDeriver {
         startingBalanceCents: Long,
         asOf: LocalDate,
         calibration: MonteCarloCalibration,
-        nativeDailyPercentiles: List<DailyPercentilePoint>,
     ): Pair<ContractScenarioBridge.Inputs?, ContractCalculationResult<CanonicalAdoption>> {
         var inputs: ContractScenarioBridge.Inputs? = null
         val outcome = canonicalCalculation {
@@ -485,12 +486,23 @@ class DashboardDeriver {
             // depends only on the horizon and surprise parameters, never on whether scheduled
             // activity exists, so we must not zero out risk for an empty ledger here.
             val scenario = ContractScenarioBridge.build(inputs!!)
-            val result = ContractRunner.run(scenario)
+            // Canonical risk and the daily fan chart come from the same simulated paths.
+            val (result, canonicalDaily) = ContractRunner.runWithDaily(scenario)
             val runs = scenario.simulation?.runs ?: CanonicalSimulationConfig.RUNS
             CanonicalAdoption(
                 forecastSummary = ContractDashboardMapper.toForecastSummary(result),
                 monteCarloResult = ContractDashboardMapper.toMonteCarloResult(result, runs)
-                    .copy(dailyPercentiles = nativeDailyPercentiles),
+                    .copy(
+                        dailyPercentiles = canonicalDaily.map {
+                            DailyPercentilePoint(
+                                dayIndex = it.dayIndex,
+                                date = it.date,
+                                worst10Cents = it.p10Cents,
+                                medianCents = it.p50Cents,
+                                best90Cents = it.p90Cents,
+                            )
+                        }
+                    ),
                 // MC-07/C1: the display rows are the contract's own ordered events, not a second
                 // recurrence/forecast interpretation.
                 forecastRows = ContractDashboardMapper.toBalanceForecastRows(scenario),

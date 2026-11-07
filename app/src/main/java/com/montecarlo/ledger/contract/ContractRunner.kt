@@ -12,21 +12,49 @@ object ContractRunner {
 
     fun run(scenarioElement: JsonElement): ContractResult = run(ContractScenarioParser.parse(scenarioElement))
 
-    fun run(scenario: ContractScenario): ContractResult {
+    fun run(scenario: ContractScenario): ContractResult = execute(scenario, withDaily = false).first
+
+    /**
+     * Canonical result plus daily fan-chart percentiles computed from the same simulation paths.
+     * The chart therefore visualizes the canonical model rather than a second engine.
+     */
+    fun runWithDaily(
+        scenario: ContractScenario,
+    ): Pair<ContractResult, List<ContractSimulation.ContractDailyPoint>> =
+        execute(scenario, withDaily = true)
+
+    private fun execute(
+        scenario: ContractScenario,
+        withDaily: Boolean,
+    ): Pair<ContractResult, List<ContractSimulation.ContractDailyPoint>> {
         val baseEvents = ContractEngine.inWindowBaseEvents(scenario)
         val forecast = ContractEngine.forecast(
             startingBalanceCents = scenario.startingBalanceCents,
             orderedEvents = baseEvents,
             asOf = scenario.asOf,
         )
-        val risk = if (scenario.simulation != null) {
-            ContractSimulation.simulate(
-                scenario = scenario,
-                baseEvents = baseEvents,
-                projectedLowPointCents = forecast.minimumBalanceCents,
-            )
+        val risk: ContractRiskResult?
+        val daily: List<ContractSimulation.ContractDailyPoint>
+        if (scenario.simulation != null) {
+            if (withDaily) {
+                val (riskBlock, points) = ContractSimulation.simulateWithDaily(
+                    scenario = scenario,
+                    baseEvents = baseEvents,
+                    projectedLowPointCents = forecast.minimumBalanceCents,
+                )
+                risk = riskBlock
+                daily = points
+            } else {
+                risk = ContractSimulation.simulate(
+                    scenario = scenario,
+                    baseEvents = baseEvents,
+                    projectedLowPointCents = forecast.minimumBalanceCents,
+                )
+                daily = emptyList()
+            }
         } else {
-            null
+            risk = null
+            daily = emptyList()
         }
         // Contract 2.0 (MCD-0026): the debt block is present iff the scenario declares liabilities.
         // It is deterministic and independent of the cash-ledger forecast and the simulation.
@@ -38,7 +66,7 @@ object ContractRunner {
                 extraMonthlyPaymentCents = scenario.extraMonthlyPaymentCents,
             )
         }
-        return ContractResult(
+        val result = ContractResult(
             scenarioId = scenario.scenarioId,
             forecast = ContractForecastResult(
                 minimumBalanceCents = forecast.minimumBalanceCents,
@@ -51,5 +79,6 @@ object ContractRunner {
             contractVersion = scenario.contractVersion,
             debt = debt,
         )
+        return result to daily
     }
 }

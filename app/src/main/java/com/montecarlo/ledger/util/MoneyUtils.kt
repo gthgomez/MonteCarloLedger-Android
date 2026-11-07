@@ -73,3 +73,30 @@ fun scaleCentsByBasisPoints(amountCents: Long, basisPoints: Int): Long {
         .divide(java.math.BigDecimal.valueOf(10_000L), 0, java.math.RoundingMode.HALF_UP)
         .longValueExact()
 }
+
+/** Thrown when native (non-contract) money arithmetic would wrap a [Long]. */
+class MoneyArithmeticOverflow(message: String) : ArithmeticException(message)
+
+/** Overflow-checked addition for native financial paths; never silently wraps. */
+fun safeAddCents(a: Long, b: Long): Long =
+    try {
+        Math.addExact(a, b)
+    } catch (e: ArithmeticException) {
+        throw MoneyArithmeticOverflow("money addition overflow: $a + $b")
+    }
+
+/** Overflow-checked subtraction for native financial paths. */
+fun safeSubtractCents(a: Long, b: Long): Long =
+    try {
+        Math.subtractExact(a, b)
+    } catch (e: ArithmeticException) {
+        throw MoneyArithmeticOverflow("money subtraction overflow: $a - $b")
+    }
+
+/** Overflow-checked negation for native financial paths. */
+fun safeNegateCents(a: Long): Long =
+    try {
+        Math.negateExact(a)
+    } catch (e: ArithmeticException) {
+        throw MoneyArithmeticOverflow("money negation overflow: $a")
+    }

@@ -1,6 +1,8 @@
 package com.montecarlo.ledger.processing
 
 import java.time.LocalDate
+import com.montecarlo.ledger.util.safeAddCents
+import com.montecarlo.ledger.util.safeSubtractCents
 import com.montecarlo.ledger.util.scaleCentsByPercent
 import kotlin.math.ceil
 import kotlin.math.max
@@ -250,7 +252,11 @@ class MonteCarloEngine(
                 val currentDate = today.plusDays((dayIdx - 1).toLong())
                 val dayEvents = eventMap[currentDate].orEmpty().sortedWith(compareBy { if (it.type == "income") 0 else 1 })
                 for (event in dayEvents) {
-                    runningBalance += if (event.type == "income") event.amount_cents.toLong() else -event.amount_cents.toLong()
+                    runningBalance = if (event.type == "income") {
+                        safeAddCents(runningBalance, event.amount_cents.toLong())
+                    } else {
+                        safeSubtractCents(runningBalance, event.amount_cents.toLong())
+                    }
                     if (runningBalance < lowestBalance) {
                         lowestBalance = runningBalance
                     }
@@ -262,7 +268,11 @@ class MonteCarloEngine(
             }
             val afterDay90Events = scenarioTimeline.filter { it.date > today.plusDays(89) }
             for (event in afterDay90Events) {
-                runningBalance += if (event.type == "income") event.amount_cents.toLong() else -event.amount_cents.toLong()
+                runningBalance = if (event.type == "income") {
+                        safeAddCents(runningBalance, event.amount_cents.toLong())
+                    } else {
+                        safeSubtractCents(runningBalance, event.amount_cents.toLong())
+                    }
                 if (runningBalance < lowestBalance) {
                     lowestBalance = runningBalance
                 }
@@ -272,7 +282,11 @@ class MonteCarloEngine(
             }
         } else {
             for (event in scenarioTimeline) {
-                runningBalance += if (event.type == "income") event.amount_cents.toLong() else -event.amount_cents.toLong()
+                runningBalance = if (event.type == "income") {
+                        safeAddCents(runningBalance, event.amount_cents.toLong())
+                    } else {
+                        safeSubtractCents(runningBalance, event.amount_cents.toLong())
+                    }
                 if (runningBalance < lowestBalance) {
                     lowestBalance = runningBalance
                 }

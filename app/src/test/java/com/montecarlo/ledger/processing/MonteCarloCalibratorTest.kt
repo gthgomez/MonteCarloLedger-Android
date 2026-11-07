@@ -76,7 +76,7 @@ class MonteCarloCalibratorTest {
 
     @Test
     fun calibrate_singleMonthOfHistoryIsNotCalibrated() {
-        val txns = List(5) { expense("Item $it", 1_000L * (it + 1), "2026-08-05") }
+        val txns = List(5) { expense("Item $it", 1_000L * (it + 1), "2026-07-05") }
 
         val calibration = MonteCarloCalibrator.calibrate(txns, today)
 
@@ -136,7 +136,7 @@ class MonteCarloCalibratorTest {
 
     @Test
     fun calibrate_incomeVariationStaysZeroWithoutTwoIncomeMonths() {
-        val txns = listOf(income(200_000L, "2026-08-01"))
+        val txns = listOf(income(200_000L, "2026-07-01"))
 
         val calibration = MonteCarloCalibrator.calibrate(txns, today)
 
