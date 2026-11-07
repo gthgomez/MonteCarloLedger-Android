@@ -123,6 +123,9 @@ object ContractScenarioParser {
     )
     private val EXCLUSION_KEYS = setOf("recurrence_id", "date")
     private val SUPPORTED_CONTRACT_VERSIONS = setOf("1.0", "1.1", "1.2", "2.0")
+
+    /** MCD-0027: version-less scenarios evaluate as the latest released version. */
+    private const val DEFAULT_CONTRACT_VERSION = "2.0"
     private val FREQUENCIES = setOf(
         "weekly", "biweekly", "semimonthly", "monthly", "bimonthly",
         "quarterly", "semiannually", "annually", "onetime",
@@ -133,7 +136,12 @@ object ContractScenarioParser {
     fun parse(element: JsonElement): ContractScenario {
         val root = element as? JsonObject ?: schema("scenario must be an object")
         rejectUnknown(root, SCENARIO_KEYS, "scenario")
-        val contractVersion = requireString(root, "contract_version", "scenario")
+        // MCD-0027: a version-less scenario evaluates as the latest released version on every
+        // engine — the Python reference and the TypeScript port both default to 2.0, so requiring
+        // the field here made the Kotlin engine the outlier for hand-written scenarios.
+        val contractVersion = root["contract_version"]?.let {
+            it as? JsonPrimitive ?: schema("contract_version must be a string")
+        }?.takeIf { it.isString }?.content ?: DEFAULT_CONTRACT_VERSION
         if (contractVersion !in SUPPORTED_CONTRACT_VERSIONS) {
             schema("contract_version must be one of ${SUPPORTED_CONTRACT_VERSIONS.sorted()}")
         }
