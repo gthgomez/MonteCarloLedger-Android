@@ -122,8 +122,8 @@ object ContractScenarioBridge {
      */
     fun simulationParams(
         calibration: MonteCarloCalibration,
-        runs: Int = 500,
-        seed: Long = 42,
+        runs: Int = CanonicalSimulationConfig.RUNS,
+        seed: Long = CanonicalSimulationConfig.SEED,
         reserveCents: Long = 0,
     ): ContractSimulationParams = ContractSimulationParams(
         runs = runs,

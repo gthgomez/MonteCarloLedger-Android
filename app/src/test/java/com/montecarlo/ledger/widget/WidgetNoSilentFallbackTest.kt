@@ -32,6 +32,8 @@ class WidgetNoSilentFallbackTest {
             incomes = pack.incomes,
             payments = pack.payments,
             occurrences = pack.billOccurrences,
+            txns = pack.txns,
+            rules = pack.rules,
         )
 
     @Test
@@ -53,6 +55,7 @@ class WidgetNoSilentFallbackTest {
                 riskLabel = "Unavailable",
                 status = CanonicalForecastStatus.Failed,
                 available = false,
+                calibrated = false,
             ),
             forecast,
         )
