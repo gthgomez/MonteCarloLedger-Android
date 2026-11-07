@@ -32,6 +32,7 @@ import com.montecarlo.ledger.util.centsToDisplay
 import com.montecarlo.ledger.util.toPersistedBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
@@ -93,13 +94,18 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         val incomes = db.incomeDao().getAllIncomesList()
         val payments = db.paymentDao().getAllPaymentsList()
         val occurrences = db.billOccurrenceDao().getAllOccurrencesList()
+        val accounts = db.accountDao().getAll().first()
+        val rules = db.transactionRuleDao().getAll().first()
 
         val bankBalanceCents = settings["bank_balance_cents"]?.toLongOrNull() ?: 0L
         val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
         // MC-06b persisted adoption flag; absent means ON.
         val contractForecastEnabled = settings["contract_forecast_enabled"]?.toPersistedBoolean() ?: true
-        val ledgerBalanceCents = txns.sumOf { it.amount_cents }
-        val forecastSeedCents = BalanceSeedResolver.resolve(ledgerBalanceCents, bankBalanceCents, reconciled)
+        // Cash-vs-card routing mirrors DashboardDeriver: only the account's TYPE decides. A
+        // credit-type account's charges live on the card liability, never in the bank, so they
+        // must not lower the widget's cash seed (or the widget would disagree with the dashboard).
+        val cashLedgerCents = widgetCashLedgerCents(txns, accounts)
+        val forecastSeedCents = BalanceSeedResolver.resolve(cashLedgerCents, bankBalanceCents, reconciled)
 
         val today = LocalDate.now()
         // WS2/F1: headline numbers come from the canonical contract engine while the adoption flag
@@ -112,10 +118,12 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
             incomes = incomes,
             payments = payments,
             occurrences = occurrences,
+            txns = txns,
+            rules = rules,
         )
 
         val nextBillLabel = TimelineService
-            .generateTimeline(incomes, payments, today, 90, occurrences)
+            .generateTimeline(incomes, payments, today, 90, occurrences, rules)
             .filter { it.type == "bill" }
             .take(1)
             .firstOrNull()
