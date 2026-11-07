@@ -97,9 +97,19 @@ internal fun DashboardActionCenterCard(
                         )
                     } else {
                         Text(
-                            centsToDisplay(state.safeToSpendCents),
+                            // WS2/F2: a withheld canonical calculation shows "Unavailable" instead
+                            // of a neutral $0 that would read as a genuine, risk-free number.
+                            text = if (state.forecastAvailable) {
+                                centsToDisplay(state.safeToSpendCents)
+                            } else {
+                                "Unavailable"
+                            },
                             style = MaterialTheme.typography.headlineMedium,
-                            color = if (state.safeToSpendCents < 0) GlassTokens.ErrorRed else GlassTokens.CyanBright,
+                            color = when {
+                                !state.forecastAvailable -> GlassTokens.TextSecondary
+                                state.safeToSpendCents < 0 -> GlassTokens.ErrorRed
+                                else -> GlassTokens.CyanBright
+                            },
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
