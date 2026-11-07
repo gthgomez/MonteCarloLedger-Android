@@ -139,9 +139,18 @@ object ContractScenarioParser {
         // MCD-0027: a version-less scenario evaluates as the latest released version on every
         // engine — the Python reference and the TypeScript port both default to 2.0, so requiring
         // the field here made the Kotlin engine the outlier for hand-written scenarios.
-        val contractVersion = root["contract_version"]?.let {
-            it as? JsonPrimitive ?: schema("contract_version must be a string")
-        }?.takeIf { it.isString }?.content ?: DEFAULT_CONTRACT_VERSION
+        //
+        // Only an ABSENT key may take the default. A present-but-invalid value (null, number,
+        // boolean, object, array) must be rejected: silently defaulting it would change the
+        // caller's meaning and diverge from the Python/TypeScript engines.
+        val contractVersion = if (root.containsKey("contract_version")) {
+            val primitive = root["contract_version"] as? JsonPrimitive
+                ?: schema("contract_version must be a string")
+            if (!primitive.isString) schema("contract_version must be a string")
+            primitive.content
+        } else {
+            DEFAULT_CONTRACT_VERSION
+        }
         if (contractVersion !in SUPPORTED_CONTRACT_VERSIONS) {
             schema("contract_version must be one of ${SUPPORTED_CONTRACT_VERSIONS.sorted()}")
         }

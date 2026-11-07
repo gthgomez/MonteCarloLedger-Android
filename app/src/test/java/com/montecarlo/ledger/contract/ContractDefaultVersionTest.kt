@@ -41,6 +41,26 @@ class ContractDefaultVersionTest {
     }
 
     @Test
+    fun explicitlyMalformedVersionIsRejectedNotDefaulted() {
+        // P1: only an ABSENT key takes the default. A present wrong-typed value must fail, or a
+        // caller-supplied `null`/number would silently evaluate as 2.0 while Python/TS reject it.
+        val malformedValues = listOf("null", "2.0", "2", "true", "{}", "[]", "\"3.0\"")
+        for (value in malformedValues) {
+            assertThrows(
+                "contract_version=$value must be rejected",
+                ContractException::class.java,
+            ) {
+                ContractScenarioParser.parse(
+                    versionlessScenario().replace(
+                        "\"scenario_id\"",
+                        "\"contract_version\": $value, \"scenario_id\"",
+                    )
+                )
+            }
+        }
+    }
+
+    @Test
     fun explicitlyDeclaredVersionIsStillHonoured() {
         val v10 = versionlessScenario().replace(
             "\"scenario_id\"",
