@@ -398,4 +398,105 @@ class MigrationTest {
 
         migratedDb.close()
     }
+
+    @Test
+    fun migrate16To17_seedsContractForecastEnabledAndPreservesLedgerData() {
+        val db16 = helper.createDatabase(TEST_DB, 16)
+
+        // Representative pre-existing state that must survive the 16 → 17 hop.
+        db16.execSQL(
+            """
+            INSERT INTO settings (key, value) VALUES ('bank_balance_cents', '42500')
+            """.trimIndent()
+        )
+        db16.execSQL(
+            """
+            INSERT INTO accounts (id, name, type, balanceCents, isReconciled, isDefault, lastUpdated)
+            VALUES (1, 'Primary account', 'checking', 42500, 1, 1, '2026-08-01')
+            """.trimIndent()
+        )
+        db16.execSQL(
+            """
+            INSERT INTO transactions (
+                id, description, amount_cents, date, type, category,
+                source, review_status, reviewed_at, clearing_status, account_id
+            ) VALUES (
+                1, 'Coffee', -475, '2026-08-20', 'expense', 'food',
+                'manual', 'approved', NULL, 'posted', 1
+            )
+            """.trimIndent()
+        )
+        db16.close()
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            TEST_DB, 17, true,
+            AppDatabase.MIGRATION_16_17_FOR_TEST
+        )
+
+        val versionCursor = migratedDb.query("PRAGMA user_version")
+        versionCursor.moveToFirst()
+        assertEquals(17, versionCursor.getInt(0))
+        versionCursor.close()
+
+        // MC-06b: the flag is seeded default-ON so an existing install adopts the contract
+        // engine without a manual opt-in (absence and "true" both mean ON).
+        val flagCursor = migratedDb.query(
+            "SELECT value FROM settings WHERE key = 'contract_forecast_enabled'"
+        )
+        assertTrue("contract_forecast_enabled must be seeded by 16→17", flagCursor.moveToFirst())
+        assertEquals("true", flagCursor.getString(0))
+        flagCursor.close()
+
+        // No pre-existing setting or ledger row is touched by the hop.
+        val balanceCursor = migratedDb.query("SELECT value FROM settings WHERE key = 'bank_balance_cents'")
+        assertTrue(balanceCursor.moveToFirst())
+        assertEquals("42500", balanceCursor.getString(0))
+        balanceCursor.close()
+
+        val txnCursor = migratedDb.query(
+            "SELECT description, amount_cents, clearing_status, account_id FROM transactions WHERE id = 1"
+        )
+        assertTrue("transaction must survive 16→17", txnCursor.moveToFirst())
+        assertEquals("Coffee", txnCursor.getString(0))
+        assertEquals(-475L, txnCursor.getLong(1))
+        assertEquals("posted", txnCursor.getString(2))
+        assertEquals(1L, txnCursor.getLong(3))
+        txnCursor.close()
+
+        val accountCursor = migratedDb.query("SELECT name, balanceCents FROM accounts WHERE id = 1")
+        assertTrue(accountCursor.moveToFirst())
+        assertEquals("Primary account", accountCursor.getString(0))
+        assertEquals(42500L, accountCursor.getLong(1))
+        accountCursor.close()
+
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate16To17_doesNotClobberAnExplicitContractForecastChoice() {
+        // The migration uses INSERT OR IGNORE, so a user (or a future writer) that already
+        // stored an explicit choice must never be silently flipped back to the default.
+        val db16 = helper.createDatabase(TEST_DB, 16)
+        db16.execSQL(
+            """
+            INSERT INTO settings (key, value) VALUES ('contract_forecast_enabled', 'false')
+            """.trimIndent()
+        )
+        db16.close()
+
+        val migratedDb = helper.runMigrationsAndValidate(
+            TEST_DB, 17, true,
+            AppDatabase.MIGRATION_16_17_FOR_TEST
+        )
+
+        val flagCursor = migratedDb.query(
+            "SELECT value FROM settings WHERE key = 'contract_forecast_enabled'"
+        )
+        assertTrue("pre-existing contract flag row must survive", flagCursor.moveToFirst())
+        assertEquals("false", flagCursor.getString(0))
+        assertEquals("exactly one flag row must exist", 1, flagCursor.count)
+        flagCursor.close()
+
+        migratedDb.close()
+    }
 }
