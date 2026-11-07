@@ -51,6 +51,9 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun ForecastScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val purchaseSimulation by viewModel.purchaseSimulation.collectAsStateWithLifecycle()
+    val paycheckDelaySimulation by viewModel.paycheckDelaySimulation.collectAsStateWithLifecycle()
+    val scenarioError by viewModel.scenarioSimulationError.collectAsStateWithLifecycle()
     var showDailySheet by remember { mutableStateOf(false) }
 
     val fanPoints = remember(uiState.monteCarloDailyPercentiles) {
@@ -70,6 +73,18 @@ fun ForecastScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { Spacer(Modifier.height(12.dp)) }
+        // WS6: general-purpose "afford this?" / "what if my paycheck is delayed?" comparisons, run
+        // over the same canonical scenario as the forecast below.
+        item {
+            ScenarioWhatIfCard(
+                purchaseSimulation = purchaseSimulation,
+                paycheckDelaySimulation = paycheckDelaySimulation,
+                error = scenarioError,
+                onCheckPurchase = viewModel::simulatePurchase,
+                onCheckPaycheckDelay = viewModel::simulatePaycheckDelay,
+            )
+        }
+        item { Spacer(Modifier.height(8.dp)) }
         forecastSection(
             rows = uiState.forecastRows,
             fanPoints = fanPoints,
