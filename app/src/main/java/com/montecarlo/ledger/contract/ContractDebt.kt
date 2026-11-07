@@ -159,13 +159,13 @@ object ContractDebt {
                 val interest = interestBig.toLong()
                 val afterInterest = before + interest
                 balances[l.id] = afterInterest
-                totalInterest += interest
+                totalInterest = ContractMoney.checkedAdd(totalInterest, interest)
 
                 val minimum = minimumPaymentCents(l, afterInterest)
                 val principal = minimum - interest
                 val starting = afterInterest - interest
                 balances[l.id] = afterInterest - minimum
-                totalPaid += minimum
+                totalPaid = ContractMoney.checkedAdd(totalPaid, minimum)
                 rowIndex[l.id] = schedule.size
                 schedule.add(
                     ContractDebtStep(
@@ -191,11 +191,11 @@ object ContractDebt {
                 val newBalance = balance - extra
                 balances[l.id] = newBalance
                 extraPool -= extra
-                totalPaid += extra
+                totalPaid = ContractMoney.checkedAdd(totalPaid, extra)
                 val row = schedule[index]
                 schedule[index] = row.copy(
-                    paymentCents = row.paymentCents + extra,
-                    principalCents = row.principalCents + extra,
+                    paymentCents = ContractMoney.checkedAdd(row.paymentCents, extra),
+                    principalCents = ContractMoney.checkedAdd(row.principalCents, extra),
                     endingBalanceCents = newBalance,
                 )
             }

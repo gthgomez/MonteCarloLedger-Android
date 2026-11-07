@@ -1,10 +1,12 @@
 package com.montecarlo.ledger.dashboard
 
 import com.montecarlo.ledger.CanonicalForecastStatus
+import com.montecarlo.ledger.util.MoneyArithmeticOverflow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,11 +47,11 @@ class ContractWithheldPresentationTest {
 
         assertEquals(CanonicalForecastStatus.Failed, state.canonicalForecastStatus)
         assertTrue("the fan chart must be empty when the calculation is withheld", state.monteCarloDailyPercentiles.isEmpty())
-        // ...and it is definitely not the native fan the old unconditional assignment leaked.
-        assertTrue(
-            "fixture sanity: the native engine does produce a non-empty fan",
-            ContractFailureFixtures.nativeMonteCarlo(pack).dailyPercentiles.isNotEmpty(),
-        )
+        // ...and the legacy native engine cannot even produce a wrapped Long for this ledger.
+        assertThrows(MoneyArithmeticOverflow::class.java) {
+            ContractFailureFixtures.nativeMonteCarlo(pack)
+        }
+        Unit
     }
 
     // ---- positive controls: a live/stale canonical result still shows real data ---------------
@@ -84,13 +86,12 @@ class ContractWithheldPresentationTest {
     }
 
     @Test
-    fun nativeModeKeepsItsOwnFanChart() = runBlocking {
-        val state = DashboardDeriver()
-            .derive(ContractFailureFixtures.failingPack(), today, contractForecastEnabled = false)
-            .uiState
-
-        assertEquals(CanonicalForecastStatus.Native, state.canonicalForecastStatus)
-        assertTrue(state.actionCenter.forecastAvailable)
-        assertTrue(state.monteCarloDailyPercentiles.isNotEmpty())
+    fun nativeModeFailsLoudlyInsteadOfWrappingAnOverflowingBalance() {
+        assertThrows(MoneyArithmeticOverflow::class.java) {
+            runBlocking {
+                DashboardDeriver()
+                    .derive(ContractFailureFixtures.failingPack(), today, contractForecastEnabled = false)
+            }
+        }
     }
 }

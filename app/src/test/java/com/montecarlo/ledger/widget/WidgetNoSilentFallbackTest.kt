@@ -6,6 +6,7 @@ import com.montecarlo.ledger.contract.ContractRunner
 import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.dashboard.ContractFailureFixtures
 import com.montecarlo.ledger.dashboard.canonicalCalculation
+import com.montecarlo.ledger.util.MoneyArithmeticOverflow
 import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,8 +40,9 @@ class WidgetNoSilentFallbackTest {
     @Test
     fun contractFailureShowsUnavailableInsteadOfNativeNumbers() {
         val pack = ContractFailureFixtures.failingPack()
-        val nativeSafeToSpend = ContractFailureFixtures.nativeSafeToSpend(pack)
-        val nativeMc = ContractFailureFixtures.nativeMonteCarlo(pack)
+        assertThrows(MoneyArithmeticOverflow::class.java) {
+            ContractFailureFixtures.nativeSafeToSpend(pack)
+        }
 
         val forecast = forecastFor(pack, contractEnabled = true)
 
@@ -58,14 +60,6 @@ class WidgetNoSilentFallbackTest {
                 calibrated = false,
             ),
             forecast,
-        )
-        // ...and demonstrably not the numbers the old `getOrNull()` fallback used to leak.
-        assertNotEquals("must not substitute the native safe-to-spend", nativeSafeToSpend, forecast.safeToSpendCents)
-        assertNotEquals(
-            "must not substitute the native risk probability",
-            nativeMc.probability_negative_pct,
-            forecast.probabilityNegativePct,
-            1e-9,
         )
         assertNotEquals("must not claim a stable forecast", "Stable Forecast", forecast.riskLabel)
     }
@@ -96,19 +90,11 @@ class WidgetNoSilentFallbackTest {
     }
 
     @Test
-    fun nativeModeIsTheIntendedEngineNotAFallback() {
+    fun nativeModeFailsLoudlyOnOverflowInsteadOfReturningWrappedNumbers() {
         val pack = ContractFailureFixtures.failingPack()
-
-        val forecast = forecastFor(pack, contractEnabled = false)
-
-        assertEquals(CanonicalForecastStatus.Native, forecast.status)
-        assertTrue(forecast.available)
-        assertEquals(ContractFailureFixtures.nativeSafeToSpend(pack), forecast.safeToSpendCents)
-        assertEquals(
-            ContractFailureFixtures.nativeMonteCarlo(pack).probability_negative_pct,
-            forecast.probabilityNegativePct,
-            1e-9,
-        )
+        assertThrows(MoneyArithmeticOverflow::class.java) {
+            forecastFor(pack, contractEnabled = false)
+        }
     }
 
     /**

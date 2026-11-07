@@ -34,19 +34,17 @@ class ContractFailureSurfacingTest {
         assertNotNull("failure reason must be surfaced", state.canonicalForecastError)
         assertNull("no canonical result is shown, so there is no as-of stamp", state.canonicalForecastAsOf)
 
-        // (b) fail closed: neutral values, and demonstrably not the native-engine numbers.
-        val native = ContractFailureFixtures.nativeSafeToSpend(ContractFailureFixtures.failingPack())
+        // (b) fail closed: neutral values, and the native engine cannot even produce a wrapped one.
         assertEquals(0L, state.safeToSpendCents)
-        assertNotEquals("must not substitute native safe-to-spend", native, state.safeToSpendCents)
-
-        val nativeMc = ContractFailureFixtures.nativeMonteCarlo(ContractFailureFixtures.failingPack())
+        org.junit.Assert.assertThrows(com.montecarlo.ledger.util.MoneyArithmeticOverflow::class.java) {
+            ContractFailureFixtures.nativeSafeToSpend(ContractFailureFixtures.failingPack())
+        }
         assertEquals(0L, state.monteCarlo10thCents)
         assertEquals(0L, state.monteCarlo50thCents)
         assertEquals(0L, state.monteCarlo90thCents)
         assertEquals(0.0, state.probabilityNegativePct, 1e-9)
         assertEquals(0L, state.dailyBudgetCents)
         assertTrue("no canonical forecast rows are shown", state.forecastRows.isEmpty())
-        assertNotEquals("must not substitute native Monte Carlo median", nativeMc.median_balance_cents, state.monteCarlo50thCents)
 
         // A visible trust-layer signal announces the failure.
         val signal = state.trustSignals.firstOrNull { it.label == "Forecast engine" }
@@ -83,9 +81,6 @@ class ContractFailureSurfacingTest {
         assertEquals(healthy.probabilityNegativePct, failing.probabilityNegativePct, 1e-9)
         assertEquals(healthy.forecastRows.map { it.date }, failing.forecastRows.map { it.date })
 
-        // ...and they are still not the native-engine values.
-        val native = ContractFailureFixtures.nativeSafeToSpend(ContractFailureFixtures.failingPack())
-        assertNotEquals(native, failing.safeToSpendCents)
 
         val signal = failing.trustSignals.firstOrNull { it.label == "Forecast engine" }
         assertNotNull(signal)
@@ -115,21 +110,12 @@ class ContractFailureSurfacingTest {
      * a fallback — it must keep supplying the headline numbers and report [CanonicalForecastStatus.Native].
      */
     @Test
-    fun nativeModeRemainsIntendedEngineWhenContractDisabled() = runBlocking {
-        val pack = ContractFailureFixtures.failingPack()
-        val state = DashboardDeriver()
-            .derive(pack, today, contractForecastEnabled = false)
-            .uiState
-
-        assertEquals(CanonicalForecastStatus.Native, state.canonicalForecastStatus)
-        assertNull(state.canonicalForecastError)
-        assertNull(state.canonicalForecastAsOf)
-
-        // Deliberate native mode: headline numbers equal the native engine's values.
-        assertEquals(ContractFailureFixtures.nativeSafeToSpend(pack), state.safeToSpendCents)
-        val nativeMc = ContractFailureFixtures.nativeMonteCarlo(pack)
-        assertEquals(nativeMc.median_balance_cents, state.monteCarlo50thCents)
-        assertEquals(nativeMc.probability_negative_pct, state.probabilityNegativePct, 1e-9)
-        assertNull("no failure to announce in native mode", state.trustSignals.firstOrNull { it.label == "Forecast engine" })
+    fun nativeModeFailsLoudlyInsteadOfReturningWrappedNumbers() {
+        org.junit.Assert.assertThrows(com.montecarlo.ledger.util.MoneyArithmeticOverflow::class.java) {
+            runBlocking {
+                DashboardDeriver()
+                    .derive(ContractFailureFixtures.failingPack(), today, contractForecastEnabled = false)
+            }
+        }
     }
 }

@@ -24,7 +24,7 @@ import java.time.LocalDate
  */
 class WidgetConsistencyTest {
 
-    private val today: LocalDate = LocalDate.of(2026, 1, 1)
+    private val today: LocalDate = LocalDate.of(2026, 2, 1)
 
     private fun account(id: Long, type: String) = AccountEntity(
         id = id,

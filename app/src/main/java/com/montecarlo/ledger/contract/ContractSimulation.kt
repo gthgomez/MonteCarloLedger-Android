@@ -1,5 +1,8 @@
 package com.montecarlo.ledger.contract
 
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+
 /**
  * Monte Carlo overlay of `contracts/simulation.md` and aggregation of `contracts/risk.md`.
  *
@@ -7,6 +10,15 @@ package com.montecarlo.ledger.contract
  * instance seeded once per simulation. All arithmetic is integer-only.
  */
 object ContractSimulation {
+
+    /** A non-normative daily visualization point derived from the canonical simulation paths. */
+    data class ContractDailyPoint(
+        val dayIndex: Int,
+        val date: LocalDate,
+        val p10Cents: Long,
+        val p50Cents: Long,
+        val p90Cents: Long,
+    )
 
     /**
      * Runs the simulation for [scenario] over the canonical in-window [baseEvents] and returns the
@@ -16,13 +28,45 @@ object ContractSimulation {
         scenario: ContractScenario,
         baseEvents: List<ContractEvent>,
         projectedLowPointCents: Long,
-    ): ContractRiskResult {
+    ): ContractRiskResult = runSimulation(
+        scenario = scenario,
+        baseEvents = baseEvents,
+        projectedLowPointCents = projectedLowPointCents,
+        collectDaily = false,
+    ).first
+
+    /**
+     * Canonical risk **and** daily fan-chart percentiles from the same simulated paths.
+     *
+     * The chart is a visualization of the canonical model, not a second engine: percentiles are
+     * taken from the exact same draws that produce the headline probability and quantiles.
+     */
+    fun simulateWithDaily(
+        scenario: ContractScenario,
+        baseEvents: List<ContractEvent>,
+        projectedLowPointCents: Long,
+    ): Pair<ContractRiskResult, List<ContractDailyPoint>> = runSimulation(
+        scenario = scenario,
+        baseEvents = baseEvents,
+        projectedLowPointCents = projectedLowPointCents,
+        collectDaily = true,
+    )
+
+    private fun runSimulation(
+        scenario: ContractScenario,
+        baseEvents: List<ContractEvent>,
+        projectedLowPointCents: Long,
+        collectDaily: Boolean,
+    ): Pair<ContractRiskResult, List<ContractDailyPoint>> {
         val params = scenario.simulation ?: ContractSimulationParams()
         val rng = SplitMix64(params.seed)
         val runs = params.runs
         val endings = LongArray(runs)
         val troughs = LongArray(runs)
         var negativeRuns = 0
+        val days = scenario.horizonDays
+        val dailyPerRun: Array<LongArray>? =
+            if (collectDaily && runs > 0) Array(runs) { LongArray(days + 1) } else null
 
         for (run in 0 until runs) {
             val events = ArrayList<ContractEvent>(baseEvents.size + 8)
@@ -81,6 +125,23 @@ object ContractSimulation {
             endings[run] = forecast.endingBalanceCents
             troughs[run] = forecast.minimumBalanceCents
             if (forecast.firstNegativeDate != null) negativeRuns++
+
+            val row = dailyPerRun?.get(run)
+            if (row != null) {
+                row[0] = scenario.startingBalanceCents
+                var current = scenario.startingBalanceCents
+                var lastIdx = 0
+                for (event in ordered) {
+                    current = ContractMoney.checkedAdd(current, event.amountCents)
+                    val idx = ChronoUnit.DAYS.between(scenario.asOf, event.date).toInt() + 1
+                    if (idx in 1..days) {
+                        for (k in lastIdx + 1..idx) row[k] = current
+                        if (idx <= lastIdx) row[idx] = current
+                        lastIdx = maxOf(lastIdx, idx)
+                    }
+                }
+                for (k in lastIdx + 1..days) row[k] = current
+            }
         }
 
         endings.sort()
@@ -98,7 +159,9 @@ object ContractSimulation {
             params.quantileDen.toLong(),
         )
 
-        return ContractRiskResult(
+        val daily = dailyPerRun?.let { buildDailyPercentiles(it, scenario, days) } ?: emptyList()
+
+        val risk = ContractRiskResult(
             negativeBalanceProbabilityPpm = ppm,
             minimumBalanceP10Cents = troughP(1, 10),
             minimumBalanceP50Cents = troughP(1, 2),
@@ -109,6 +172,30 @@ object ContractSimulation {
             projectedLowPointCents = projectedLowPointCents,
             safeToSpendCents = ContractMoney.checkedSubtract(lowerTrough, params.reserveCents),
         )
+        return risk to daily
+    }
+
+    private fun buildDailyPercentiles(
+        rows: Array<LongArray>,
+        scenario: ContractScenario,
+        days: Int,
+    ): List<ContractDailyPoint> {
+        if (rows.isEmpty()) return emptyList()
+        return (0..days).map { day ->
+            val slice = LongArray(rows.size) { rows[it][day] }
+            slice.sort()
+            val p10 = percentileNearestRank(slice, 1, 10)
+            val p50 = percentileNearestRank(slice, 1, 2)
+            val p90 = percentileNearestRank(slice, 9, 10)
+            val date = if (day == 0) scenario.asOf else scenario.asOf.plusDays((day - 1).toLong())
+            ContractDailyPoint(
+                dayIndex = day,
+                date = date,
+                p10Cents = minOf(p10, p50),
+                p50Cents = p50,
+                p90Cents = maxOf(p90, p50),
+            )
+        }
     }
 
     /**

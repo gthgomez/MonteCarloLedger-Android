@@ -64,12 +64,9 @@ class ContractFailureSilentFallbackReproTest {
         val healthy = deriver.derive(ContractFailureFixtures.healthyPack(), today, contractForecastEnabled = true).uiState
         val failing = deriver.derive(ContractFailureFixtures.failingPack(), today, contractForecastEnabled = true).uiState
 
-        val nativeFailing = ContractFailureFixtures.nativeSafeToSpend(ContractFailureFixtures.failingPack())
-        assertNotEquals(
-            "headline safe-to-spend must not be the native-engine value after a contract failure",
-            nativeFailing,
-            failing.safeToSpendCents,
-        )
+        assertThrows(com.montecarlo.ledger.util.MoneyArithmeticOverflow::class.java) {
+            ContractFailureFixtures.nativeSafeToSpend(ContractFailureFixtures.failingPack())
+        }
         assertEquals(
             "headline safe-to-spend must retain the last known valid canonical value",
             healthy.safeToSpendCents,
@@ -84,12 +81,9 @@ class ContractFailureSilentFallbackReproTest {
         val healthy = deriver.derive(ContractFailureFixtures.healthyPack(), today, contractForecastEnabled = true).uiState
         val failing = deriver.derive(ContractFailureFixtures.failingPack(), today, contractForecastEnabled = true).uiState
 
-        val nativeFailing = ContractFailureFixtures.nativeMonteCarlo(ContractFailureFixtures.failingPack())
-        assertNotEquals(
-            "headline Monte Carlo risk must not be the native-engine value after a contract failure",
-            nativeFailing.median_balance_cents,
-            failing.monteCarlo50thCents,
-        )
+        assertThrows(com.montecarlo.ledger.util.MoneyArithmeticOverflow::class.java) {
+            ContractFailureFixtures.nativeMonteCarlo(ContractFailureFixtures.failingPack())
+        }
         assertEquals(
             "retained canonical Monte Carlo median",
             healthy.monteCarlo50thCents,

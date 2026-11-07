@@ -133,8 +133,8 @@ object RiskBacktest {
      * Runs the backtest.
      *
      * @param transactions full ledger history (any order).
-     * @param today unused for windowing — accepted so callers can pass the same clock boundary as
-     *   the dashboard; the split is derived solely from transaction dates for reproducibility.
+     * @param today the clock boundary: future-dated rows and the incomplete current month are
+     *   excluded so the holdout contains only realized, complete months.
      * @param seed RNG seed; the same seed and inputs give byte-identical metrics.
      * @param runs scenarios per held-out month.
      * @param trainingFraction share of distinct months used to calibrate (the rest are held out).
@@ -149,9 +149,11 @@ object RiskBacktest {
         trainingFraction: Double = 0.5,
         calibration: ((List<TransactionEntity>) -> MonteCarloCalibration)? = null,
     ): BacktestReport {
+        val todayMonth = YearMonth.from(today)
         val dated = transactions.mapNotNull { txn ->
             val date = LedgerDate.parseIsoOrNull(txn.date) ?: return@mapNotNull null
-            txn to YearMonth.from(date)
+            val month = YearMonth.from(date)
+            if (month >= todayMonth) null else txn to month
         }
         val months = dated.map { it.second }.distinct().sorted()
         if (months.size < MIN_MONTHS) {

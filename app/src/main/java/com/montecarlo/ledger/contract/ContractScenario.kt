@@ -98,6 +98,9 @@ data class ContractScenario(
     val windowEndExclusive: LocalDate get() = asOf.plusDays(horizonDays.toLong())
 }
 
+private const val MAX_SIMULATION_RUNS = 100_000
+private const val MAX_QUANTILE = 1_000_000
+
 object ContractScenarioParser {
 
     private val EVENT_KEYS = setOf("id", "name", "category", "date", "amount_cents", "type", "sequence")
@@ -321,7 +324,9 @@ object ContractScenarioParser {
         rejectUnknown(obj, SIMULATION_KEYS, "simulation")
         val defaults = ContractSimulationParams()
         val runs = obj.intOrNull("runs") ?: defaults.runs
-        if (runs < 1) throw ContractException(ContractErrorCode.INVALID_RUNS, "runs = $runs")
+        if (runs < 1 || runs > MAX_SIMULATION_RUNS) {
+            throw ContractException(ContractErrorCode.INVALID_RUNS, "runs = $runs")
+        }
         val seed = obj.longOrNull("seed") ?: defaults.seed
         if (seed < 0) schema("simulation.seed must be >= 0")
         val incomeMin = obj.intOrNull("income_variation_min") ?: defaults.incomeVariationMin
@@ -333,17 +338,19 @@ object ContractScenarioParser {
         val surprisePpm = obj.intOrNull("surprise_probability_ppm") ?: defaults.surpriseProbabilityPpm
         if (surprisePpm !in 0..1_000_000) schema("surprise_probability_ppm must be 0..1_000_000")
         val interval = obj.intOrNull("surprise_check_interval_days") ?: defaults.surpriseCheckIntervalDays
-        if (interval < 1) schema("surprise_check_interval_days must be >= 1")
+        if (interval < 1 || interval > MAX_SIMULATION_RUNS) schema("surprise_check_interval_days must be in 1..$MAX_SIMULATION_RUNS")
         val amountMin = obj.intOrNull("surprise_amount_min") ?: defaults.surpriseAmountMin
         val amountMax = obj.intOrNull("surprise_amount_max") ?: defaults.surpriseAmountMax
         if (amountMin < 0 || amountMax < 0) schema("surprise amount bounds must be >= 0")
         if (amountMax < amountMin) schema("surprise_amount_max must be >= surprise_amount_min")
         val quantileNum = obj.intOrNull("quantile_num") ?: defaults.quantileNum
         val quantileDen = obj.intOrNull("quantile_den") ?: defaults.quantileDen
-        if (quantileNum < 1 || quantileDen < 1) schema("quantile must be positive")
+        if (quantileNum < 1 || quantileDen < 1 || quantileNum > MAX_QUANTILE || quantileDen > MAX_QUANTILE) {
+            schema("quantile must be in 1..$MAX_QUANTILE")
+        }
         if (quantileNum > quantileDen) schema("quantile must be <= 1")
         val reserve = obj.longOrNull("reserve_cents") ?: defaults.reserveCents
-        if (reserve < 0) schema("reserve_cents must be >= 0")
+        if (reserve < 0 || reserve > ContractMoney.MAX_CENTS) schema("reserve_cents must be within the money range")
         val categoryVariation = parseCategoryRanges(obj["expense_category_variation"])
 
         return ContractSimulationParams(
