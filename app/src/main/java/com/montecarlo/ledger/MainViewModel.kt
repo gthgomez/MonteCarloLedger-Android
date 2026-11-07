@@ -3,6 +3,7 @@ package com.montecarlo.ledger
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.dashboard.DashboardDeriver
 import com.montecarlo.ledger.dashboard.LedgerReportingData
 import com.montecarlo.ledger.dashboard.PlanningReportingData
@@ -21,6 +22,9 @@ import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.domain.DomainRules
+import com.montecarlo.ledger.scenario.PaycheckDelaySimulation
+import com.montecarlo.ledger.scenario.PurchaseSimulation
+import com.montecarlo.ledger.scenario.ScenarioOps
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.glance.appwidget.updateAll
 import com.montecarlo.ledger.widget.MonteCarloLedgerGlanceWidget
 import java.time.LocalDate
@@ -98,6 +103,28 @@ class MainViewModel @JvmOverloads constructor(
 
     private val _reconciliationDetails = MutableStateFlow<Pair<Long, Long>?>(null)
     val reconciliationDetails: StateFlow<Pair<Long, Long>?> = _reconciliationDetails
+
+    /**
+     * WS6: the canonical scenario inputs from the most recent contract derivation. Held so the
+     * "what if" comparisons are measured against the same scenario the dashboard is showing.
+     */
+    private val _scenarioInputs = MutableStateFlow<ContractScenarioBridge.Inputs?>(null)
+
+    private val _purchaseSimulation = MutableStateFlow<PurchaseSimulation?>(null)
+
+    /** Last "can I afford this purchase?" comparison, or null before one has been run. */
+    val purchaseSimulation: StateFlow<PurchaseSimulation?> = _purchaseSimulation.asStateFlow()
+
+    private val _paycheckDelaySimulation = MutableStateFlow<PaycheckDelaySimulation?>(null)
+
+    /** Last "what if my paycheck is late?" comparison, or null before one has been run. */
+    val paycheckDelaySimulation: StateFlow<PaycheckDelaySimulation?> =
+        _paycheckDelaySimulation.asStateFlow()
+
+    private val _scenarioSimulationError = MutableStateFlow<String?>(null)
+
+    /** Reason the last what-if comparison could not run (e.g. no canonical scenario available). */
+    val scenarioSimulationError: StateFlow<String?> = _scenarioSimulationError.asStateFlow()
 
     private val _appLockUnlocked = MutableStateFlow(false)
     val appLockUnlocked: StateFlow<Boolean> = _appLockUnlocked.asStateFlow()
@@ -456,6 +483,51 @@ class MainViewModel @JvmOverloads constructor(
         viewModelScope.launch { repo.deleteDebt(debt) }
     }
 
+    /**
+     * WS6: "can I afford this purchase?" — runs the canonical contract twice (current scenario, and
+     * the same scenario plus one dated expense of [amountCents]) and publishes the comparison. The
+     * financial conclusion is the contract's; this method only schedules the work off the main thread.
+     */
+    fun simulatePurchase(amountCents: Long, purchaseDate: LocalDate) {
+        runScenarioComparison { inputs ->
+            _purchaseSimulation.value = ScenarioOps.simulatePurchase(amountCents, purchaseDate, inputs)
+        }
+    }
+
+    /**
+     * WS6: "what if my next paycheck is [days] late?" — same contract, with the earliest in-window
+     * income occurrence shifted later.
+     */
+    fun simulatePaycheckDelay(days: Int) {
+        runScenarioComparison { inputs ->
+            _paycheckDelaySimulation.value = ScenarioOps.simulatePaycheckDelay(days, inputs)
+        }
+    }
+
+    /**
+     * Runs [comparison] against the canonical scenario inputs of the latest derivation. A failure is
+     * surfaced through [scenarioSimulationError] rather than silently producing no result, and
+     * coroutine cancellation is never treated as a comparison failure.
+     */
+    private fun runScenarioComparison(comparison: (ContractScenarioBridge.Inputs) -> Unit) {
+        val inputs = _scenarioInputs.value
+        if (inputs == null) {
+            _scenarioSimulationError.value =
+                "No canonical forecast scenario is available right now, so there is nothing to compare against."
+            return
+        }
+        viewModelScope.launch {
+            _scenarioSimulationError.value = null
+            try {
+                withContext(Dispatchers.Default) { comparison(inputs) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _scenarioSimulationError.value = e.message ?: "Unable to run this comparison."
+            }
+        }
+    }
+
     private fun observeDashboardData() {
         viewModelScope.launch {
             val ledgerData = combine(
@@ -514,6 +586,9 @@ class MainViewModel @JvmOverloads constructor(
                 val derivation = dashboardDeriver.derive(pack, today, contractForecastEnabled)
                 _reconciliationDetails.value = derivation.reconciliationDetails
                 _reconciliationMismatch.value = derivation.reconciliationMismatch
+                // WS6: keep the canonical scenario the dashboard just ran so the "what if"
+                // comparisons are measured against exactly this scenario.
+                _scenarioInputs.value = derivation.scenarioInputs
                 _uiState.value = derivation.uiState
                 refreshGlanceWidget()
             }.catch { e ->
