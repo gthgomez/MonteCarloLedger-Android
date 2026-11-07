@@ -1028,7 +1028,8 @@ class LedgerRepository(private val db: AppDatabase) {
     private suspend fun isCreditAccount(accountId: Long?): Boolean {
         if (accountId == null) return false
         val account = db.accountDao().getById(accountId) ?: return false
-        return account.type.equals("credit", ignoreCase = true)
+        // Shared with the dashboard's cash ledger so both halves route identically.
+        return account.isCreditAccount()
     }
 
     private suspend fun linkedCardDebt(accountId: Long?): DebtEntity? {

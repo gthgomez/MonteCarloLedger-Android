@@ -14,6 +14,12 @@ data class AppUiState(
     val error: String? = null,
     val bankBalanceCents: Long = 0L,
     val ledgerBalanceCents: Long = 0L,
+    /**
+     * Cash basis of the app ledger: transactions with no account or a non-credit account.
+     * A credit account's charges live on the card liability instead, mirroring the repository's
+     * transaction side effects — this is the number the bank balance is reconciled against.
+     */
+    val cashLedgerCents: Long = 0L,
     val isBalanceReconciled: Boolean = false,
     val safeToSpendCents: Long = 0L,
     val incomeContributionCents: Long = 0L,
@@ -29,7 +35,7 @@ data class AppUiState(
     val firstNegativeDateLabel: String? = null,
     val lowestBalanceDateLabel: String? = null,
     val bankLedgerMismatch: Boolean = false,
-    /** cents: ledgerBalanceCents - bankBalanceCents when bankLedgerMismatch is true, else 0 */
+    /** cents: cash ledger balance - bankBalanceCents when bankLedgerMismatch is true, else 0 */
     val driftCents: Long = 0L,
     val transactions: List<TransactionEntity> = emptyList(),
     val forecastRows: List<BalanceForecastRow> = emptyList(),
