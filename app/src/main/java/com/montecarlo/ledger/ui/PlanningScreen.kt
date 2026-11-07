@@ -247,7 +247,7 @@ private fun PaycheckWindowRow(window: CashFlowWindow) {
             )
         }
         Text(
-            "${centsToDisplay(window.dailySafeSpendCents)}/day",
+            "${centsToDisplay(window.dailyPacingCents)}/day",
             style = MaterialTheme.typography.titleSmall,
             color = if (window.shortfallCents > 0) GlassTokens.ErrorRed else GlassTokens.CyanBright,
             fontWeight = FontWeight.Bold,

@@ -151,7 +151,7 @@ class DashboardDeriver {
         val cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
         val currentCashFlowWindow = cashFlowWindows.firstOrNull()
         // Native per-window pacing heuristic; used only when the contract path is inactive.
-        val nativeDailyBudgetCents = currentCashFlowWindow?.dailySafeSpendCents
+        val nativeDailyBudgetCents = currentCashFlowWindow?.dailyPacingCents
             ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
 
         // Calibrate simulation ranges from the user's own history instead of hardcoded

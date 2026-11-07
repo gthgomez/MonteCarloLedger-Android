@@ -42,8 +42,15 @@ data class CashFlowWindow(
     val billCents: Long,
     val lowestBalanceCents: Long,
     val endingBalanceCents: Long,
+    /**
+     * Deterministic buffer for this paycheck window: the lowest projected running
+     * balance, clamped at zero. This is NOT the contract's quantile
+     * `safe_to_spend_cents`; it models no distribution and is displayed as a
+     * per-window pacing figure.
+     */
     val safeToSpendCents: Long,
-    val dailySafeSpendCents: Long,
+    /** [safeToSpendCents] spread evenly across the window's days. */
+    val dailyPacingCents: Long,
     val shortfallCents: Long,
     val days: Int,
 )
@@ -133,7 +140,7 @@ object ForecastEngine {
                 lowestBalanceCents = lowestBalance,
                 endingBalanceCents = runningBalance,
                 safeToSpendCents = safeToSpend,
-                dailySafeSpendCents = safeToSpend / days,
+                dailyPacingCents = safeToSpend / days,
                 shortfallCents = (-lowestBalance).coerceAtLeast(0L),
                 days = days,
             )

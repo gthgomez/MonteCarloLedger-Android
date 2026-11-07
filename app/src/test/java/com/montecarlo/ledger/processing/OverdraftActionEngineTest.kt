@@ -147,7 +147,7 @@ class OverdraftActionEngineTest {
             lowestBalanceCents = -200_00L,
             endingBalanceCents = -200_00L,
             safeToSpendCents = -200_00L,
-            dailySafeSpendCents = 0L,
+            dailyPacingCents = 0L,
             shortfallCents = 200_00L,
             days = 10,
         )

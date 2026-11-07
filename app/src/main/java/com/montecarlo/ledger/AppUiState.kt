@@ -21,6 +21,12 @@ data class AppUiState(
      */
     val cashLedgerCents: Long = 0L,
     val isBalanceReconciled: Boolean = false,
+    /**
+     * The contract's quantile-based safe-to-spend when a seeded simulation is
+     * available, otherwise the deterministic projected low point (which the UI
+     * must label as a low point, not as spendable). Distinct from
+     * CashFlowWindow.safeToSpendCents, which is per-window pacing.
+     */
     val safeToSpendCents: Long = 0L,
     val incomeContributionCents: Long = 0L,
     val upcomingBills: List<String> = emptyList(),

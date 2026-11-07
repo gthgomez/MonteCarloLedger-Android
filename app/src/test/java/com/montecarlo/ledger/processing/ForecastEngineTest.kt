@@ -99,7 +99,7 @@ class ForecastEngineTest {
         assertEquals(3, windows.size)
         assertEquals(80_00, windows[0].billCents)
         assertEquals(20_00, windows[0].safeToSpendCents)
-        assertEquals(285, windows[0].dailySafeSpendCents)
+        assertEquals(285, windows[0].dailyPacingCents)
         assertEquals(0, windows[0].shortfallCents)
 
         assertEquals(400_00, windows[1].incomeCents)
@@ -505,7 +505,7 @@ class ForecastEngineTest {
         assertEquals(-30_00L, first.lowestBalanceCents)
         assertEquals(30_00L, first.shortfallCents)
         assertEquals(0L, first.safeToSpendCents)
-        assertEquals(0L, first.dailySafeSpendCents)
+        assertEquals(0L, first.dailyPacingCents)
 
         // The second window opens at the same negative balance and receives a same-day paycheck.
         // The low point is still the opening balance, so the window is not spendable.
