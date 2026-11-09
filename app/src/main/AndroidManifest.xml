@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Optional cloud vault sync (explicit user action only; core flows stay offline). -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- TODO: Uncomment when Play Billing is implemented —
          <uses-permission android:name="com.android.vending.BILLING" /> -->
 

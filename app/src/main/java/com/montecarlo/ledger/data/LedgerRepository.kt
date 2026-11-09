@@ -17,6 +17,10 @@ import java.util.Locale
 import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.toPersistedBoolean
 import com.montecarlo.ledger.util.toPersistedValue
+import com.montecarlo.ledger.sync.CanonicalVaultMapper
+import kotlinx.serialization.json.Json
+import org.json.JSONArray
+import org.json.JSONObject
 
 class LedgerRepository(private val db: AppDatabase) {
 
@@ -1050,5 +1054,152 @@ class LedgerRepository(private val db: AppDatabase) {
     private fun normalizeRuleText(value: String): String = Categories.normalize(value)
 
     private fun normalizeTransactionCategory(value: String): String = Categories.normalizeOrUncategorized(value)
+
+    /** Cross-platform vault snapshot (version 2.1) for optional cloud sync. */
+    suspend fun exportCrossPlatformVaultJson(updatedAtIso: String): String {
+        CanonicalVaultMapper.validateLiabilities(db.debtDao().getAll().first())
+        val balance = db.transactionDao().getTotalBalanceCents().first() ?: 0L
+        val snapshot = CanonicalVaultMapper.buildSnapshot(
+            ledgerBalanceCents = balance,
+            incomes = db.incomeDao().getAllIncomesList(),
+            payments = db.paymentDao().getAllPaymentsList(),
+            transactions = db.transactionDao().getAllTransactionsList(),
+            occurrences = db.billOccurrenceDao().getAllOccurrencesList(),
+            debts = db.debtDao().getAll().first(),
+            updatedAtIso = updatedAtIso,
+        )
+        return Json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), snapshot)
+    }
+
+    suspend fun restoreCrossPlatformVaultJson(jsonText: String) {
+        val root = JSONObject(jsonText)
+        val version = root.getString("version")
+        require(version == "2.0" || version == "2.1") { "Unsupported snapshot version: $version" }
+        val declaredBalance = root.getLong("current_balance_cents")
+        val payments = root.getJSONArray("payments").toVaultPayments()
+        val paymentAmounts = payments.associate { it.id to it.amount_cents }
+        val transactions = root.getJSONArray("transactions").toVaultTransactions()
+        val sum = transactions.sumOf { it.amount_cents }
+        require(sum == declaredBalance) {
+            "Snapshot inconsistent: transactions sum to $sum but declared balance is $declaredBalance"
+        }
+        transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
+        val incomes = root.getJSONArray("incomes").toVaultIncomes()
+        val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(paymentAmounts)
+        val liabilities = if (root.has("liabilities")) root.getJSONArray("liabilities") else JSONArray()
+
+        db.withTransaction {
+            val lockSettings = db.settingsDao().getAll().first().filter { isAppLockSettingKey(it.key) }
+            db.billOccurrenceDao().deleteAllBillOccurrences()
+            db.transactionDao().deleteAllTransactions()
+            db.paymentDao().deleteAllPayments()
+            db.incomeDao().deleteAllIncomes()
+            db.debtDao().deleteAll()
+
+            incomes.forEach { db.incomeDao().insertIncome(it) }
+            payments.forEach { db.paymentDao().insert(it) }
+            transactions.forEach { db.transactionDao().insert(it) }
+            occurrences.forEach { db.billOccurrenceDao().insert(it) }
+
+            for (index in 0 until liabilities.length()) {
+                val item = liabilities.getJSONObject(index)
+                db.debtDao().insert(
+                    DebtEntity(
+                        name = item.getString("name"),
+                        balanceCents = item.getLong("balance_cents"),
+                        aprBasisPoints = item.getInt("apr_basis_points"),
+                        minimumPaymentCents = item.getLong("min_payment_cents"),
+                        dueDayOfMonth = item.optInt("due_day_of_month", 1),
+                        kind = item.optString("kind", "installment"),
+                        minPaymentPercentBps = item.optInt("min_payment_percent_bps", 0),
+                        minPaymentFloorCents = item.optLong("min_payment_floor_cents", 0L),
+                    ),
+                )
+            }
+
+            db.settingsDao().deleteAllSettings()
+            lockSettings.forEach { db.settingsDao().setValue(it) }
+            db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, declaredBalance.toString()))
+            ensureDefaultAccountSeeded()
+        }
+    }
+
+    private fun JSONArray.toVaultIncomes(): List<IncomeEntity> = buildList {
+        for (index in 0 until length()) {
+            val obj = getJSONObject(index)
+            add(
+                IncomeEntity(
+                    id = obj.getInt("id"),
+                    name = obj.getString("name"),
+                    amount_cents = obj.getLong("amount_cents"),
+                    frequency = obj.getString("frequency"),
+                    day_of_month = null,
+                    next_date = obj.getString("next_payday"),
+                    expectedAmountCents = if (obj.isNull("expected_amount")) null else obj.getLong("expected_amount"),
+                ),
+            )
+        }
+    }
+
+    private fun JSONArray.toVaultPayments(): List<PaymentEntity> = buildList {
+        for (index in 0 until length()) {
+            val obj = getJSONObject(index)
+            val dueDate = if (!obj.isNull("due_date")) {
+                obj.getString("due_date")
+            } else {
+                val day = obj.optInt("due_day", 1).coerceIn(1, 28)
+                LocalDate.now().withDayOfMonth(day).toString()
+            }
+            add(
+                PaymentEntity(
+                    id = obj.getInt("id"),
+                    name = obj.getString("name"),
+                    amount_cents = obj.getLong("amount_cents"),
+                    frequency = obj.getString("recurrence"),
+                    day_of_month = if (obj.isNull("due_day")) null else obj.getInt("due_day"),
+                    next_date = dueDate,
+                    isAutoWithdraw = obj.optBoolean("is_auto_withdraw", true),
+                ),
+            )
+        }
+    }
+
+    private fun JSONArray.toVaultTransactions(): List<TransactionEntity> = buildList {
+        for (index in 0 until length()) {
+            val obj = getJSONObject(index)
+            add(
+                TransactionEntity(
+                    id = obj.getInt("id"),
+                    description = obj.optString("description", ""),
+                    amount_cents = obj.getLong("amount_cents"),
+                    date = obj.getString("date"),
+                    type = obj.getString("type").lowercase(),
+                    category = obj.optString("category", "uncategorized"),
+                ),
+            )
+        }
+    }
+
+    private fun JSONArray.toVaultOccurrences(
+        paymentAmounts: Map<Int, Long>,
+    ): List<BillOccurrenceEntity> = buildList {
+        for (index in 0 until length()) {
+            val obj = getJSONObject(index)
+            val paymentId = obj.getInt("payment_id")
+            add(
+                BillOccurrenceEntity(
+                    id = obj.getInt("id"),
+                    payment_id = paymentId,
+                    due_date = obj.getString("due_date"),
+                    amount_cents = paymentAmounts[paymentId]
+                        ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown payment_id $paymentId"),
+                    is_paid = if (obj.getBoolean("paid")) 1 else 0,
+                    transaction_id = if (obj.isNull("transaction_id")) null else obj.getInt("transaction_id"),
+                    original_due_date = obj.optString("original_due_date", obj.getString("due_date")),
+                    is_user_modified = if (obj.optBoolean("is_user_modified", false)) 1 else 0,
+                ),
+            )
+        }
+    }
 
 }

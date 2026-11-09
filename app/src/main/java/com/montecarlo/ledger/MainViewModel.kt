@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.glance.appwidget.updateAll
 import com.montecarlo.ledger.widget.MonteCarloLedgerGlanceWidget
+import com.montecarlo.ledger.sync.CloudVaultSync
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -49,6 +50,7 @@ class MainViewModel @JvmOverloads constructor(
 ) : AndroidViewModel(application) {
 
     private val repo: LedgerRepository = LedgerRepository(database)
+    private val cloudVaultSync = CloudVaultSync(application, repo)
 
     val allAccounts: StateFlow<List<AccountEntity>> = repo.allAccounts
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -730,4 +732,33 @@ class MainViewModel @JvmOverloads constructor(
             runCatching { MonteCarloLedgerGlanceWidget().updateAll(getApplication()) }
         }
     }
+
+    fun lastVaultSyncSummary(): String? = cloudVaultSync.lastSyncSummary()
+
+    suspend fun pullCloudVault(
+        vaultId: String,
+        passphrase: String,
+        serverUrl: String,
+        allowOverwrite: Boolean = false,
+    ): Int = withContext(Dispatchers.IO) {
+        val revision = cloudVaultSync.pullVault(
+            vaultId = vaultId,
+            passphrase = passphrase.toCharArray(),
+            serverUrl = serverUrl,
+            allowLocalOverwrite = allowOverwrite,
+        )
+        refreshGlanceWidget()
+        revision
+    }
+
+    suspend fun pushCloudVault(vaultId: String, passphrase: String, serverUrl: String): Int =
+        withContext(Dispatchers.IO) {
+            val revision = cloudVaultSync.pushVault(
+                vaultId = vaultId,
+                passphrase = passphrase.toCharArray(),
+                serverUrl = serverUrl,
+            )
+            refreshGlanceWidget()
+            revision
+        }
 }

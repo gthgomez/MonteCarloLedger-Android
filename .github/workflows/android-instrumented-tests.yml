@@ -1,6 +1,6 @@
 # Device-side verification (V5 in docs/SHIP_STANDARD.md).
 #
-# The 13 `app/src/androidTest` classes (~37 tests) that cover onboarding/dashboard,
+# The 13 `app/src/androidTest` classes (39 tests as executed on 2026-11-07) that cover onboarding/dashboard,
 # CSV import, income/bill forecast end-to-end, payments, add-transaction and the Room
 # migration matrix never ran in CI before this workflow, so a broken migration (e.g. the
 # missing 16 -> 17 hop) or a broken Compose flow could merge green.
@@ -12,10 +12,11 @@
 # Trigger / flakiness policy:
 #   - runs on every `pull_request` targeting `main` (the useful default) and on manual dispatch.
 #   - hosted AVDs are the only device available to this repo (no self-hosted runner), and they
-#     are slower (~10 min) and historically more flaky than unit tests. If a flake is ever
-#     observed, set the repository variable `INSTRUMENTED_TESTS_ENABLED=false` to make PR runs
-#     opt-out: the job then reports an explicit `::notice::` explaining that it was skipped,
-#     while `workflow_dispatch` always runs it.
+#     are slower (~10 min) and historically more flaky than unit tests.
+#   - `INSTRUMENTED_TESTS_ENABLED=false` FAILS the job. This job is a required branch-protection
+#     check, so reporting `success` while skipping the emulator would let untested migrations
+#     merge. To remove device-test noise, make this workflow optional and remove it from the
+#     required checks; never let the required check go green without executing.
 #   - `continue-on-error` is deliberately NOT used: a failing instrumented test fails the job.
 #
 # Emulator rendering policy (headless):
@@ -48,17 +49,16 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Decide whether to run
+      - name: Verify the required gate is enabled
         id: gate
         env:
           INSTRUMENTED_TESTS_ENABLED: ${{ vars.INSTRUMENTED_TESTS_ENABLED }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$INSTRUMENTED_TESTS_ENABLED" != "false" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Instrumented tests skipped: repository variable INSTRUMENTED_TESTS_ENABLED=false. This is an explicit opt-out, not a pass — run 'Android Instrumented Tests' via workflow_dispatch to verify on a device."
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$INSTRUMENTED_TESTS_ENABLED" = "false" ]; then
+            echo "::error::Instrumented tests are a required merge gate. INSTRUMENTED_TESTS_ENABLED=false cannot skip them; failing the job instead of reporting a false success. Remove this workflow from branch protection if device tests are intentionally optional."
+            exit 1
           fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         if: steps.gate.outputs.run == 'true'
