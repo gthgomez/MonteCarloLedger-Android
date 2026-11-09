@@ -304,6 +304,7 @@ private fun AppChrome(
     var pendingBackupUri by rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
     var showDecryptDialog by remember { mutableStateOf<android.net.Uri?>(null) }
     var showPrivacyDialog by rememberSaveable { mutableStateOf(false) }
+    var showCloudVaultDialog by rememberSaveable { mutableStateOf(false) }
     val csvMimeTypes = arrayOf(
         "text/csv",
         "text/plain",
@@ -672,6 +673,7 @@ private fun AppChrome(
                         onShowReminders = { showReminderSettingsDialog = true },
                         onShowAppLock = { showAppLockSettingsDialog = true },
                         onShowPrivacy = { showPrivacyDialog = true },
+                        onShowCloudVault = { showCloudVaultDialog = true },
                         onEraseAllData = {
                             viewModel.eraseAllData { result ->
                                 val message = result.fold(
@@ -861,6 +863,13 @@ private fun AppChrome(
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
+        )
+    }
+
+    if (showCloudVaultDialog) {
+        CloudVaultDialog(
+            viewModel = viewModel,
+            onDismiss = { showCloudVaultDialog = false },
         )
     }
 

@@ -50,6 +50,7 @@ fun SettingsScreen(
     onShowReminders: () -> Unit,
     onShowAppLock: () -> Unit,
     onShowPrivacy: () -> Unit = {},
+    onShowCloudVault: () -> Unit = {},
     onEraseAllData: () -> Unit = {},
     onShowTransactionRules: () -> Unit = {},
     appLockPreferences: com.montecarlo.ledger.data.AppLockPreferences,
@@ -260,8 +261,17 @@ fun SettingsScreen(
 
             item {
                 SettingsCard(
+                    title = "Encrypted cloud sync",
+                    description = "Optional vault sync with the Web/Python protocol. You choose when to upload.",
+                    icon = Icons.Default.CloudUpload,
+                    onClick = onShowCloudVault,
+                )
+            }
+
+            item {
+                SettingsCard(
                     title = "Privacy policy",
-                    description = "Local-only storage, no network access, and how exports work.",
+                    description = "Offline-first by default; optional encrypted cloud sync only when you initiate it.",
                     icon = Icons.Default.PrivacyTip,
                     onClick = onShowPrivacy
                 )
