@@ -3,9 +3,14 @@ package com.montecarlo.ledger.sync
 import android.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class VaultCryptoTest {
     @Test
     fun deriveKeys_matchesPbkdf2Parameters() {
