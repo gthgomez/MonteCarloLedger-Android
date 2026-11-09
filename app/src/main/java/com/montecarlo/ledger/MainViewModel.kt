@@ -735,6 +735,21 @@ class MainViewModel @JvmOverloads constructor(
 
     fun lastVaultSyncSummary(): String? = cloudVaultSync.lastSyncSummary()
 
+    fun storedVaultId(): String? = cloudVaultSync.readStoredVaultId()
+
+    fun storedVaultServerUrl(): String = cloudVaultSync.readStoredServerUrl()
+
+    suspend fun createCloudVault(vaultId: String, passphrase: String, serverUrl: String): Int =
+        withContext(Dispatchers.IO) {
+            val revision = cloudVaultSync.createVault(
+                vaultId = vaultId,
+                passphrase = passphrase.toCharArray(),
+                serverUrl = serverUrl,
+            )
+            refreshGlanceWidget()
+            revision
+        }
+
     suspend fun pullCloudVault(
         vaultId: String,
         passphrase: String,

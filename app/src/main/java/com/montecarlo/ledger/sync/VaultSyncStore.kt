@@ -8,26 +8,41 @@ class VaultSyncStore(context: Context) {
 
     var vaultId: String?
         get() = prefs.getString(KEY_VAULT_ID, null)
-        set(value) = prefs.edit().putString(KEY_VAULT_ID, value).apply()
+        private set(value) = Unit
 
     var serverUrl: String
         get() = prefs.getString(KEY_SERVER, DEFAULT_SERVER) ?: DEFAULT_SERVER
-        set(value) = prefs.edit().putString(KEY_SERVER, value.trimEnd('/')).apply()
+        private set(value) = Unit
 
     var revision: Int
         get() = prefs.getInt(KEY_REVISION, 0)
-        set(value) = prefs.edit().putInt(KEY_REVISION, value).apply()
+        private set(value) = Unit
 
     var ancestryEstablished: Boolean
         get() = prefs.getBoolean(KEY_ANCESTRY, false)
-        set(value) = prefs.edit().putBoolean(KEY_ANCESTRY, value).apply()
+        private set(value) = Unit
 
     var syncedFingerprint: String?
         get() = prefs.getString(KEY_FINGERPRINT, null)
-        set(value) = prefs.edit().putString(KEY_FINGERPRINT, value).apply()
+        private set(value) = Unit
+
+    /** Single durable write for post-sync state (Room may already reflect the vault). */
+    fun commitSyncState(
+        vaultId: String,
+        serverUrl: String,
+        revision: Int,
+        syncedFingerprint: String,
+        ancestryEstablished: Boolean,
+    ): Boolean = prefs.edit()
+        .putString(KEY_VAULT_ID, vaultId)
+        .putString(KEY_SERVER, serverUrl.trimEnd('/'))
+        .putInt(KEY_REVISION, revision)
+        .putString(KEY_FINGERPRINT, syncedFingerprint)
+        .putBoolean(KEY_ANCESTRY, ancestryEstablished)
+        .commit()
 
     fun clear() {
-        prefs.edit().clear().apply()
+        prefs.edit().clear().commit()
     }
 
     companion object {
