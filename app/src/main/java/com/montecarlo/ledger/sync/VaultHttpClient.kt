@@ -7,10 +7,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-/** Minimal vault HTTP client (Python/Web protocol). Uses HTTPS only. */
+/** Minimal vault HTTP client (Python/Web protocol). Remote vaults require HTTPS. */
 class VaultHttpClient(
-    private val serverBaseUrl: String,
+    serverBaseUrl: String,
 ) {
+    private val serverBaseUrl = requireSecureBaseUrl(serverBaseUrl)
     fun fetchMetadata(vaultId: String): VaultMetadata? {
         val url = URL("${serverBaseUrl.trimEnd('/')}/api/vault/${encode(vaultId)}/metadata")
         val conn = open(url, "GET")
@@ -116,6 +117,23 @@ class VaultHttpClient(
     private fun HttpURLConnection.readErrorBody(): String = readBody().ifBlank { "empty body" }
 
     private fun encode(vaultId: String): String = URLEncoder.encode(vaultId, "UTF-8")
+
+    companion object {
+        fun requireSecureBaseUrl(raw: String): String {
+            val trimmed = raw.trim().trimEnd('/')
+            val url = URL(trimmed)
+            val scheme = url.protocol.lowercase()
+            val host = url.host.lowercase()
+            val localDev = host == "localhost" || host == "127.0.0.1" || host.endsWith(".localhost")
+            require(scheme == "https" || (localDev && scheme == "http")) {
+                "Vault server must use HTTPS (http only allowed for localhost testing)"
+            }
+            if (url.userInfo != null) {
+                throw VaultSyncException("Vault server URL must not embed credentials.")
+            }
+            return trimmed
+        }
+    }
 
     data class VaultMetadata(val kdfSaltB64: String, val revision: Int)
 

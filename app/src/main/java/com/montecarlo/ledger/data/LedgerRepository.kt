@@ -1055,6 +1055,15 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun normalizeTransactionCategory(value: String): String = Categories.normalizeOrUncategorized(value)
 
+    suspend fun hasCrossPlatformLedgerContent(): Boolean {
+        val transactions = db.transactionDao().getAllTransactionsList()
+        if (transactions.isNotEmpty()) return true
+        if (db.incomeDao().getAllIncomesList().isNotEmpty()) return true
+        if (db.paymentDao().getAllPaymentsList().isNotEmpty()) return true
+        if (db.debtDao().getAll().first().isNotEmpty()) return true
+        return false
+    }
+
     /** Cross-platform vault snapshot (version 2.1) for optional cloud sync. */
     suspend fun exportCrossPlatformVaultJson(updatedAtIso: String): String {
         CanonicalVaultMapper.validateLiabilities(db.debtDao().getAll().first())
@@ -1090,6 +1099,11 @@ class LedgerRepository(private val db: AppDatabase) {
 
         db.withTransaction {
             val lockSettings = db.settingsDao().getAll().first().filter { isAppLockSettingKey(it.key) }
+            db.transactionRuleDao().deleteAll()
+            db.assetDao().deleteAllAssets()
+            db.goalDao().deleteAllGoals()
+            db.categoryBudgetDao().deleteAll()
+            db.accountDao().deleteAll()
             db.billOccurrenceDao().deleteAllBillOccurrences()
             db.transactionDao().deleteAllTransactions()
             db.paymentDao().deleteAllPayments()

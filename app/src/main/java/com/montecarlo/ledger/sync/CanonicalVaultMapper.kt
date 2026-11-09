@@ -134,25 +134,21 @@ object CanonicalVaultMapper {
     }
 
     private fun mapIncomeFrequency(value: String): String {
-        val normalized = when (value) {
-            "Semi-monthly" -> "Bi-weekly"
-            else -> value
+        require(value in SUPPORTED_INCOME_FREQUENCIES) {
+            "Income frequency \"$value\" is not supported for cross-platform vault export. " +
+                "Supported: ${SUPPORTED_INCOME_FREQUENCIES.joinToString()}. " +
+                "Change the schedule or export a backup until the contract adds this frequency."
         }
-        require(normalized in SUPPORTED_INCOME_FREQUENCIES) {
-            "Unsupported income frequency for vault export: $value"
-        }
-        return normalized
+        return value
     }
 
     private fun mapPaymentRecurrence(value: String): String {
-        val normalized = when (value) {
-            "Semi-monthly", "Bi-monthly", "Quarterly", "Yearly" -> "Monthly"
-            else -> value
+        require(value in SUPPORTED_PAYMENT_RECURRENCES) {
+            "Bill recurrence \"$value\" is not supported for cross-platform vault export. " +
+                "Supported: ${SUPPORTED_PAYMENT_RECURRENCES.joinToString()}. " +
+                "Do not silently approximate schedules — adjust the bill or wait for contract support."
         }
-        require(normalized in SUPPORTED_PAYMENT_RECURRENCES) {
-            "Unsupported payment recurrence for vault export: $value"
-        }
-        return normalized
+        return value
     }
 
     private fun mapTransactionType(type: String): String = when (type.lowercase()) {
