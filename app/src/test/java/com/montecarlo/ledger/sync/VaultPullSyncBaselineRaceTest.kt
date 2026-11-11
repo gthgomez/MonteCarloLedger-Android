@@ -81,16 +81,14 @@ class VaultPullSyncBaselineRaceTest {
     }
 
     @Test
-    fun pull_persistsRemoteCoreFingerprint_notPostBarrierLocalEdit() {
+    fun pull_persistsRemoteCoreFingerprint_notPostBarrierLocalEdit() = runBlocking {
         val incomeBefore = repo.allIncome.first().single()
         repo.updateIncome(incomeBefore.copy(amount_cents = 75_000))
         sync.afterRestoreBeforePersistSyncStateBarrier = {
             val current = repo.allIncome.first().single()
             repo.updateIncome(current.copy(name = "Edited in barrier", amount_cents = 99_000))
         }
-        runBlocking {
-            sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = true)
-        }
+        sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = true)
         val store = VaultSyncStore(ApplicationProvider.getApplicationContext())
         assertEquals(remoteCoreAtVaultCreate, store.syncedFingerprint)
         assertNotEquals(
@@ -109,10 +107,8 @@ class VaultPullSyncBaselineRaceTest {
     }
 
     @Test
-    fun pull_cleanControl_commitsRemoteBaselinesMatchingVaultPayload() {
-        runBlocking {
-            sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = true)
-        }
+    fun pull_cleanControl_commitsRemoteBaselinesMatchingVaultPayload() = runBlocking {
+        sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = true)
         val store = VaultSyncStore(ApplicationProvider.getApplicationContext())
         assertEquals(remoteCoreAtVaultCreate, store.syncedFingerprint)
         assertEquals(
