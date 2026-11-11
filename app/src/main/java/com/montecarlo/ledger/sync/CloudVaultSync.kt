@@ -31,6 +31,8 @@ class CloudVaultSync(
         val record = client.fetchVault(vaultId, keys.authToken)
         val plaintext = VaultCrypto.decrypt(record.ciphertextB64, record.nonceB64, keys.encKey)
 
+        ensureSafeForDestructivePull(allowLocalOverwrite)
+
         repository.restoreCrossPlatformVaultJson(plaintext)
 
         val localFingerprint = localLedgerFingerprint()

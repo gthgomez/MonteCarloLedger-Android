@@ -4,8 +4,11 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import org.json.JSONObject
 import java.net.InetSocketAddress
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * In-process vault API for unit tests (http://127.0.0.1 only). Not a protocol reference server.
@@ -24,6 +27,9 @@ class FakeVaultHttpServer {
     private val createCalls = AtomicInteger(0)
     private val pushCalls = AtomicInteger(0)
     private val fetchVaultCalls = AtomicInteger(0)
+    var vaultFetchEntered = CountDownLatch(1)
+    private val vaultFetchHoldEnabled = AtomicInteger(0)
+    private val vaultFetchRelease = AtomicReference<CountDownLatch?>(null)
 
     lateinit var server: HttpServer
         private set
@@ -47,6 +53,20 @@ class FakeVaultHttpServer {
     fun createInvocationCount(): Int = createCalls.get()
     fun pushInvocationCount(): Int = pushCalls.get()
     fun fetchVaultInvocationCount(): Int = fetchVaultCalls.get()
+
+    fun beginBlockingVaultFetch() {
+        vaultFetchHoldEnabled.set(1)
+        vaultFetchRelease.set(CountDownLatch(1))
+        vaultFetchEntered = CountDownLatch(1)
+    }
+
+    fun releaseBlockedVaultFetch() {
+        vaultFetchRelease.get()?.countDown()
+    }
+
+    fun awaitVaultFetchEntered(timeoutMs: Long = 15_000) {
+        check(vaultFetchEntered.await(timeoutMs, TimeUnit.MILLISECONDS)) { "Timed out waiting for vault fetch" }
+    }
 
     private fun handle(exchange: HttpExchange) {
         try {
@@ -103,6 +123,10 @@ class FakeVaultHttpServer {
                             return
                         }
                         fetchVaultCalls.incrementAndGet()
+                        vaultFetchEntered.countDown()
+                        if (vaultFetchHoldEnabled.get() == 1) {
+                            vaultFetchRelease.get()?.await(30, TimeUnit.SECONDS)
+                        }
                         respond(
                             exchange,
                             200,
