@@ -19,7 +19,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.montecarlo.ledger.MainViewModel
-import com.montecarlo.ledger.sync.VaultLocalChangesException
 import com.montecarlo.ledger.sync.VaultSyncStore
 import kotlinx.coroutines.launch
 
@@ -36,7 +35,15 @@ fun CloudVaultDialog(
     var passphrase by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var confirmOverwritePull by remember { mutableStateOf(false) }
+    var confirmDestructivePull by remember { mutableStateOf(false) }
+
+    fun handleVaultFailure(error: Throwable, forceOverwrite: Boolean): String {
+        if (VaultDestructivePullMessaging.shouldOfferDestructiveOverwriteConfirm(error, forceOverwrite)) {
+            confirmDestructivePull = true
+            return VaultDestructivePullMessaging.localChangesBlockedStatus(error.message)
+        }
+        return error.message ?: "Vault operation failed"
+    }
 
     fun runPull(forceOverwrite: Boolean) {
         busy = true
@@ -51,40 +58,19 @@ fun CloudVaultDialog(
             }
             status = result.fold(
                 onSuccess = { "Pull complete · revision $it" },
-                onFailure = {
-                    if (it is VaultLocalChangesException && !forceOverwrite) {
-                        confirmOverwritePull = true
-                        "Local ledger has unsynchronized data. Confirm replace to join this vault."
-                    } else {
-                        it.message ?: "Pull failed"
-                    }
-                },
+                onFailure = { handleVaultFailure(it, forceOverwrite) },
             )
             busy = false
         }
     }
 
-  if (confirmOverwritePull) {
-        AlertDialog(
-            onDismissRequest = { confirmOverwritePull = false },
-            title = { Text("Replace local ledger?") },
-            text = {
-                Text(
-                    "Pulling will replace this device’s financial records with the vault copy. " +
-                        "Export an encrypted backup first if you need to keep unsynchronized edits.",
-                )
+    if (confirmDestructivePull) {
+        DestructiveVaultPullConfirmDialog(
+            onConfirmReplace = {
+                confirmDestructivePull = false
+                runPull(forceOverwrite = true)
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmOverwritePull = false
-                        runPull(forceOverwrite = true)
-                    },
-                ) { Text("Replace and pull") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmOverwritePull = false }) { Text("Cancel") }
-            },
+            onCancel = { confirmDestructivePull = false },
         )
     }
 
@@ -97,6 +83,7 @@ fun CloudVaultDialog(
                     "Financial data is encrypted on this device before any upload. " +
                         "Sync only when you choose Create, Pull, or Push.",
                 )
+                Text(VaultDestructivePullMessaging.vaultDialogAdvisory())
                 viewModel.lastVaultSyncSummary()?.let { Text(it) }
                 OutlinedTextField(
                     value = vaultId,
@@ -142,7 +129,7 @@ fun CloudVaultDialog(
                             }
                             status = result.fold(
                                 onSuccess = { "Vault ready · revision $it (create or join)" },
-                                onFailure = { it.message ?: "Create failed" },
+                                onFailure = { handleVaultFailure(it, forceOverwrite = false) },
                             )
                             busy = false
                         }

@@ -18,13 +18,24 @@ import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.toPersistedBoolean
 import com.montecarlo.ledger.util.toPersistedValue
 import com.montecarlo.ledger.sync.CanonicalVaultMapper
+import com.montecarlo.ledger.sync.LocalLedgerPreservation
+import com.montecarlo.ledger.sync.VaultDestructivePullGuard
+import com.montecarlo.ledger.sync.VaultPullRestoreBaselines
+import com.montecarlo.ledger.sync.VaultPullRestoreGuardState
+import com.montecarlo.ledger.sync.VaultSnapshotFingerprint
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import org.json.JSONArray
 import org.json.JSONObject
 
 class LedgerRepository(private val db: AppDatabase) {
 
+    private suspend fun <T> exclusiveLedgerWrite(block: suspend () -> T): T =
+        ledgerWriteMutex.withLock { block() }
+
     private companion object {
+        private val ledgerWriteMutex = Mutex()
         const val SOURCE_MANUAL = "manual"
         const val SOURCE_CSV_IMPORT = "csv_import"
         const val REVIEW_APPROVED = "approved"
@@ -61,7 +72,9 @@ class LedgerRepository(private val db: AppDatabase) {
         db.incomeDao().insertIncome(entity)
         markOnboardingMilestone(OnboardingMilestone.FIRST_INCOME)
     }
-    suspend fun updateIncome(entity: IncomeEntity) = db.incomeDao().updateIncome(entity)
+    suspend fun updateIncome(entity: IncomeEntity) = exclusiveLedgerWrite {
+        db.incomeDao().updateIncome(entity)
+    }
     suspend fun deleteIncome(entity: IncomeEntity) = db.incomeDao().deleteIncome(entity)
 
     // Payments
@@ -98,7 +111,9 @@ class LedgerRepository(private val db: AppDatabase) {
 
     // Accounts (v1 groundwork: primary pipeline still uses bank_balance settings)
     val allAccounts: Flow<List<AccountEntity>> = db.accountDao().getAll()
-    suspend fun insertAccount(account: AccountEntity): Long = db.accountDao().insert(account)
+    suspend fun insertAccount(account: AccountEntity): Long = exclusiveLedgerWrite {
+        db.accountDao().insert(account)
+    }
     suspend fun updateAccount(account: AccountEntity) = db.accountDao().update(account)
     suspend fun deleteAccount(account: AccountEntity) = db.accountDao().delete(account)
     suspend fun upsertAccount(account: AccountEntity) {
@@ -109,7 +124,7 @@ class LedgerRepository(private val db: AppDatabase) {
     // Transactions
     val allTransactions: Flow<List<TransactionEntity>> = db.transactionDao().getAll()
     val allTransactionRules: Flow<List<TransactionRuleEntity>> = db.transactionRuleDao().getAll()
-    suspend fun insertTransaction(entity: TransactionEntity) {
+    suspend fun insertTransaction(entity: TransactionEntity) = exclusiveLedgerWrite {
         DomainRules.validateTransactionSign(entity.amount_cents, entity.type)
         val normalized = applyTransactionRules(entity).withReviewState(source = SOURCE_MANUAL)
         db.withTransaction {
@@ -260,13 +275,15 @@ class LedgerRepository(private val db: AppDatabase) {
     // Assets
     val allAssets: Flow<List<AssetEntity>> = db.assetDao().getAllAssets()
     val totalAssetBalance: Flow<Long> = db.assetDao().getTotalAssetBalance().map { it ?: 0L }
-    suspend fun insertAsset(entity: AssetEntity) = db.assetDao().insertAsset(entity)
+    suspend fun insertAsset(entity: AssetEntity) = exclusiveLedgerWrite {
+        db.assetDao().insertAsset(entity)
+    }
     suspend fun updateAsset(entity: AssetEntity) = db.assetDao().updateAsset(entity)
     suspend fun deleteAsset(entity: AssetEntity) = db.assetDao().deleteAsset(entity)
 
     // Goals
     val allGoals: Flow<List<GoalEntity>> = db.goalDao().getAllGoals()
-    suspend fun insertGoal(goal: GoalEntity) {
+    suspend fun insertGoal(goal: GoalEntity) = exclusiveLedgerWrite {
         db.goalDao().insertGoal(goal)
         markOnboardingMilestone(OnboardingMilestone.FIRST_GOAL)
     }
@@ -405,11 +422,10 @@ class LedgerRepository(private val db: AppDatabase) {
         return db.settingsDao().getValue(KEY_LEGACY_RECONCILED).toPersistedBoolean()
     }
 
-    suspend fun setBankBalance(amountCents: Long) =
-        run {
-            writeBankBalanceCents(amountCents)
-            markOnboardingMilestone(OnboardingMilestone.RECONCILIATION)
-        }
+    suspend fun setBankBalance(amountCents: Long) = exclusiveLedgerWrite {
+        writeBankBalanceCents(amountCents)
+        markOnboardingMilestone(OnboardingMilestone.RECONCILIATION)
+    }
 
     // Bill Occurrences
     val allBillOccurrences: Flow<List<BillOccurrenceEntity>> = db.billOccurrenceDao().getAll()
@@ -760,7 +776,7 @@ class LedgerRepository(private val db: AppDatabase) {
         ensureDefaultAccountSeeded()
     }
 
-    suspend fun restoreBackup(snapshot: LedgerBackupSnapshot) {
+    suspend fun restoreBackup(snapshot: LedgerBackupSnapshot) = exclusiveLedgerWrite {
         // Re-validate restored rows so a hand-edited or legacy backup cannot smuggle
         // invalid financial signs (e.g. a positive "expense") into the ledger.
         snapshot.transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
@@ -1055,6 +1071,45 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun normalizeTransactionCategory(value: String): String = Categories.normalizeOrUncategorized(value)
 
+    suspend fun getAllGoalsList(): List<GoalEntity> = db.goalDao().getAllGoals().first()
+    suspend fun getAllAssetsList(): List<AssetEntity> = db.assetDao().getAllAssets().first()
+    suspend fun getAllTransactionRulesList(): List<TransactionRuleEntity> = db.transactionRuleDao().getAll().first()
+    suspend fun getAllCategoryBudgetsList(): List<CategoryBudgetEntity> = db.categoryBudgetDao().getAll().first()
+    suspend fun getAllAccountsList(): List<AccountEntity> = db.accountDao().getAll().first()
+    suspend fun getAllSettingsList(): List<SettingsEntity> = db.settingsDao().getAll().first()
+
+    /**
+     * More than one account, a renamed/non-checking primary, a reconciled or non-zero primary,
+     * transactions linked to the lone primary, or any balance/reconciliation drift from a fresh install.
+     */
+    suspend fun hasCustomAccounts(): Boolean {
+        val accounts = getAllAccountsList()
+        if (accounts.size > 1) return true
+        if (accounts.isEmpty()) return false
+        val only = accounts.single()
+        if (!isPristineDisposablePrimaryAccount(only)) return true
+        return db.transactionDao().getAllTransactionsList().any { it.account_id == only.id }
+    }
+
+    /**
+     * The only account state that vault restore may replace without preservation risk: untouched
+     * migration/default seed (Primary checking, zero balance, not reconciled).
+     */
+    internal fun isPristineDisposablePrimaryAccount(account: AccountEntity): Boolean {
+        return account.isDefault &&
+            account.name == "Primary account" &&
+            account.type.equals("checking", ignoreCase = true) &&
+            account.balanceCents == 0L &&
+            !account.isReconciled
+    }
+
+    /** Settings beyond vault cross-platform restore and app-lock material. */
+    suspend fun hasNonVaultLocalSettings(): Boolean {
+        return getAllSettingsList().any { row ->
+            !isAppLockSettingKey(row.key) && row.key != KEY_CURRENT_BALANCE
+        }
+    }
+
     suspend fun hasCrossPlatformLedgerContent(): Boolean {
         val transactions = db.transactionDao().getAllTransactionsList()
         if (transactions.isNotEmpty()) return true
@@ -1080,7 +1135,25 @@ class LedgerRepository(private val db: AppDatabase) {
         return Json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), snapshot)
     }
 
-    suspend fun restoreCrossPlatformVaultJson(jsonText: String) {
+    /** Direct vault JSON restore (tests / explicit overwrite after UI confirmation). */
+    suspend fun restoreCrossPlatformVaultJson(jsonText: String) = exclusiveLedgerWrite {
+        restoreCrossPlatformVaultJsonLocked(jsonText, pullGuard = null)
+        Unit
+    }
+
+    /** Cloud pull: preservation/core guard runs inside the same Room transaction as the wipe. */
+    suspend fun restoreCrossPlatformVaultJsonForVaultPull(
+        jsonText: String,
+        pullGuard: VaultPullRestoreGuardState,
+    ): VaultPullRestoreBaselines = exclusiveLedgerWrite {
+        restoreCrossPlatformVaultJsonLocked(jsonText, pullGuard = pullGuard)
+    }
+
+    private suspend fun restoreCrossPlatformVaultJsonLocked(
+        jsonText: String,
+        pullGuard: VaultPullRestoreGuardState?,
+    ): VaultPullRestoreBaselines {
+        val remotePayloadCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(jsonText)
         val root = JSONObject(jsonText)
         val version = root.getString("version")
         require(version == "2.0" || version == "2.1") { "Unsupported snapshot version: $version" }
@@ -1097,7 +1170,16 @@ class LedgerRepository(private val db: AppDatabase) {
         val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(paymentAmounts)
         val liabilities = if (root.has("liabilities")) root.getJSONArray("liabilities") else JSONArray()
 
+        lateinit var postRestorePreservationFingerprint: String
+        lateinit var restoredLocalCoreFingerprint: String
         db.withTransaction {
+            if (pullGuard != null) {
+                VaultDestructivePullGuard.verifyOrThrow(
+                    this@LedgerRepository,
+                    pullGuard,
+                    VaultDestructivePullGuard.currentCoreFingerprint(this@LedgerRepository),
+                )
+            }
             val lockSettings = db.settingsDao().getAll().first().filter { isAppLockSettingKey(it.key) }
             db.transactionRuleDao().deleteAll()
             db.assetDao().deleteAllAssets()
@@ -1135,7 +1217,15 @@ class LedgerRepository(private val db: AppDatabase) {
             lockSettings.forEach { db.settingsDao().setValue(it) }
             db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, declaredBalance.toString()))
             ensureDefaultAccountSeeded()
+            postRestorePreservationFingerprint = LocalLedgerPreservation.fingerprint(this@LedgerRepository)
+            val localExportJson = exportCrossPlatformVaultJson("restore-baseline-capture")
+            restoredLocalCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(localExportJson)
         }
+        return VaultPullRestoreBaselines(
+            restoredLocalCoreFingerprint = restoredLocalCoreFingerprint,
+            postRestorePreservationFingerprint = postRestorePreservationFingerprint,
+            remotePayloadCoreFingerprint = remotePayloadCoreFingerprint,
+        )
     }
 
     private fun JSONArray.toVaultIncomes(): List<IncomeEntity> = buildList {

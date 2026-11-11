@@ -2,6 +2,7 @@ package com.montecarlo.ledger.sync
 
 import android.content.Context
 import android.util.Base64
+import androidx.annotation.VisibleForTesting
 import com.montecarlo.ledger.data.LedgerRepository
 import java.security.SecureRandom
 import java.time.Instant
@@ -15,15 +16,18 @@ class CloudVaultSync(
 ) {
     private val store = VaultSyncStore(context)
 
+    /** Unit tests: simulates concurrent ledger edits after restore completes but before sync metadata is saved. */
+    @VisibleForTesting
+    @Volatile
+    var afterRestoreBeforePersistSyncStateBarrier: (suspend () -> Unit)? = null
+
     suspend fun pullVault(
         vaultId: String,
         passphrase: CharArray,
         serverUrl: String = store.serverUrl,
         allowLocalOverwrite: Boolean = false,
     ): Int {
-        if (localChangesPending() && !allowLocalOverwrite) {
-            throw VaultLocalChangesException()
-        }
+        ensureSafeForDestructivePull(allowLocalOverwrite)
 
         val client = VaultHttpClient(serverUrl)
         val metadata = client.fetchMetadata(vaultId)
@@ -33,16 +37,29 @@ class CloudVaultSync(
         val record = client.fetchVault(vaultId, keys.authToken)
         val plaintext = VaultCrypto.decrypt(record.ciphertextB64, record.nonceB64, keys.encKey)
 
-        repository.restoreCrossPlatformVaultJson(plaintext)
+        val baselines = repository.restoreCrossPlatformVaultJsonForVaultPull(
+            plaintext,
+            VaultPullRestoreGuardState(
+                allowLocalOverwrite = allowLocalOverwrite,
+                ancestryEstablished = store.ancestryEstablished,
+                syncedFingerprint = store.syncedFingerprint,
+            ),
+        )
 
-        val localFingerprint = localLedgerFingerprint()
-            ?: throw VaultSyncException(
-                "Vault restored but the local ledger could not be fingerprinted; pull again before pushing.",
+        afterRestoreBeforePersistSyncStateBarrier?.invoke()
+
+        if (!store.commitSyncState(
+                vaultId,
+                serverUrl,
+                record.revision,
+                baselines.restoredLocalCoreFingerprint,
+                baselines.postRestorePreservationFingerprint,
+                ancestryEstablished = true,
             )
-
-        if (!store.commitSyncState(vaultId, serverUrl, record.revision, localFingerprint, ancestryEstablished = true)) {
+        ) {
             throw VaultSyncException(
-                "Ledger restored but sync metadata could not be saved. Pull again before pushing.",
+                "Ledger was replaced from the vault but sync metadata could not be saved. " +
+                    "Run a local backup now and pull again before pushing.",
             )
         }
         return record.revision
@@ -56,6 +73,8 @@ class CloudVaultSync(
         if (!store.ancestryEstablished) throw VaultAncestryException()
         val client = VaultHttpClient(serverUrl)
         val json = repository.exportCrossPlatformVaultJson(Instant.now().toString())
+        val uploadedCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(json)
+        val preservationAtUpload = LocalLedgerPreservation.fingerprint(repository)
         val metadata = client.fetchMetadata(vaultId)
             ?: throw VaultSyncException("Vault $vaultId not found.")
         val salt = Base64.decode(metadata.kdfSaltB64, Base64.DEFAULT)
@@ -68,8 +87,15 @@ class CloudVaultSync(
             ciphertextB64 = encrypted.ciphertextB64,
             nonceB64 = encrypted.nonceB64,
         )
-        val fingerprint = VaultSnapshotFingerprint.ofSnapshotJson(json)
-        if (!store.commitSyncState(vaultId, serverUrl, revision, fingerprint, ancestryEstablished = true)) {
+        if (!store.commitSyncState(
+                vaultId,
+                serverUrl,
+                revision,
+                uploadedCoreFingerprint,
+                preservationAtUpload,
+                ancestryEstablished = true,
+            )
+        ) {
             throw VaultSyncException(
                 "Upload succeeded (revision $revision) but sync metadata could not be saved locally.",
             )
@@ -79,6 +105,10 @@ class CloudVaultSync(
 
     /**
      * Create a remote vault from the current local ledger (or join if the vault already exists).
+     *
+     * Core baseline is taken from the upload JSON; preservation baseline is captured immediately before
+     * the network call (same schedule as push — concurrent local Android-only edits after that point may
+     * drift until the next successful sync).
      */
     suspend fun createVault(
         vaultId: String,
@@ -87,6 +117,8 @@ class CloudVaultSync(
     ): Int {
         val client = VaultHttpClient(serverUrl)
         val json = repository.exportCrossPlatformVaultJson(Instant.now().toString())
+        val uploadedCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(json)
+        val preservationAtUpload = LocalLedgerPreservation.fingerprint(repository)
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val keys = VaultCrypto.deriveKeys(String(passphrase), salt)
         val encrypted = VaultCrypto.encrypt(json, keys.encKey)
@@ -102,8 +134,15 @@ class CloudVaultSync(
         } catch (_: VaultConflictException) {
             return pullVault(vaultId, passphrase, serverUrl, allowLocalOverwrite = false)
         }
-        val fingerprint = VaultSnapshotFingerprint.ofSnapshotJson(json)
-        if (!store.commitSyncState(vaultId, serverUrl, revision, fingerprint, ancestryEstablished = true)) {
+        if (!store.commitSyncState(
+                vaultId,
+                serverUrl,
+                revision,
+                uploadedCoreFingerprint,
+                preservationAtUpload,
+                ancestryEstablished = true,
+            )
+        ) {
             throw VaultSyncException("Vault created on server but local sync metadata could not be saved.")
         }
         return revision
@@ -124,18 +163,19 @@ class CloudVaultSync(
         }
     }
 
-    private suspend fun localLedgerFingerprint(): String? = runCatching {
-        val json = repository.exportCrossPlatformVaultJson("fingerprint")
-        VaultSnapshotFingerprint.ofSnapshotJson(json)
-    }.getOrNull()
-
-    private suspend fun localChangesPending(): Boolean {
-        val fingerprint = localLedgerFingerprint()
-        return if (!store.ancestryEstablished) {
-            repository.hasCrossPlatformLedgerContent()
-        } else {
-            val synced = store.syncedFingerprint
-            fingerprint == null || synced == null || fingerprint != synced
-        }
+    /**
+     * Guards destructive vault restore only. Push intentionally uploads pending core edits.
+     * Matching preservation fingerprints does **not** prove Android-only data is on the server.
+     */
+    private suspend fun ensureSafeForDestructivePull(allowLocalOverwrite: Boolean) {
+        VaultDestructivePullGuard.verifyOrThrow(
+            repository,
+            VaultPullRestoreGuardState(
+                allowLocalOverwrite = allowLocalOverwrite,
+                ancestryEstablished = store.ancestryEstablished,
+                syncedFingerprint = store.syncedFingerprint,
+            ),
+            VaultDestructivePullGuard.currentCoreFingerprint(repository),
+        )
     }
 }

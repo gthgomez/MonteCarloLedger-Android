@@ -30,6 +30,12 @@ internal const val BACKUP_SCHEMA_VERSION = 6
 
 private val BACKUP_JSON = Json { prettyPrint = true }
 
+/** Throws when the platform did not open a writable stream (avoids silent save success). */
+internal fun writeBackupBytes(output: java.io.OutputStream?, bytes: ByteArray) {
+    requireNotNull(output) { "Unable to open backup file." }
+    output.use { it.write(bytes) }
+}
+
 internal fun buildLedgerBackupJson(
     exportedAtIso: String,
     uiState: AppUiState,
