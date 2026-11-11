@@ -23,7 +23,11 @@ object LocalLedgerPreservation {
         return false
     }
 
-    suspend fun fingerprint(repo: LedgerRepository): String {
+    suspend fun fingerprint(repo: LedgerRepository): String =
+        VaultSnapshotFingerprint.ofSnapshotJson(preservationSnapshotJson(repo))
+
+    /** Structured JSON payload hashed for [fingerprint]; exposed for unit tests. */
+    internal suspend fun preservationSnapshotJson(repo: LedgerRepository): String {
         val root = JSONObject()
         root.put(
             "goals",
@@ -115,7 +119,7 @@ object LocalLedgerPreservation {
                     }
             },
         )
-        return VaultSnapshotFingerprint.ofSnapshotJson(root.toString())
+        return root.toString()
     }
 
     private fun settingsRowIncludedInPreservation(row: SettingsEntity): Boolean {

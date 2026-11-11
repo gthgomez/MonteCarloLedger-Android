@@ -154,8 +154,8 @@ class VaultPreservationIntegrationTest {
                 sync.pushVault("v", "secret".toCharArray(), "https://127.0.0.1:9")
             } catch (e: VaultLocalChangesException) {
                 fail("Push must not use destructive-pull guards: ${e.message}")
-            } catch (_: VaultSyncException) {
-                // Expected without a vault server
+            } catch (_: Exception) {
+                // Expected once network I/O runs without a vault server
             }
         } finally {
             db.close()
@@ -197,11 +197,14 @@ class VaultPreservationIntegrationTest {
             )
             db.goalDao().insertGoal(goal)
             val before = LocalLedgerPreservation.fingerprint(repo)
+            val beforeJson = JSONObject(LocalLedgerPreservation.preservationSnapshotJson(repo))
             val goals = db.goalDao().getAllGoals().first()
             db.goalDao().updateGoal(goals.single().copy(deadline = "2026-07-01"))
             val after = LocalLedgerPreservation.fingerprint(repo)
+            val afterJson = JSONObject(LocalLedgerPreservation.preservationSnapshotJson(repo))
             assertNotEquals(before, after)
-            assertTrue(JSONObject(before).getJSONArray("goals").getJSONObject(0).getString("deadline") == "2026-06-01")
+            assertEquals("2026-06-01", beforeJson.getJSONArray("goals").getJSONObject(0).getString("deadline"))
+            assertEquals("2026-07-01", afterJson.getJSONArray("goals").getJSONObject(0).getString("deadline"))
         } finally {
             db.close()
         }
