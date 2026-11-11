@@ -69,7 +69,7 @@ class VaultPullConcurrentMutationTest {
     fun pull_revalidatesBeforeRestore_whenLocalRiskAppearsDuringNetworkDelay() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         fakeServer.beginBlockingVaultFetch()
-        val pullFuture = roomExecutor.submit {
+        val pullFuture = roomExecutor.submit<Result<Int>> {
             runBlocking {
                 runCatching {
                     CloudVaultSync(context, repo).pullVault(
