@@ -30,7 +30,7 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private val ledgerWriteMutex = Mutex()
 
-    private suspend fun <T> exclusiveLedgerWrite(block: suspend () -> T): T = ledgerWriteMutex.withLock(block)
+    private suspend fun <T> exclusiveLedgerWrite(block: suspend () -> T): T = ledgerWriteMutex.withLock { block() }
 
     private companion object {
         const val SOURCE_MANUAL = "manual"

@@ -40,7 +40,7 @@ class CloudVaultSync(
             ),
         )
 
-        val localFingerprint = localLedgerFingerprint()
+        val localFingerprint = VaultDestructivePullGuard.currentCoreFingerprint(repository)
             ?: throw VaultSyncException(
                 "Vault restored but the local ledger could not be fingerprinted; pull again before pushing.",
             )
