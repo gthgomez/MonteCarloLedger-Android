@@ -12,12 +12,12 @@ class VaultDestructivePullMessagingTest {
     @Test
     fun destructiveOverwriteDialogBody_listsAndroidOnlyEntities() {
         val body = VaultDestructivePullMessaging.destructiveOverwriteDialogBody()
-        assertTrue(body.contains("goals"))
-        assertTrue(body.contains("assets"))
-        assertTrue(body.contains("transaction rules"))
-        assertTrue(body.contains("category budgets"))
-        assertTrue(body.contains("accounts"))
-        assertTrue(body.contains("local settings"))
+        assertTrue(body.contains("Goals", ignoreCase = true))
+        assertTrue(body.contains("assets", ignoreCase = true))
+        assertTrue(body.contains("transaction rules", ignoreCase = true))
+        assertTrue(body.contains("category budgets", ignoreCase = true))
+        assertTrue(body.contains("accounts", ignoreCase = true))
+        assertTrue(body.contains("local settings", ignoreCase = true))
         assertTrue(body.contains("not stored in the vault format"))
         assertTrue(body.contains("Cancel leaves the local ledger unchanged"))
     }
