@@ -7,6 +7,7 @@ import com.montecarlo.ledger.data.AppDatabase
 import com.montecarlo.ledger.data.LedgerRepository
 import com.montecarlo.ledger.data.TransactionEntity
 import kotlinx.coroutines.runBlocking
+import java.security.SecureRandom
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -32,6 +33,7 @@ class VaultPullV20LocalBaselineTest {
         try {
             runBlocking {
                 val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+                VaultSyncStore(context).clear()
                 fakeServer.start()
                 db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
                     .allowMainThreadQueries()
@@ -42,15 +44,14 @@ class VaultPullV20LocalBaselineTest {
                 db!!.transactionDao().insert(
                     TransactionEntity(
                         id = 1,
-                        description = "Opening",
-                        amount_cents = 100_000,
+                        description = "Local placeholder",
+                        amount_cents = 1,
                         date = "2026-11-01",
                         type = "Adjustment",
                         category = "System",
                     ),
                 )
-                sync.createVault(vaultId, passphrase, fakeServer.baseUrl)
-                pushPlaintextToServer(
+                seedServerWithV20Payload(
                     fakeServer = fakeServer,
                     vaultId = vaultId,
                     passphrase = passphrase,
@@ -76,24 +77,20 @@ class VaultPullV20LocalBaselineTest {
         }
     }
 
-    private fun pushPlaintextToServer(
+    private fun seedServerWithV20Payload(
         fakeServer: FakeVaultHttpServer,
         vaultId: String,
         passphrase: CharArray,
         plaintext: String,
     ) {
-        val serverRevision = fakeServer.vault(vaultId)?.revision
-            ?: error("Vault $vaultId missing on fake server")
-        val client = VaultHttpClient(fakeServer.baseUrl)
-        val metadata = client.fetchMetadata(vaultId)
-            ?: error("Vault metadata missing")
-        val salt = Base64.decode(metadata.kdfSaltB64, Base64.DEFAULT)
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val keys = VaultCrypto.deriveKeys(String(passphrase), salt)
         val encrypted = VaultCrypto.encrypt(plaintext, keys.encKey)
-        client.pushVault(
+        val client = VaultHttpClient(fakeServer.baseUrl)
+        client.createVault(
             vaultId = vaultId,
             authToken = keys.authToken,
-            expectedRevision = serverRevision,
+            saltB64 = Base64.encodeToString(salt, Base64.NO_WRAP),
             ciphertextB64 = encrypted.ciphertextB64,
             nonceB64 = encrypted.nonceB64,
         )
