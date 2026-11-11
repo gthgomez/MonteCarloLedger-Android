@@ -87,7 +87,14 @@ class VaultPreservationIntegrationTest {
     @Test
     fun backupJsonPattern_includesAccountsLikeAppView(): Unit = runBlocking {
         val accounts = listOf(
-            AccountEntity(id = 2, name = "Savings", type = "savings", balanceCents = 25_000, isDefault = false),
+            AccountEntity(
+                id = 2,
+                name = "Savings",
+                type = "savings",
+                balanceCents = 25_000,
+                isDefault = false,
+                lastUpdated = "2026-11-11",
+            ),
         )
         val json = buildLedgerBackupJson(
             exportedAtIso = "2026-11-11T12:00:00",

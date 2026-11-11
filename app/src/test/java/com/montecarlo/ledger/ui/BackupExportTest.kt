@@ -298,7 +298,14 @@ class BackupExportTest {
             settings = emptyList(),
             rules = emptyList(),
             accounts = listOf(
-                AccountEntity(id = 5, name = "Checking", type = "checking", balanceCents = 42_000, isDefault = true),
+                AccountEntity(
+                    id = 5,
+                    name = "Checking",
+                    type = "checking",
+                    balanceCents = 42_000,
+                    isDefault = true,
+                    lastUpdated = "2026-11-11",
+                ),
             ),
         )
         assertTrue(json.contains("\"accounts\""))
