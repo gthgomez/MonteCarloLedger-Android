@@ -29,7 +29,8 @@ class VaultPullSyncBaselineRaceTest {
     private lateinit var db: AppDatabase
     private lateinit var repo: LedgerRepository
     private lateinit var sync: CloudVaultSync
-    private lateinit var remoteCoreAtVaultCreate: String
+    /** Local export fingerprint after create (matches in-tx baseline after a clean restore of same vault). */
+    private lateinit var expectedSyncedCoreAfterRestore: String
     private val vaultId = "baseline-race"
     private val passphrase = "baseline-pass".toCharArray()
     private val orchestration = Executors.newSingleThreadExecutor()
@@ -66,7 +67,7 @@ class VaultPullSyncBaselineRaceTest {
                 ),
             )
             sync.createVault(vaultId, passphrase, fakeServer.baseUrl)
-            remoteCoreAtVaultCreate = VaultSnapshotFingerprint.ofSnapshotJson(
+            expectedSyncedCoreAfterRestore = VaultSnapshotFingerprint.ofSnapshotJson(
                 repo.exportCrossPlatformVaultJson("remote-ref"),
             )
         }
@@ -90,7 +91,7 @@ class VaultPullSyncBaselineRaceTest {
         }
         sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = true)
         val store = VaultSyncStore(ApplicationProvider.getApplicationContext())
-        assertEquals(remoteCoreAtVaultCreate, store.syncedFingerprint)
+        assertEquals(expectedSyncedCoreAfterRestore, store.syncedFingerprint)
         assertNotEquals(
             VaultDestructivePullGuard.currentCoreFingerprint(repo),
             store.syncedFingerprint,
@@ -110,7 +111,7 @@ class VaultPullSyncBaselineRaceTest {
     fun pull_cleanControl_commitsRemoteBaselinesMatchingVaultPayload() = runBlocking {
         sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = true)
         val store = VaultSyncStore(ApplicationProvider.getApplicationContext())
-        assertEquals(remoteCoreAtVaultCreate, store.syncedFingerprint)
+        assertEquals(expectedSyncedCoreAfterRestore, store.syncedFingerprint)
         assertEquals(
             VaultDestructivePullGuard.currentCoreFingerprint(repo),
             store.syncedFingerprint,

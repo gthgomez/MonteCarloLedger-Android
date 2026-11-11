@@ -52,7 +52,7 @@ class CloudVaultSync(
                 vaultId,
                 serverUrl,
                 record.revision,
-                baselines.remoteCoreFingerprint,
+                baselines.restoredLocalCoreFingerprint,
                 baselines.postRestorePreservationFingerprint,
                 ancestryEstablished = true,
             )

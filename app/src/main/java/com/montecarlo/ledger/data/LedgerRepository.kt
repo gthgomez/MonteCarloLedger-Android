@@ -1153,7 +1153,7 @@ class LedgerRepository(private val db: AppDatabase) {
         jsonText: String,
         pullGuard: VaultPullRestoreGuardState?,
     ): VaultPullRestoreBaselines {
-        val remoteCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(jsonText)
+        val remotePayloadCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(jsonText)
         val root = JSONObject(jsonText)
         val version = root.getString("version")
         require(version == "2.0" || version == "2.1") { "Unsupported snapshot version: $version" }
@@ -1171,6 +1171,7 @@ class LedgerRepository(private val db: AppDatabase) {
         val liabilities = if (root.has("liabilities")) root.getJSONArray("liabilities") else JSONArray()
 
         lateinit var postRestorePreservationFingerprint: String
+        lateinit var restoredLocalCoreFingerprint: String
         db.withTransaction {
             if (pullGuard != null) {
                 VaultDestructivePullGuard.verifyOrThrow(
@@ -1217,10 +1218,13 @@ class LedgerRepository(private val db: AppDatabase) {
             db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, declaredBalance.toString()))
             ensureDefaultAccountSeeded()
             postRestorePreservationFingerprint = LocalLedgerPreservation.fingerprint(this@LedgerRepository)
+            val localExportJson = exportCrossPlatformVaultJson("restore-baseline-capture")
+            restoredLocalCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(localExportJson)
         }
         return VaultPullRestoreBaselines(
-            remoteCoreFingerprint = remoteCoreFingerprint,
+            restoredLocalCoreFingerprint = restoredLocalCoreFingerprint,
             postRestorePreservationFingerprint = postRestorePreservationFingerprint,
+            remotePayloadCoreFingerprint = remotePayloadCoreFingerprint,
         )
     }
 

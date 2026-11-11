@@ -3,10 +3,16 @@ package com.montecarlo.ledger.sync
 /**
  * Immutable sync baselines captured during vault pull restore.
  *
- * [remoteCoreFingerprint] is derived from the remote vault JSON payload (what was actually on the
- * server), not from a post-restore re-export of the mutable local ledger.
+ * [restoredLocalCoreFingerprint] is a re-export fingerprint of the Room core taken inside the same
+ * restore transaction (after wipe + insert). This matches [VaultDestructivePullGuard.currentCoreFingerprint]
+ * on the restored ledger and must be used as the synced baseline — remote payload bytes can differ
+ * (e.g. v2.0 → local 2.1 export, regenerated debt ids, income date fields).
+ *
+ * [remotePayloadCoreFingerprint] fingerprints the decrypted remote JSON for provenance/debug only;
+ * it must not be used for local dirty detection.
  */
 data class VaultPullRestoreBaselines(
-    val remoteCoreFingerprint: String,
+    val restoredLocalCoreFingerprint: String,
     val postRestorePreservationFingerprint: String,
+    val remotePayloadCoreFingerprint: String,
 )
