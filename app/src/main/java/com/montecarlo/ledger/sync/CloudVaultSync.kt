@@ -2,7 +2,6 @@ package com.montecarlo.ledger.sync
 
 import android.content.Context
 import android.util.Base64
-import androidx.annotation.VisibleForTesting
 import com.montecarlo.ledger.data.LedgerRepository
 import java.security.SecureRandom
 import java.time.Instant
@@ -15,14 +14,6 @@ class CloudVaultSync(
     private val repository: LedgerRepository,
 ) {
     private val store = VaultSyncStore(context)
-
-    /**
-     * Unit tests only: runs after the vault ciphertext is fetched/decrypted but before the
-     * pre-restore destructive-pull guard (simulates local mutation while the network is in flight).
-     */
-    @VisibleForTesting
-    @Volatile
-    var preRestoreRevalidationBarrier: (suspend () -> Unit)? = null
 
     suspend fun pullVault(
         vaultId: String,
@@ -40,10 +31,14 @@ class CloudVaultSync(
         val record = client.fetchVault(vaultId, keys.authToken)
         val plaintext = VaultCrypto.decrypt(record.ciphertextB64, record.nonceB64, keys.encKey)
 
-        preRestoreRevalidationBarrier?.invoke()
-        ensureSafeForDestructivePull(allowLocalOverwrite)
-
-        repository.restoreCrossPlatformVaultJson(plaintext)
+        repository.restoreCrossPlatformVaultJsonForVaultPull(
+            plaintext,
+            VaultPullRestoreGuardState(
+                allowLocalOverwrite = allowLocalOverwrite,
+                ancestryEstablished = store.ancestryEstablished,
+                syncedFingerprint = store.syncedFingerprint,
+            ),
+        )
 
         val localFingerprint = localLedgerFingerprint()
             ?: throw VaultSyncException(
@@ -167,24 +162,14 @@ class CloudVaultSync(
      * Matching preservation fingerprints does **not** prove Android-only data is on the server.
      */
     private suspend fun ensureSafeForDestructivePull(allowLocalOverwrite: Boolean) {
-        if (allowLocalOverwrite) return
-        if (LocalLedgerPreservation.hasPreservationRisk(repository)) {
-            throw VaultLocalChangesException()
-        }
-        if (!store.ancestryEstablished && repository.hasCrossPlatformLedgerContent()) {
-            throw VaultLocalChangesException()
-        }
-        if (store.ancestryEstablished) {
-            val local = localLedgerFingerprint()
-            val synced = store.syncedFingerprint
-            if (local == null || synced == null || local != synced) {
-                throw VaultLocalChangesException()
-            }
-        }
+        VaultDestructivePullGuard.verifyOrThrow(
+            repository,
+            VaultPullRestoreGuardState(
+                allowLocalOverwrite = allowLocalOverwrite,
+                ancestryEstablished = store.ancestryEstablished,
+                syncedFingerprint = store.syncedFingerprint,
+            ),
+            VaultDestructivePullGuard.currentCoreFingerprint(repository),
+        )
     }
-
-    private suspend fun localLedgerFingerprint(): String? = runCatching {
-        val json = repository.exportCrossPlatformVaultJson("fingerprint")
-        VaultSnapshotFingerprint.ofSnapshotJson(json)
-    }.getOrNull()
 }
