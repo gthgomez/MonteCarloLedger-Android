@@ -61,7 +61,7 @@ class AccountEncryptedBackupRoundTripTest {
                 lastUpdated = "2026-11-11",
             ),
         )
-        repo.insertTransaction(
+        db.transactionDao().insert(
             TransactionEntity(
                 description = "Transfer",
                 amount_cents = -5_000,
@@ -73,6 +73,7 @@ class AccountEncryptedBackupRoundTripTest {
         )
 
         val accountsBefore = db.accountDao().getAll().first().sortedBy { it.id }
+        assertEquals("fixture must include primary + savings", 2, accountsBefore.size)
         val txBefore = db.transactionDao().getAllTransactionsList().single { it.description == "Transfer" }
 
         val plainJson = buildAppViewBackupPayload(
@@ -108,7 +109,11 @@ class AccountEncryptedBackupRoundTripTest {
         assertEquals(88_000L, restoredPrimary.balanceCents)
 
         val txAfter = db.transactionDao().getAllTransactionsList().single { it.description == "Transfer" }
-        assertEquals(restoredSavings.id, txAfter.account_id)
+        assertEquals(
+            "transaction must stay linked to savings after restore",
+            restoredSavings.id,
+            txAfter.account_id,
+        )
         assertEquals(txBefore.amount_cents, txAfter.amount_cents)
     }
 
