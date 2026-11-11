@@ -171,7 +171,7 @@ class VaultPreservationIntegrationTest {
                 CategoryBudgetEntity(
                     category = "Food",
                     limitCents = 5000,
-                    enabled = true,
+                    enabled = 1,
                     createdAt = "2026-11-01",
                 ),
             )
