@@ -25,23 +25,25 @@ class VaultPullInTransactionGuardTest {
     private lateinit var repo: LedgerRepository
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        repo = LedgerRepository(db)
-        repo.ensureDefaultAccountSeeded()
-        db.transactionDao().insert(
-            TransactionEntity(
-                id = 1,
-                description = "Opening",
-                amount_cents = 100,
-                date = "2026-11-01",
-                type = "Adjustment",
-                category = "System",
-            ),
-        )
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+            db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+                .allowMainThreadQueries()
+                .build()
+            repo = LedgerRepository(db)
+            repo.ensureDefaultAccountSeeded()
+            db.transactionDao().insert(
+                TransactionEntity(
+                    id = 1,
+                    description = "Opening",
+                    amount_cents = 100,
+                    date = "2026-11-01",
+                    type = "Adjustment",
+                    category = "System",
+                ),
+            )
+        }
     }
 
     @After
