@@ -62,7 +62,7 @@ class CloudVaultSync(
         serverUrl: String = store.serverUrl,
     ): Int {
         if (!store.ancestryEstablished) throw VaultAncestryException()
-        ensureSafeToOverwrite(allowOverwrite = false)
+        ensureSafeToOverwrite(allowLocalOverwrite = false)
         val client = VaultHttpClient(serverUrl)
         val json = repository.exportCrossPlatformVaultJson(Instant.now().toString())
         val metadata = client.fetchMetadata(vaultId)
