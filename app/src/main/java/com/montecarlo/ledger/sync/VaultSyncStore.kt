@@ -51,6 +51,27 @@ class VaultSyncStore(context: Context) {
         prefs.edit().clear().commit()
     }
 
+    /** Robolectric/unit tests: ancestry without going through a full sync commit. */
+    internal fun seedEstablishedAncestryForTests(
+        vaultId: String,
+        revision: Int = 1,
+        syncedFingerprint: String? = null,
+        androidPreservationFingerprint: String = "",
+        omitSyncedFingerprint: Boolean = false,
+    ): Boolean {
+        val editor = prefs.edit()
+            .putString(KEY_VAULT_ID, vaultId)
+            .putString(KEY_SERVER, DEFAULT_SERVER)
+            .putInt(KEY_REVISION, revision)
+            .putBoolean(KEY_ANCESTRY, true)
+            .putString(KEY_ANDROID_PRESERVATION, androidPreservationFingerprint)
+        when {
+            omitSyncedFingerprint -> editor.remove(KEY_FINGERPRINT)
+            syncedFingerprint != null -> editor.putString(KEY_FINGERPRINT, syncedFingerprint)
+        }
+        return editor.commit()
+    }
+
     companion object {
         const val DEFAULT_SERVER = "https://montecarlo-ledger.vercel.app"
         private const val PREFS = "montecarlo_vault_sync"

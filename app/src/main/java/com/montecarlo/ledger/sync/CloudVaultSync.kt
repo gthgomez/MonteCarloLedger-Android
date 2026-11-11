@@ -165,7 +165,7 @@ class CloudVaultSync(
         if (store.ancestryEstablished) {
             val local = localLedgerFingerprint()
             val synced = store.syncedFingerprint
-            if (local != null && synced != null && local != synced) {
+            if (local == null || synced == null || local != synced) {
                 throw VaultLocalChangesException()
             }
         }
