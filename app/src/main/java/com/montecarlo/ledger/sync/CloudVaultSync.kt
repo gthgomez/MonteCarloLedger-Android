@@ -2,6 +2,7 @@ package com.montecarlo.ledger.sync
 
 import android.content.Context
 import android.util.Base64
+import androidx.annotation.VisibleForTesting
 import com.montecarlo.ledger.data.LedgerRepository
 import java.security.SecureRandom
 import java.time.Instant
@@ -14,6 +15,14 @@ class CloudVaultSync(
     private val repository: LedgerRepository,
 ) {
     private val store = VaultSyncStore(context)
+
+    /**
+     * Unit tests only: runs after the vault ciphertext is fetched/decrypted but before the
+     * pre-restore destructive-pull guard (simulates local mutation while the network is in flight).
+     */
+    @VisibleForTesting
+    @Volatile
+    var preRestoreRevalidationBarrier: (suspend () -> Unit)? = null
 
     suspend fun pullVault(
         vaultId: String,
@@ -31,6 +40,7 @@ class CloudVaultSync(
         val record = client.fetchVault(vaultId, keys.authToken)
         val plaintext = VaultCrypto.decrypt(record.ciphertextB64, record.nonceB64, keys.encKey)
 
+        preRestoreRevalidationBarrier?.invoke()
         ensureSafeForDestructivePull(allowLocalOverwrite)
 
         repository.restoreCrossPlatformVaultJson(plaintext)
