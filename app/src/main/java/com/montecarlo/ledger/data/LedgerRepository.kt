@@ -18,8 +18,11 @@ import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.toPersistedBoolean
 import com.montecarlo.ledger.util.toPersistedValue
 import com.montecarlo.ledger.sync.CanonicalVaultMapper
+import com.montecarlo.ledger.sync.LocalLedgerPreservation
 import com.montecarlo.ledger.sync.VaultDestructivePullGuard
+import com.montecarlo.ledger.sync.VaultPullRestoreBaselines
 import com.montecarlo.ledger.sync.VaultPullRestoreGuardState
+import com.montecarlo.ledger.sync.VaultSnapshotFingerprint
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -28,11 +31,11 @@ import org.json.JSONObject
 
 class LedgerRepository(private val db: AppDatabase) {
 
-    private val ledgerWriteMutex = Mutex()
-
-    private suspend fun <T> exclusiveLedgerWrite(block: suspend () -> T): T = ledgerWriteMutex.withLock { block() }
+    private suspend fun <T> exclusiveLedgerWrite(block: suspend () -> T): T =
+        ledgerWriteMutex.withLock { block() }
 
     private companion object {
+        private val ledgerWriteMutex = Mutex()
         const val SOURCE_MANUAL = "manual"
         const val SOURCE_CSV_IMPORT = "csv_import"
         const val REVIEW_APPROVED = "approved"
@@ -69,7 +72,9 @@ class LedgerRepository(private val db: AppDatabase) {
         db.incomeDao().insertIncome(entity)
         markOnboardingMilestone(OnboardingMilestone.FIRST_INCOME)
     }
-    suspend fun updateIncome(entity: IncomeEntity) = db.incomeDao().updateIncome(entity)
+    suspend fun updateIncome(entity: IncomeEntity) = exclusiveLedgerWrite {
+        db.incomeDao().updateIncome(entity)
+    }
     suspend fun deleteIncome(entity: IncomeEntity) = db.incomeDao().deleteIncome(entity)
 
     // Payments
@@ -1133,20 +1138,22 @@ class LedgerRepository(private val db: AppDatabase) {
     /** Direct vault JSON restore (tests / explicit overwrite after UI confirmation). */
     suspend fun restoreCrossPlatformVaultJson(jsonText: String) = exclusiveLedgerWrite {
         restoreCrossPlatformVaultJsonLocked(jsonText, pullGuard = null)
+        Unit
     }
 
     /** Cloud pull: preservation/core guard runs inside the same Room transaction as the wipe. */
     suspend fun restoreCrossPlatformVaultJsonForVaultPull(
         jsonText: String,
         pullGuard: VaultPullRestoreGuardState,
-    ) = exclusiveLedgerWrite {
+    ): VaultPullRestoreBaselines = exclusiveLedgerWrite {
         restoreCrossPlatformVaultJsonLocked(jsonText, pullGuard = pullGuard)
     }
 
     private suspend fun restoreCrossPlatformVaultJsonLocked(
         jsonText: String,
         pullGuard: VaultPullRestoreGuardState?,
-    ) {
+    ): VaultPullRestoreBaselines {
+        val remoteCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(jsonText)
         val root = JSONObject(jsonText)
         val version = root.getString("version")
         require(version == "2.0" || version == "2.1") { "Unsupported snapshot version: $version" }
@@ -1163,6 +1170,7 @@ class LedgerRepository(private val db: AppDatabase) {
         val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(paymentAmounts)
         val liabilities = if (root.has("liabilities")) root.getJSONArray("liabilities") else JSONArray()
 
+        lateinit var postRestorePreservationFingerprint: String
         db.withTransaction {
             if (pullGuard != null) {
                 VaultDestructivePullGuard.verifyOrThrow(
@@ -1208,7 +1216,12 @@ class LedgerRepository(private val db: AppDatabase) {
             lockSettings.forEach { db.settingsDao().setValue(it) }
             db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, declaredBalance.toString()))
             ensureDefaultAccountSeeded()
+            postRestorePreservationFingerprint = LocalLedgerPreservation.fingerprint(this@LedgerRepository)
         }
+        return VaultPullRestoreBaselines(
+            remoteCoreFingerprint = remoteCoreFingerprint,
+            postRestorePreservationFingerprint = postRestorePreservationFingerprint,
+        )
     }
 
     private fun JSONArray.toVaultIncomes(): List<IncomeEntity> = buildList {
