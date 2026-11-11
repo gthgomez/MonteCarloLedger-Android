@@ -26,18 +26,24 @@ class VaultSyncStore(context: Context) {
         get() = prefs.getString(KEY_FINGERPRINT, null)
         private set(value) = Unit
 
+    var syncedAndroidPreservationFingerprint: String?
+        get() = prefs.getString(KEY_ANDROID_PRESERVATION, null)
+        private set(value) = Unit
+
     /** Single durable write for post-sync state (Room may already reflect the vault). */
     fun commitSyncState(
         vaultId: String,
         serverUrl: String,
         revision: Int,
         syncedFingerprint: String,
+        androidPreservationFingerprint: String,
         ancestryEstablished: Boolean,
     ): Boolean = prefs.edit()
         .putString(KEY_VAULT_ID, vaultId)
         .putString(KEY_SERVER, serverUrl.trimEnd('/'))
         .putInt(KEY_REVISION, revision)
         .putString(KEY_FINGERPRINT, syncedFingerprint)
+        .putString(KEY_ANDROID_PRESERVATION, androidPreservationFingerprint)
         .putBoolean(KEY_ANCESTRY, ancestryEstablished)
         .commit()
 
@@ -53,5 +59,6 @@ class VaultSyncStore(context: Context) {
         private const val KEY_REVISION = "revision"
         private const val KEY_ANCESTRY = "ancestry"
         private const val KEY_FINGERPRINT = "fingerprint"
+        private const val KEY_ANDROID_PRESERVATION = "android_preservation_fingerprint"
     }
 }

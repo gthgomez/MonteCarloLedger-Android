@@ -1,6 +1,7 @@
 package com.montecarlo.ledger.ui
 
 import com.montecarlo.ledger.AppUiState
+import com.montecarlo.ledger.data.AccountEntity
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.GoalEntity
@@ -282,6 +283,29 @@ class BackupExportTest {
         assertEquals(1, snapshot.debts.size)
         assertEquals("Visa", snapshot.debts.single().name)
         assertEquals(1_850, snapshot.debts.single().aprBasisPoints)
+    }
+
+    @Test
+    fun buildLedgerBackupJson_includesAccountsWhenProvided() {
+        val json = buildLedgerBackupJson(
+            exportedAtIso = "2026-11-11T12:00:00",
+            uiState = AppUiState(),
+            incomes = emptyList(),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            onboardingProgress = OnboardingProgress(),
+            settings = emptyList(),
+            rules = emptyList(),
+            accounts = listOf(
+                AccountEntity(id = 5, name = "Checking", type = "checking", balanceCents = 42_000, isDefault = true),
+            ),
+        )
+        assertTrue(json.contains("\"accounts\""))
+        assertTrue(json.contains("Checking"))
+        val snapshot = parseLedgerBackupJson(json)
+        assertEquals(1, snapshot.accounts.size)
+        assertEquals("Checking", snapshot.accounts.single().name)
     }
 
     @Test

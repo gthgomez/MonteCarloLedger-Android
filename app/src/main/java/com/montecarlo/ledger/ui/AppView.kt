@@ -347,6 +347,7 @@ private fun AppChrome(
         billOccurrences,
         transactionRules,
         transactions,
+        accounts,
         onboardingProgress,
         settings,
         reminderPreferences,
@@ -365,6 +366,7 @@ private fun AppChrome(
             assets = uiState.assets,
             goals = uiState.goals,
             categoryBudgets = uiState.categoryBudgets,
+            accounts = accounts,
         )
     }
     val currentBackupPayload by rememberUpdatedState(backupPayload)
@@ -430,9 +432,10 @@ private fun AppChrome(
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.contentResolver.openOutputStream(uri)?.use { output ->
-                        output.write(currentBackupPayload.toByteArray())
-                    } ?: error("Unable to open backup file.")
+                    writeBackupBytes(
+                        context.contentResolver.openOutputStream(uri),
+                        currentBackupPayload.toByteArray(),
+                    )
                 }
             }
             Toast.makeText(
@@ -991,13 +994,26 @@ private fun AppChrome(
                             com.montecarlo.ledger.security.SecurityUtils.encryptWithHmac(currentBackupPayload, password.toCharArray())
                         }.getOrNull()
                     }
-                    if (encrypted != null) {
+                    val writeResult = if (encrypted != null) {
                         withContext(Dispatchers.IO) {
-                            context.contentResolver.openOutputStream(pendingBackupUri!!)?.use { output ->
-                                output.write(encrypted.toByteArray())
+                            runCatching {
+                                writeBackupBytes(
+                                    context.contentResolver.openOutputStream(pendingBackupUri!!),
+                                    encrypted.toByteArray(),
+                                )
                             }
                         }
+                    } else {
+                        Result.failure(IllegalStateException("Encryption failed."))
+                    }
+                    if (writeResult.isSuccess) {
                         showSuccessToast = true
+                    } else {
+                        Toast.makeText(
+                            context,
+                            writeResult.exceptionOrNull()?.message ?: "Backup failed",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                     showEncryptDialog = false
                     pendingBackupUri = null

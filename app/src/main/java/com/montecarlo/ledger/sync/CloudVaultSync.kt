@@ -21,9 +21,7 @@ class CloudVaultSync(
         serverUrl: String = store.serverUrl,
         allowLocalOverwrite: Boolean = false,
     ): Int {
-        if (localChangesPending() && !allowLocalOverwrite) {
-            throw VaultLocalChangesException()
-        }
+        ensureSafeToOverwrite(allowLocalOverwrite)
 
         val client = VaultHttpClient(serverUrl)
         val metadata = client.fetchMetadata(vaultId)
@@ -39,10 +37,20 @@ class CloudVaultSync(
             ?: throw VaultSyncException(
                 "Vault restored but the local ledger could not be fingerprinted; pull again before pushing.",
             )
+        val preservationFingerprint = LocalLedgerPreservation.fingerprint(repository)
 
-        if (!store.commitSyncState(vaultId, serverUrl, record.revision, localFingerprint, ancestryEstablished = true)) {
+        if (!store.commitSyncState(
+                vaultId,
+                serverUrl,
+                record.revision,
+                localFingerprint,
+                preservationFingerprint,
+                ancestryEstablished = true,
+            )
+        ) {
             throw VaultSyncException(
-                "Ledger restored but sync metadata could not be saved. Pull again before pushing.",
+                "Ledger was replaced from the vault but sync metadata could not be saved. " +
+                    "Run a local backup now and pull again before pushing.",
             )
         }
         return record.revision
@@ -54,6 +62,7 @@ class CloudVaultSync(
         serverUrl: String = store.serverUrl,
     ): Int {
         if (!store.ancestryEstablished) throw VaultAncestryException()
+        ensureSafeToOverwrite(allowOverwrite = false)
         val client = VaultHttpClient(serverUrl)
         val json = repository.exportCrossPlatformVaultJson(Instant.now().toString())
         val metadata = client.fetchMetadata(vaultId)
@@ -69,7 +78,16 @@ class CloudVaultSync(
             nonceB64 = encrypted.nonceB64,
         )
         val fingerprint = VaultSnapshotFingerprint.ofSnapshotJson(json)
-        if (!store.commitSyncState(vaultId, serverUrl, revision, fingerprint, ancestryEstablished = true)) {
+        val preservationFingerprint = LocalLedgerPreservation.fingerprint(repository)
+        if (!store.commitSyncState(
+                vaultId,
+                serverUrl,
+                revision,
+                fingerprint,
+                preservationFingerprint,
+                ancestryEstablished = true,
+            )
+        ) {
             throw VaultSyncException(
                 "Upload succeeded (revision $revision) but sync metadata could not be saved locally.",
             )
@@ -103,7 +121,16 @@ class CloudVaultSync(
             return pullVault(vaultId, passphrase, serverUrl, allowLocalOverwrite = false)
         }
         val fingerprint = VaultSnapshotFingerprint.ofSnapshotJson(json)
-        if (!store.commitSyncState(vaultId, serverUrl, revision, fingerprint, ancestryEstablished = true)) {
+        val preservationFingerprint = LocalLedgerPreservation.fingerprint(repository)
+        if (!store.commitSyncState(
+                vaultId,
+                serverUrl,
+                revision,
+                fingerprint,
+                preservationFingerprint,
+                ancestryEstablished = true,
+            )
+        ) {
             throw VaultSyncException("Vault created on server but local sync metadata could not be saved.")
         }
         return revision
@@ -124,18 +151,37 @@ class CloudVaultSync(
         }
     }
 
+    private suspend fun ensureSafeToOverwrite(allowLocalOverwrite: Boolean) {
+        if (allowLocalOverwrite) return
+        if (localChangesPending()) {
+            throw VaultLocalChangesException()
+        }
+    }
+
     private suspend fun localLedgerFingerprint(): String? = runCatching {
         val json = repository.exportCrossPlatformVaultJson("fingerprint")
         VaultSnapshotFingerprint.ofSnapshotJson(json)
     }.getOrNull()
 
     private suspend fun localChangesPending(): Boolean {
-        val fingerprint = localLedgerFingerprint()
-        return if (!store.ancestryEstablished) {
-            repository.hasCrossPlatformLedgerContent()
-        } else {
-            val synced = store.syncedFingerprint
-            fingerprint == null || synced == null || fingerprint != synced
+        val vaultFingerprint = localLedgerFingerprint()
+        val preservationFingerprint = LocalLedgerPreservation.fingerprint(repository)
+
+        if (!store.ancestryEstablished) {
+            if (repository.hasCrossPlatformLedgerContent()) return true
+            if (LocalLedgerPreservation.hasPreservationRisk(repository)) return true
+            return false
         }
+
+        val syncedVault = store.syncedFingerprint
+        val vaultDirty = vaultFingerprint == null || syncedVault == null || vaultFingerprint != syncedVault
+
+        val syncedPreservation = store.syncedAndroidPreservationFingerprint
+        val preservationDirty = when {
+            syncedPreservation == null -> LocalLedgerPreservation.hasPreservationRisk(repository)
+            else -> preservationFingerprint != syncedPreservation
+        }
+
+        return vaultDirty || preservationDirty
     }
 }

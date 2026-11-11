@@ -1055,6 +1055,29 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun normalizeTransactionCategory(value: String): String = Categories.normalizeOrUncategorized(value)
 
+    suspend fun getAllGoalsList(): List<GoalEntity> = db.goalDao().getAllGoals().first()
+    suspend fun getAllAssetsList(): List<AssetEntity> = db.assetDao().getAllAssets().first()
+    suspend fun getAllTransactionRulesList(): List<TransactionRuleEntity> = db.transactionRuleDao().getAll().first()
+    suspend fun getAllCategoryBudgetsList(): List<CategoryBudgetEntity> = db.categoryBudgetDao().getAll().first()
+    suspend fun getAllAccountsList(): List<AccountEntity> = db.accountDao().getAll().first()
+    suspend fun getAllSettingsList(): List<SettingsEntity> = db.settingsDao().getAll().first()
+
+    /** More than the auto-seeded default, or a customized primary account. */
+    suspend fun hasCustomAccounts(): Boolean {
+        val accounts = getAllAccountsList()
+        if (accounts.size > 1) return true
+        if (accounts.isEmpty()) return false
+        val only = accounts.single()
+        return !(only.isDefault && only.name == "Primary account" && only.type.equals("checking", ignoreCase = true))
+    }
+
+    /** Settings beyond vault cross-platform restore and app-lock material. */
+    suspend fun hasNonVaultLocalSettings(): Boolean {
+        return getAllSettingsList().any { row ->
+            !isAppLockSettingKey(row.key) && row.key != KEY_CURRENT_BALANCE
+        }
+    }
+
     suspend fun hasCrossPlatformLedgerContent(): Boolean {
         val transactions = db.transactionDao().getAllTransactionsList()
         if (transactions.isNotEmpty()) return true
