@@ -353,20 +353,17 @@ private fun AppChrome(
         reminderPreferences,
         dashboardErrorMessage,
     ) {
-        buildLedgerBackupJson(
+        buildAppViewBackupPayload(
             exportedAtIso = LocalDateTime.now().toString(),
             uiState = uiState,
             incomes = incomes,
             payments = payments,
             transactions = transactions,
             billOccurrences = billOccurrences,
+            accounts = accounts,
             onboardingProgress = onboardingProgress,
             settings = settings,
             rules = transactionRules,
-            assets = uiState.assets,
-            goals = uiState.goals,
-            categoryBudgets = uiState.categoryBudgets,
-            accounts = accounts,
         )
     }
     val currentBackupPayload by rememberUpdatedState(backupPayload)

@@ -21,7 +21,7 @@ class CloudVaultSync(
         serverUrl: String = store.serverUrl,
         allowLocalOverwrite: Boolean = false,
     ): Int {
-        ensureSafeToOverwrite(allowLocalOverwrite)
+        ensureSafeForDestructivePull(allowLocalOverwrite)
 
         val client = VaultHttpClient(serverUrl)
         val metadata = client.fetchMetadata(vaultId)
@@ -62,7 +62,6 @@ class CloudVaultSync(
         serverUrl: String = store.serverUrl,
     ): Int {
         if (!store.ancestryEstablished) throw VaultAncestryException()
-        ensureSafeToOverwrite(allowLocalOverwrite = false)
         val client = VaultHttpClient(serverUrl)
         val json = repository.exportCrossPlatformVaultJson(Instant.now().toString())
         val metadata = client.fetchMetadata(vaultId)
@@ -151,10 +150,24 @@ class CloudVaultSync(
         }
     }
 
-    private suspend fun ensureSafeToOverwrite(allowLocalOverwrite: Boolean) {
+    /**
+     * Guards destructive vault restore only. Push intentionally uploads pending core edits.
+     * Matching preservation fingerprints does **not** prove Android-only data is on the server.
+     */
+    private suspend fun ensureSafeForDestructivePull(allowLocalOverwrite: Boolean) {
         if (allowLocalOverwrite) return
-        if (localChangesPending()) {
+        if (LocalLedgerPreservation.hasPreservationRisk(repository)) {
             throw VaultLocalChangesException()
+        }
+        if (!store.ancestryEstablished && repository.hasCrossPlatformLedgerContent()) {
+            throw VaultLocalChangesException()
+        }
+        if (store.ancestryEstablished) {
+            val local = localLedgerFingerprint()
+            val synced = store.syncedFingerprint
+            if (local != null && synced != null && local != synced) {
+                throw VaultLocalChangesException()
+            }
         }
     }
 
@@ -162,26 +175,4 @@ class CloudVaultSync(
         val json = repository.exportCrossPlatformVaultJson("fingerprint")
         VaultSnapshotFingerprint.ofSnapshotJson(json)
     }.getOrNull()
-
-    private suspend fun localChangesPending(): Boolean {
-        val vaultFingerprint = localLedgerFingerprint()
-        val preservationFingerprint = LocalLedgerPreservation.fingerprint(repository)
-
-        if (!store.ancestryEstablished) {
-            if (repository.hasCrossPlatformLedgerContent()) return true
-            if (LocalLedgerPreservation.hasPreservationRisk(repository)) return true
-            return false
-        }
-
-        val syncedVault = store.syncedFingerprint
-        val vaultDirty = vaultFingerprint == null || syncedVault == null || vaultFingerprint != syncedVault
-
-        val syncedPreservation = store.syncedAndroidPreservationFingerprint
-        val preservationDirty = when {
-            syncedPreservation == null -> LocalLedgerPreservation.hasPreservationRisk(repository)
-            else -> preservationFingerprint != syncedPreservation
-        }
-
-        return vaultDirty || preservationDirty
-    }
 }
