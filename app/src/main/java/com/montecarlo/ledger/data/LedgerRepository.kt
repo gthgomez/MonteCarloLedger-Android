@@ -1062,13 +1062,29 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun getAllAccountsList(): List<AccountEntity> = db.accountDao().getAll().first()
     suspend fun getAllSettingsList(): List<SettingsEntity> = db.settingsDao().getAll().first()
 
-    /** More than the auto-seeded default, or a customized primary account. */
+    /**
+     * More than one account, a renamed/non-checking primary, a reconciled or non-zero primary,
+     * transactions linked to the lone primary, or any balance/reconciliation drift from a fresh install.
+     */
     suspend fun hasCustomAccounts(): Boolean {
         val accounts = getAllAccountsList()
         if (accounts.size > 1) return true
         if (accounts.isEmpty()) return false
         val only = accounts.single()
-        return !(only.isDefault && only.name == "Primary account" && only.type.equals("checking", ignoreCase = true))
+        if (!isPristineDisposablePrimaryAccount(only)) return true
+        return db.transactionDao().getAllTransactionsList().any { it.account_id == only.id }
+    }
+
+    /**
+     * The only account state that vault restore may replace without preservation risk: untouched
+     * migration/default seed (Primary checking, zero balance, not reconciled).
+     */
+    internal fun isPristineDisposablePrimaryAccount(account: AccountEntity): Boolean {
+        return account.isDefault &&
+            account.name == "Primary account" &&
+            account.type.equals("checking", ignoreCase = true) &&
+            account.balanceCents == 0L &&
+            !account.isReconciled
     }
 
     /** Settings beyond vault cross-platform restore and app-lock material. */
