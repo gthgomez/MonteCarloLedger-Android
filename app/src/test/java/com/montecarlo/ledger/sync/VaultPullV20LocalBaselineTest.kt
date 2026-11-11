@@ -5,7 +5,6 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.montecarlo.ledger.data.AppDatabase
 import com.montecarlo.ledger.data.LedgerRepository
-import com.montecarlo.ledger.data.TransactionEntity
 import kotlinx.coroutines.runBlocking
 import java.security.SecureRandom
 import org.junit.Assert.assertEquals
@@ -41,16 +40,6 @@ class VaultPullV20LocalBaselineTest {
                 val repo = LedgerRepository(db!!)
                 val sync = CloudVaultSync(context, repo)
                 repo.ensureDefaultAccountSeeded()
-                db!!.transactionDao().insert(
-                    TransactionEntity(
-                        id = 1,
-                        description = "Local placeholder",
-                        amount_cents = 1,
-                        date = "2026-11-01",
-                        type = "Adjustment",
-                        category = "System",
-                    ),
-                )
                 seedServerWithV20Payload(
                     fakeServer = fakeServer,
                     vaultId = vaultId,
@@ -69,6 +58,10 @@ class VaultPullV20LocalBaselineTest {
                     repo.exportCrossPlatformVaultJson("verify"),
                 )
                 assertEquals(reExportFp, store.syncedFingerprint)
+                assertEquals(
+                    false,
+                    LocalLedgerPreservation.hasPreservationRisk(repo),
+                )
                 sync.pullVault(vaultId, passphrase, fakeServer.baseUrl, allowLocalOverwrite = false)
             }
         } finally {
@@ -101,7 +94,7 @@ class VaultPullV20LocalBaselineTest {
             {
               "version": "2.0",
               "updated_at": "2026-01-01T00:00:00Z",
-              "current_balance_cents": 100000,
+              "current_balance_cents": 0,
               "incomes": [{
                 "id": 42,
                 "name": "Job",
@@ -111,14 +104,7 @@ class VaultPullV20LocalBaselineTest {
                 "next_payday": "2026-02-15"
               }],
               "payments": [],
-              "transactions": [{
-                "id": 1,
-                "amount_cents": 100000,
-                "category": "System",
-                "type": "Adjustment",
-                "date": "2026-11-01",
-                "description": "Opening"
-              }],
+              "transactions": [],
               "bill_occurrences": [],
               "liabilities": [{
                 "id": "stable-remote-id-7",
