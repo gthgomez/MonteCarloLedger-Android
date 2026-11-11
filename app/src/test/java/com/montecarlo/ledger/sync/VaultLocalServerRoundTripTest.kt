@@ -30,34 +30,41 @@ class VaultLocalServerRoundTripTest {
     private val passphrase = "round-trip-pass".toCharArray()
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        fakeServer = FakeVaultHttpServer().also { it.start() }
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        repo = LedgerRepository(db)
-        repo.ensureDefaultAccountSeeded()
-        db.transactionDao().insert(
-            TransactionEntity(
-                id = 1,
-                description = "Opening",
-                amount_cents = 12_000,
-                date = "2026-11-01",
-                type = "Adjustment",
-                category = "System",
-            ),
-        )
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+            fakeServer = FakeVaultHttpServer().also { it.start() }
+            db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+                .allowMainThreadQueries()
+                .build()
+            repo = LedgerRepository(db)
+            repo.ensureDefaultAccountSeeded()
+            db.transactionDao().insert(
+                TransactionEntity(
+                    id = 1,
+                    description = "Opening",
+                    amount_cents = 12_000,
+                    date = "2026-11-01",
+                    type = "Adjustment",
+                    category = "System",
+                ),
+            )
+        }
     }
 
     @After
     fun tearDown() {
-        db.close()
-        fakeServer.stop()
+        if (::db.isInitialized) {
+            db.close()
+        }
+        if (::fakeServer.isInitialized) {
+            fakeServer.stop()
+        }
     }
 
     @Test
-    fun create_thenPush_thenPull_reproducesCoreLedger(): Unit = runBlocking {
+    fun create_thenPush_thenPull_reproducesCoreLedger() {
+        runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val sync = CloudVaultSync(context, repo)
         val revision = sync.createVault(vaultId, passphrase, fakeServer.baseUrl)
@@ -93,10 +100,12 @@ class VaultLocalServerRoundTripTest {
         val txn = db.transactionDao().getAllTransactionsList().single()
         assertEquals("Opening", txn.description)
         assertEquals(12_000, txn.amount_cents)
+        }
     }
 
     @Test
-    fun pull_blocksWhenReconciledPrimary_beforeServerRead(): Unit = runBlocking {
+    fun pull_blocksWhenReconciledPrimary_beforeServerRead() {
+        runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         repo.setBankBalance(15_000)
         assertTrue(repo.hasCustomAccounts())
@@ -110,5 +119,6 @@ class VaultLocalServerRoundTripTest {
         assertEquals(0, fakeServer.fetchVaultInvocationCount())
         assertEquals(15_000L, repo.getBankBalanceCents())
         assertTrue(db.accountDao().getDefault()!!.isReconciled)
+        }
     }
 }

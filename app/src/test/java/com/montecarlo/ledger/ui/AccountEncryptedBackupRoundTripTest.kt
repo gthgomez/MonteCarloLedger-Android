@@ -32,13 +32,15 @@ class AccountEncryptedBackupRoundTripTest {
     private lateinit var repo: LedgerRepository
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        repo = LedgerRepository(db)
-        repo.ensureDefaultAccountSeeded()
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+                .allowMainThreadQueries()
+                .build()
+            repo = LedgerRepository(db)
+            repo.ensureDefaultAccountSeeded()
+        }
     }
 
     @After
@@ -49,7 +51,6 @@ class AccountEncryptedBackupRoundTripTest {
     @Test
     fun encryptedAppViewBackup_preservesAccountAndTransactionLink() = runBlocking {
         repo.setBankBalance(88_000)
-        val primary = db.accountDao().getDefault()!!
         val savingsId = repo.insertAccount(
             AccountEntity(
                 name = "Savings",
@@ -89,6 +90,8 @@ class AccountEncryptedBackupRoundTripTest {
         val password = "synthetic-ui-backup".toCharArray()
         val encrypted = SecurityUtils.encryptWithHmac(plainJson, password)
         val decrypted = SecurityUtils.decrypt(encrypted, password)
+        val parsedBeforeRestore = parseLedgerBackupJson(decrypted)
+        assertEquals("backup JSON must carry both accounts", 2, parsedBeforeRestore.accounts.size)
 
         repo.setBankBalance(1)
         db.accountDao().deleteAll()
