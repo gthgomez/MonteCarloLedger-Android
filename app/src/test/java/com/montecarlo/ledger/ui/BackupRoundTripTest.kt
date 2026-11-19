@@ -12,8 +12,11 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -202,6 +205,28 @@ class BackupRoundTripTest {
     }
 
     @Test
+    fun earlyBackupsImportWithoutSectionsIntroducedInLaterVersions() {
+        for (version in 1..2) {
+            val json = """
+                {
+                  "schemaVersion": $version,
+                  "summary": {"bankBalanceCents": 350, "isBalanceReconciled": true},
+                  "settings": [], "rules": [], "incomes": [], "payments": [],
+                  "transactions": [{"id": 1, "description": "Opening balance",
+                                    "amount_cents": 350, "date": "2026-04-22", "type": "adjustment"}],
+                  "billOccurrences": []
+                }
+            """.trimIndent()
+
+            val snapshot = parseLedgerBackupJson(json)
+            assertEquals(350L, snapshot.bankBalanceCents)
+            assertEquals(350L, snapshot.transactions.single().amount_cents)
+            assertTrue(snapshot.assets.isEmpty())
+            assertTrue(snapshot.accounts.isEmpty())
+        }
+    }
+
+    @Test
     fun legacyV5BackupImportsWithProductDepthDefaults() {
         val legacyV5 = """
             {
@@ -247,5 +272,64 @@ class BackupRoundTripTest {
         val broken = "[1,2,3]"
         val error = runCatching { parseLedgerBackupJson(broken) }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun versionOnlyBackupCannotBecomeAnEmptyRestore() {
+        for (version in 1..BACKUP_SCHEMA_VERSION) {
+            val error = runCatching {
+                parseLedgerBackupJson("""{"schemaVersion":$version}""")
+            }.exceptionOrNull()
+            assertTrue("Backup version $version must reject an incomplete snapshot", error is IllegalArgumentException)
+        }
+    }
+
+    @Test
+    fun currentBackupRejectsMissingAndMalformedSections() {
+        val exported = parseBackupJsonToElement(sampleJson())
+        val sections = listOf(
+            "summary", "onboarding", "settings", "rules", "incomes", "payments", "transactions",
+            "billOccurrences", "assets", "goals", "categoryBudgets", "debts", "accounts",
+        )
+        for (section in sections) {
+            val missing = JsonObject(exported - section).toString()
+            val wrongType = JsonObject(exported + (section to JsonPrimitive("invalid"))).toString()
+            assertThrows("Missing $section", IllegalArgumentException::class.java) { parseLedgerBackupJson(missing) }
+            assertThrows("Malformed $section", IllegalArgumentException::class.java) { parseLedgerBackupJson(wrongType) }
+        }
+    }
+
+    @Test
+    fun currentBackupRejectsMissingBalanceAndInvalidReconciliationFlag() {
+        val exported = parseBackupJsonToElement(sampleJson())
+        val summary = exported.getValue("summary") as JsonObject
+        val invalidSummaries = listOf(
+            JsonObject(summary - "bankBalanceCents"),
+            JsonObject(summary + ("isBalanceReconciled" to JsonPrimitive("unknown"))),
+        )
+        invalidSummaries.forEach { invalid ->
+            val json = JsonObject(exported + ("summary" to invalid)).toString()
+            assertThrows(IllegalArgumentException::class.java) { parseLedgerBackupJson(json) }
+        }
+    }
+
+    @Test
+    fun explicitlyEmptyCurrentBackupStillImports() {
+        val json = buildLedgerBackupJson(
+            exportedAtIso = "2026-08-21T12:00:00",
+            uiState = AppUiState(),
+            incomes = emptyList(),
+            payments = emptyList(),
+            transactions = emptyList(),
+            billOccurrences = emptyList(),
+            onboardingProgress = OnboardingProgress(),
+            settings = emptyList(),
+            rules = emptyList(),
+        )
+
+        val snapshot = parseLedgerBackupJson(json)
+        assertEquals(0L, snapshot.bankBalanceCents)
+        assertTrue(snapshot.transactions.isEmpty())
+        assertTrue(snapshot.accounts.isEmpty())
     }
 }

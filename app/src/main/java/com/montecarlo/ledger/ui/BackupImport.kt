@@ -13,6 +13,7 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.TransactionEntity
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
@@ -22,14 +23,14 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
         "Unsupported backup schema version: $schemaVersion"
     }
 
-    val summary = (root["summary"] as? JsonObject) ?: JsonObject(emptyMap())
-    val onboarding = (root["onboarding"] as? JsonObject) ?: JsonObject(emptyMap())
+    val summary = root.objectSection("summary")
+    val onboarding = root.objectSection("onboarding", required = schemaVersion >= 6)
 
     return LedgerBackupSnapshot(
         schemaVersion = schemaVersion,
         exportedAtIso = root.nullableString("exportedAt")?.takeIf { it.isNotBlank() },
-        bankBalanceCents = summary.nullableLong( "bankBalanceCents") ?: 0L,
-        isBalanceReconciled = summary.optBool( "isBalanceReconciled", false),
+        bankBalanceCents = summary.longOrThrow("bankBalanceCents"),
+        isBalanceReconciled = summary.boolOrThrow("isBalanceReconciled"),
         onboardingProgress = OnboardingProgress(
             firstIncomeCompleted = onboarding.optBool( "firstIncomeCompleted", false),
             firstBillCompleted = onboarding.optBool( "firstBillCompleted", false),
@@ -38,18 +39,36 @@ internal fun parseLedgerBackupJson(jsonText: String): LedgerBackupSnapshot {
             reconciliationCompleted = onboarding.optBool( "reconciliationCompleted", false),
             dismissed = onboarding.optBool( "dismissed", false),
         ),
-        settings = root.array("settings").map { it.toSettingsEntity() },
-        rules = root.array("rules").map { it.toRuleEntity() },
-        incomes = root.array("incomes").map { it.toIncomeEntity() },
-        payments = root.array("payments").map { it.toPaymentEntity() },
-        transactions = root.array("transactions").map { it.toTransactionEntity() },
-        billOccurrences = root.array("billOccurrences").map { it.toBillOccurrenceEntity() },
-        assets = root.array("assets").map { it.toAssetEntity() },
-        goals = root.array("goals").map { it.toGoalEntity() },
-        categoryBudgets = root.array("categoryBudgets").map { it.toCategoryBudgetEntity() },
-        debts = root.array("debts").map { it.toDebtEntity() },
-        accounts = root.array("accounts").map { it.toAccountEntity() },
+        settings = root.arraySection("settings").map { it.toSettingsEntity() },
+        rules = root.arraySection("rules").map { it.toRuleEntity() },
+        incomes = root.arraySection("incomes").map { it.toIncomeEntity() },
+        payments = root.arraySection("payments").map { it.toPaymentEntity() },
+        transactions = root.arraySection("transactions").map { it.toTransactionEntity() },
+        billOccurrences = root.arraySection("billOccurrences").map { it.toBillOccurrenceEntity() },
+        assets = root.arraySection("assets", required = schemaVersion >= 3).map { it.toAssetEntity() },
+        goals = root.arraySection("goals", required = schemaVersion >= 3).map { it.toGoalEntity() },
+        categoryBudgets = root.arraySection("categoryBudgets", required = schemaVersion >= 3).map { it.toCategoryBudgetEntity() },
+        debts = root.arraySection("debts", required = schemaVersion >= 3).map { it.toDebtEntity() },
+        accounts = root.arraySection("accounts", required = schemaVersion >= 5).map { it.toAccountEntity() },
     )
+}
+
+private fun JsonObject.objectSection(name: String, required: Boolean = true): JsonObject {
+    val value = this[name]
+    if (value == null && !required) return JsonObject(emptyMap())
+    return value as? JsonObject
+        ?: throw IllegalArgumentException("Backup is missing a valid '$name' object.")
+}
+
+private fun JsonObject.arraySection(name: String, required: Boolean = true): List<JsonObject> {
+    val value = this[name]
+    if (value == null && !required) return emptyList()
+    val items = value as? JsonArray
+        ?: throw IllegalArgumentException("Backup is missing a valid '$name' array.")
+    return items.map { element ->
+        element as? JsonObject
+            ?: throw IllegalArgumentException("Expected a JSON object in array '$name'.")
+    }
 }
 
 private fun JsonObject.toIncomeEntity(): IncomeEntity =
