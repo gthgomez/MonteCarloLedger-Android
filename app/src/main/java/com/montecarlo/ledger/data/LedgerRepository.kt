@@ -230,15 +230,14 @@ class LedgerRepository(private val db: AppDatabase) {
 
     suspend fun updateTransaction(entity: TransactionEntity) {
         DomainRules.validateTransactionSign(entity.amount_cents, entity.type)
-        val existing = db.transactionDao().getById(entity.id)
         val reviewed = applyTransactionRules(entity).copy(
             review_status = REVIEW_APPROVED,
             reviewed_at = entity.reviewed_at ?: LocalDateTime.now().toString(),
         )
         db.withTransaction {
-            if (existing != null) {
-                revertTransactionSideEffects(existing.amount_cents, existing.account_id)
-            }
+            val existing = db.transactionDao().getById(entity.id)
+                ?: throw IllegalArgumentException("This transaction no longer exists.")
+            revertTransactionSideEffects(existing.amount_cents, existing.account_id)
             db.transactionDao().update(reviewed)
             applyTransactionSideEffects(reviewed.amount_cents, reviewed.account_id)
         }
@@ -267,8 +266,9 @@ class LedgerRepository(private val db: AppDatabase) {
     }
     suspend fun deleteTransaction(entity: TransactionEntity) {
         db.withTransaction {
-            db.transactionDao().delete(entity)
-            revertTransactionSideEffects(entity.amount_cents, entity.account_id)
+            val existing = db.transactionDao().getById(entity.id) ?: return@withTransaction
+            db.transactionDao().delete(existing)
+            revertTransactionSideEffects(existing.amount_cents, existing.account_id)
         }
     }
 
