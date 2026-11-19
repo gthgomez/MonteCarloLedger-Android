@@ -5,6 +5,7 @@ import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.dashboard.DashboardDeriver
 import com.montecarlo.ledger.dashboard.ReportingPackage
 import com.montecarlo.ledger.data.AccountEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.LedgerRepository
 import com.montecarlo.ledger.data.PaymentEntity
@@ -25,6 +26,47 @@ import java.time.LocalDate
 class WidgetConsistencyTest {
 
     private val today: LocalDate = LocalDate.of(2026, 2, 1)
+
+    @Test
+    fun widgetAndDashboardBothReserveAnUnlinkedDebtMinimum() = runBlocking {
+        val loan = DebtEntity(
+            id = 1,
+            name = "Synthetic loan",
+            balanceCents = 30_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 1,
+        )
+        val pack = ReportingPackage(
+            incomes = emptyList(),
+            payments = emptyList(),
+            txns = emptyList(),
+            accounts = emptyList(),
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 50_000L, isReconciled = true),
+            billOccurrences = emptyList(),
+            assets = emptyList(),
+            goals = emptyList(),
+            categoryBudgets = emptyList(),
+            debts = listOf(loan),
+            rules = emptyList(),
+            dashboardConfig = DashboardConfig(),
+        )
+        val dashboard = DashboardDeriver().derive(pack, today)
+        val widget = deriveWidgetForecast(
+            today = today,
+            contractForecastEnabled = true,
+            forecastSeedCents = 50_000L,
+            incomes = pack.incomes,
+            payments = pack.payments,
+            occurrences = pack.billOccurrences,
+            txns = pack.txns,
+            rules = pack.rules,
+            debts = pack.debts,
+        )
+        assertTrue(widget.available)
+        assertTrue(widget.safeToSpendCents <= 20_000L)
+        assertEquals(dashboard.uiState.safeToSpendCents, widget.safeToSpendCents)
+    }
 
     private fun account(id: Long, type: String) = AccountEntity(
         id = id,

@@ -4,6 +4,8 @@ import com.montecarlo.ledger.contract.ContractEngine
 import com.montecarlo.ledger.contract.ContractRunner
 import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.data.BillOccurrenceEntity
+import com.montecarlo.ledger.data.DebtEntity
+import com.montecarlo.ledger.data.DebtKind
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibration
@@ -62,18 +64,94 @@ class ContractScenarioBridgeTest {
         horizonDays: Int = 90,
         simulation: ContractSimulationParams? = null,
         paymentCategories: Map<Int, String> = emptyMap(),
+        debts: List<DebtEntity> = emptyList(),
+        startDate: LocalDate = asOf,
     ) = ContractScenarioBridge.build(
         ContractScenarioBridge.Inputs(
             startingBalanceCents = startingBalanceCents,
-            asOf = asOf,
+            asOf = startDate,
             incomes = incomes,
             payments = payments,
             billOccurrences = occurrences,
             simulation = simulation,
             horizonDays = horizonDays,
             paymentCategories = paymentCategories,
+            debts = debts,
         )
     )
+
+    @Test
+    fun debtMinimumKeepsTheLeapMonthAnchorAndCapsTheFinalPayment() {
+        val debt = DebtEntity(
+            id = 1,
+            name = "Loan",
+            balanceCents = 60_000L,
+            aprBasisPoints = 1_200,
+            minimumPaymentCents = 20_000L,
+            dueDayOfMonth = 31,
+        )
+        val scenario = build(debts = listOf(debt), startDate = LocalDate.of(2028, 1, 31))
+        assertEquals(
+            listOf(
+                LocalDate.of(2028, 1, 31) to -20_000L,
+                LocalDate.of(2028, 2, 29) to -20_000L,
+                LocalDate.of(2028, 3, 31) to -20_000L,
+            ),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
+
+        val paidOff = build(debts = listOf(debt.copy(balanceCents = 21_000L, dueDayOfMonth = 1)))
+        assertEquals(
+            listOf(asOf to -20_000L, asOf.plusMonths(1) to -1_010L),
+            ContractEngine.inWindowBaseEvents(paidOff).map { it.date to it.amountCents },
+        )
+    }
+
+    @Test
+    fun onlyAnExplicitActiveBillLinkReplacesTheEstimatedDebtSchedule() {
+        val bill = payment(id = 7, amountCents = 30_000L, dayOfMonth = 10, nextDate = "2026-01-10")
+        val debt = DebtEntity(
+            id = 1,
+            name = bill.name,
+            balanceCents = 50_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = bill.amount_cents,
+            dueDayOfMonth = 10,
+        )
+        val linked = debt.copy(linkedPaymentId = bill.id)
+        val unrelated = build(payments = listOf(bill), debts = listOf(debt), horizonDays = 30)
+        val oneObligation = build(payments = listOf(bill), debts = listOf(linked), horizonDays = 30)
+        val inactiveLink = build(
+            payments = listOf(bill.copy(is_active = 0)),
+            debts = listOf(linked, debt.copy(id = 2, isActive = false)),
+            horizonDays = 30,
+        )
+        val separateEvents = ContractEngine.inWindowBaseEvents(unrelated)
+        assertEquals(listOf(-30_000L, -30_000L), separateEvents.map { it.amountCents })
+        assertEquals(listOf("payment-7", "debt-1-2026-01-10"), separateEvents.map { it.id })
+        assertEquals(listOf(-30_000L), ContractEngine.inWindowBaseEvents(oneObligation).map { it.amountCents })
+        assertEquals(listOf(-30_000L), ContractEngine.inWindowBaseEvents(inactiveLink).map { it.amountCents })
+    }
+
+    @Test
+    fun revolvingDebtUsesTheOpeningBalanceAndAnExclusiveEndDate() {
+        val debt = DebtEntity(
+            id = 1,
+            name = "Card",
+            balanceCents = 50_000L,
+            aprBasisPoints = 1_200,
+            minimumPaymentCents = 0,
+            dueDayOfMonth = 10,
+            kind = DebtKind.REVOLVING,
+            minPaymentPercentBps = 400,
+            minPaymentFloorCents = 1_500,
+        )
+        val scenario = build(debts = listOf(debt), horizonDays = 40)
+        assertEquals(
+            listOf(LocalDate.of(2026, 1, 10) to -2_000L),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
+    }
 
     /** MCD-0027: every product builder stamps the same (latest released) contract version. */
     @Test

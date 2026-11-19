@@ -4,6 +4,8 @@ import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.adoption.ContractDashboardMapper
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
+import com.montecarlo.ledger.contract.ContractSimulationParams
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.LedgerRepository
 import com.montecarlo.ledger.data.PaymentEntity
@@ -103,6 +105,35 @@ class ContractAdoptionDashboardTest {
         assertEquals(risk.endingBalanceP50Cents, state.monteCarloResult!!.median_ending_balance_cents)
         // The non-normative daily fan chart overlay is preserved.
         assertTrue(state.monteCarloDailyPercentiles.isNotEmpty())
+    }
+
+    @Test
+    fun dashboardScenarioReservesAnActiveUnlinkedDebtMinimum() = runBlocking {
+        val reporting = pack().copy(
+            incomes = emptyList(),
+            payments = emptyList(),
+            txns = emptyList(),
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 50_000L, isReconciled = true),
+            debts = listOf(
+                DebtEntity(
+                    id = 1,
+                    name = "Synthetic loan",
+                    balanceCents = 60_000L,
+                    aprBasisPoints = 0,
+                    minimumPaymentCents = 30_000L,
+                    dueDayOfMonth = 10,
+                ),
+            ),
+        )
+        val derivation = DashboardDeriver().derive(reporting, today)
+        val inputs = requireNotNull(derivation.scenarioInputs).copy(
+            horizonDays = 30,
+            simulation = ContractSimulationParams(runs = 4, surpriseProbabilityPpm = 0),
+        )
+        val result = ContractRunner.run(ContractScenarioBridge.build(inputs))
+
+        assertEquals(20_000L, result.risk!!.safeToSpendCents)
+        assertEquals(today.withDayOfMonth(10), result.forecast.minimumBalanceDate)
     }
 
     /**

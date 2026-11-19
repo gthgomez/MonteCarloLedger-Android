@@ -1,18 +1,23 @@
 package com.montecarlo.ledger.adoption
 
+import com.montecarlo.ledger.contract.ContractDebt
 import com.montecarlo.ledger.contract.ContractEngine
 import com.montecarlo.ledger.contract.ContractEvent
+import com.montecarlo.ledger.contract.ContractMoney
 import com.montecarlo.ledger.contract.ContractRecurrence
 import com.montecarlo.ledger.contract.ContractRecurrenceExclusion
 import com.montecarlo.ledger.contract.ContractScenario
 import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.data.BillOccurrenceEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import com.montecarlo.ledger.processing.RecurrenceMath
+import com.montecarlo.ledger.sync.CanonicalVaultMapper
 import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
+import java.time.YearMonth
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -44,11 +49,11 @@ object ContractScenarioBridge {
      *
      * MCD-0027: product-built scenarios stamp the latest released version, exactly like the Python
      * and TypeScript builders. Declaring 1.2 here made an Android scenario carry different version
-     * metadata from the identical scenario built elsewhere. The scenario content is unchanged (no
-     * liabilities are emitted by this bridge), so this is a metadata alignment, not a financial
-     * semantic change.
+     * metadata from the identical scenario built elsewhere.
      */
     private const val CONTRACT_VERSION = "2.0"
+    // Other bills use the contract's default expense sequence of 1.
+    private const val DEBT_MINIMUM_SEQUENCE = 2
 
     data class Inputs(
         val startingBalanceCents: Long,
@@ -61,6 +66,7 @@ object ContractScenarioBridge {
         val scenarioId: String = "dashboard",
         /** Resolved bill categories (contract 1.2): payment id -> category. */
         val paymentCategories: Map<Int, String> = emptyMap(),
+        val debts: List<DebtEntity> = emptyList(),
     )
 
     /** Builds the canonical scenario. Callers pass `asOf` from the UI/ViewModel clock boundary. */
@@ -95,6 +101,7 @@ object ContractScenarioBridge {
                 )
             )
         }
+        appendDebtMinimums(inputs, paymentById.keys, endExclusive, explicit)
 
         val recurrences = ArrayList<ContractRecurrence>()
         val exclusions = ArrayList<ContractRecurrenceExclusion>()
@@ -120,6 +127,56 @@ object ContractScenarioBridge {
             contractVersion = CONTRACT_VERSION,
             occurrenceExclusions = exclusions,
         )
+    }
+
+    /**
+     * Turns active unlinked debt minimums into cash events. A linked active bill owns its
+     * schedule and paid/moved status. The opening debt balance estimates the first minimum.
+     * Later months accrue interest on the remaining balance before computing their minimum.
+     */
+    private fun appendDebtMinimums(
+        inputs: Inputs,
+        activePaymentIds: Set<Int>,
+        endExclusive: LocalDate,
+        events: MutableList<ContractEvent>,
+    ) {
+        val debts = inputs.debts.filter { it.linkedPaymentId !in activePaymentIds }
+        val liabilities = CanonicalVaultMapper.liabilitiesFromDebts(debts).sortedBy { it.id }
+        ContractDebt.validateLiabilities(liabilities)
+        for (liability in liabilities) {
+            var month = YearMonth.from(inputs.asOf)
+            var first = true
+            var balance = liability.balanceCents
+            while (balance > 0L) {
+                val due = month.atDay(minOf(liability.dueDayOfMonth, month.lengthOfMonth()))
+                if (!due.isBefore(endExclusive)) break
+                month = month.plusMonths(1)
+                if (due.isBefore(inputs.asOf)) continue
+
+                if (!first) {
+                    val interest = ContractMoney.toLong(
+                        ContractDebt.monthlyInterest(balance, liability.aprBasisPoints),
+                    )
+                    balance = ContractMoney.checkedAdd(balance, interest)
+                }
+                first = false
+                val minimum = ContractDebt.minimumPaymentCents(liability, balance)
+                balance -= minimum
+                if (minimum > 0L) {
+                    events.add(
+                        ContractEvent(
+                            id = "debt-${liability.id}-$due",
+                            name = liability.name,
+                            date = due,
+                            amountCents = -minimum,
+                            type = "expense",
+                            sequence = DEBT_MINIMUM_SEQUENCE,
+                            inputIndex = events.size,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     /**

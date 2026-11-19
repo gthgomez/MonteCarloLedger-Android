@@ -96,6 +96,7 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         val occurrences = db.billOccurrenceDao().getAllOccurrencesList()
         val accounts = db.accountDao().getAll().first()
         val rules = db.transactionRuleDao().getAll().first()
+        val debts = db.debtDao().getActive().first()
 
         val bankBalanceCents = settings["bank_balance_cents"]?.toLongOrNull() ?: 0L
         val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
@@ -120,6 +121,7 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
             occurrences = occurrences,
             txns = txns,
             rules = rules,
+            debts = debts,
         )
 
         val nextBillLabel = TimelineService

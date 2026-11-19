@@ -452,6 +452,7 @@ class DashboardDeriver {
             billOccurrences = pack.billOccurrences,
             simulation = ContractScenarioBridge.simulationParams(calibration),
             paymentCategories = paymentCategories,
+            debts = pack.debts,
         )
     }
 

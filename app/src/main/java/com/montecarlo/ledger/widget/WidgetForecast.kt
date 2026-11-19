@@ -9,6 +9,7 @@ import com.montecarlo.ledger.dashboard.CanonicalAdoption
 import com.montecarlo.ledger.dashboard.ContractCalculationResult
 import com.montecarlo.ledger.dashboard.canonicalCalculation
 import com.montecarlo.ledger.data.BillOccurrenceEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.TransactionEntity
@@ -91,6 +92,7 @@ internal fun deriveWidgetForecast(
     occurrences: List<BillOccurrenceEntity>,
     txns: List<TransactionEntity>,
     rules: List<TransactionRuleEntity>,
+    debts: List<DebtEntity> = emptyList(),
 ): WidgetForecast {
     val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules)
     val calibration = MonteCarloCalibrator.calibrate(transactions = txns, today = today)
@@ -133,6 +135,7 @@ internal fun deriveWidgetForecast(
                     runs = CanonicalSimulationConfig.RUNS,
                 ),
                 paymentCategories = paymentCategories,
+                debts = debts,
             )
         )
         val result = ContractRunner.run(built)
