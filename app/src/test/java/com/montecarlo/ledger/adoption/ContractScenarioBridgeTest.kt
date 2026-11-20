@@ -218,6 +218,27 @@ class ContractScenarioBridgeTest {
     @Test
     fun overdueDebtMinimumIsProjectedNowUnlessItsLinkedBillWasPaid() {
         val today = LocalDate.of(2026, 1, 20)
+        val smallDebt = DebtEntity(
+            id = 9,
+            name = "Small Loan",
+            balanceCents = 5_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 3_000L,
+            dueDayOfMonth = 10,
+        )
+        val unlinkedOverdue = build(
+            debts = listOf(smallDebt),
+            horizonDays = 40,
+            startDate = today,
+        )
+        assertEquals(
+            listOf(
+                today to -3_000L,
+                LocalDate.of(2026, 2, 10) to -2_000L,
+            ),
+            ContractEngine.inWindowBaseEvents(unlinkedOverdue).map { it.date to it.amountCents },
+        )
+
         val bill = payment(id = 7, amountCents = 30_000L, dayOfMonth = 10, nextDate = "2026-02-10")
         val debt = DebtEntity(
             id = 1,
