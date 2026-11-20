@@ -288,14 +288,14 @@ internal fun SetupCompleteCard(
                 actionCenterVisible && overPlan -> {
                     val trouble = uiState.firstNegativeDateLabel?.let { " around $it" }.orEmpty()
                     Text(
-                        "Upcoming bills total ${centsToDisplay(billBurden)}$trouble.",
+                        "Upcoming bills and debt payments total ${centsToDisplay(billBurden)}$trouble.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = GlassTokens.TextSecondary,
                     )
                 }
                 actionCenterVisible -> {
                     Text(
-                        "Upcoming bills (${centsToDisplay(billBurden)}) before your next payday.",
+                        "Bills and debt payments (${centsToDisplay(billBurden)}) before your next payday.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = GlassTokens.TextSecondary,
                     )
@@ -311,7 +311,7 @@ internal fun SetupCompleteCard(
                 overPlan -> {
                     val trouble = uiState.firstNegativeDateLabel?.let { " around $it" }.orEmpty()
                     Text(
-                        "Based on upcoming bills (${centsToDisplay(billBurden)}), " +
+                        "After bills and debt payments (${centsToDisplay(billBurden)}), " +
                             "your balance could dip short by ${centsToDisplay(-safeToSpend)}$trouble.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = GlassTokens.ErrorRed,
@@ -319,7 +319,7 @@ internal fun SetupCompleteCard(
                 }
                 else -> {
                     Text(
-                        "After your upcoming bills (${centsToDisplay(billBurden)}), " +
+                        "After bills and debt payments (${centsToDisplay(billBurden)}), " +
                             "you have about ${centsToDisplay(safeToSpend)} you can spend or save.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = GlassTokens.TextSecondary,

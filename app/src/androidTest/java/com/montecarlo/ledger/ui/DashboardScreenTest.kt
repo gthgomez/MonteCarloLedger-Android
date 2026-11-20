@@ -77,7 +77,7 @@ class DashboardScreenTest {
         composeRule.onNodeWithText("What your bank says you have right now. Update this after each paycheck or large purchase.").assertIsDisplayed()
         composeRule.onNodeWithText("What the app calculates by adding up all the paychecks, bills, and spending you've recorded.").assertIsDisplayed()
         composeRule.onNodeWithText("Where the 3-month estimate starts. Uses your confirmed bank balance if available, otherwise uses the app total.").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Scheduled bills in forecast: \$25.00").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Scheduled bills and debt payments: \$25.00").assertCountEquals(1)
         composeRule.onAllNodesWithText("Safe to spend: \$90.00").assertCountEquals(1)
     }
 

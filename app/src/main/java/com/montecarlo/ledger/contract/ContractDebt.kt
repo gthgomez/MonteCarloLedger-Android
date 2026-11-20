@@ -214,7 +214,7 @@ object ContractDebt {
     }
 
     /** `round_half_away(balance * apr_bps, 120000)` with an exact (non-wrapping) product. */
-    private fun monthlyInterest(balanceCents: Long, aprBasisPoints: Int): BigInteger =
+    internal fun monthlyInterest(balanceCents: Long, aprBasisPoints: Int): BigInteger =
         ContractMoney.roundHalfAway(
             BigInteger.valueOf(balanceCents).multiply(BigInteger.valueOf(aprBasisPoints.toLong())),
             INTEREST_DEN,

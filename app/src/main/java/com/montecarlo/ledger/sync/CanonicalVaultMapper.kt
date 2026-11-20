@@ -31,7 +31,12 @@ object CanonicalVaultMapper {
         occurrences: List<BillOccurrenceEntity>,
         debts: List<DebtEntity>,
         updatedAtIso: String,
-    ): JsonObject = buildJsonObject {
+    ): JsonObject {
+        require(debts.none { !it.isActive || it.linkedPaymentId != null || it.linkedAccountId != null }) {
+            "This ledger has inactive or account/bill-linked debts that vault format 2.1 cannot preserve. " +
+                "Use the encrypted Android backup until the vault format supports these debt links."
+        }
+        return buildJsonObject {
         put("version", "2.1")
         put("updated_at", updatedAtIso)
         put("current_balance_cents", ledgerBalanceCents)
@@ -111,6 +116,7 @@ object CanonicalVaultMapper {
                     },
                 )
             }
+        }
         }
     }
 

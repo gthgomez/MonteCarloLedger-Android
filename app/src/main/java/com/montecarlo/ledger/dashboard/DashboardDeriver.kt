@@ -138,7 +138,29 @@ class DashboardDeriver {
             bankBalanceCents,
             reconciled
         )
-        val events = TimelineService.generateTimeline(pack.incomes, pack.payments, today, 90, pack.billOccurrences, pack.rules)
+        val timelineEvents = TimelineService.generateTimeline(pack.incomes, pack.payments, today, 90, pack.billOccurrences, pack.rules)
+        val debtInputs = ContractScenarioBridge.Inputs(
+            startingBalanceCents = forecastSeedCents,
+            asOf = today,
+            incomes = pack.incomes,
+            payments = pack.payments,
+            billOccurrences = pack.billOccurrences,
+            horizonDays = 90,
+            paymentCategories = pack.payments.mapNotNull { payment ->
+                TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
+            }.toMap(),
+            debts = pack.debts,
+        )
+        val debtEventResult = canonicalCalculation {
+            ContractScenarioBridge.debtMinimumForecastEvents(debtInputs)
+        }
+        val debtEventFailure = debtEventResult as? ContractCalculationResult.Failure
+        val debtEvents = (debtEventResult as? ContractCalculationResult.Success)?.value.orEmpty()
+        val events = (timelineEvents + debtEvents).sortedWith(
+            compareBy<com.montecarlo.ledger.processing.ForecastEvent> { it.date }
+                .thenBy { if (it.type == "income") 0 else 1 }
+                .thenBy { it.description },
+        )
 
         val nextPaycheck = events.filter { it.type == "income" }.minByOrNull { it.date }
         val daysUntilPayday = if (nextPaycheck != null) {
@@ -165,7 +187,7 @@ class DashboardDeriver {
                 null
             }
         val scenarioInputs: ContractScenarioBridge.Inputs? = contractRun?.first
-        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = contractRun?.second
+        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = debtEventFailure ?: contractRun?.second
 
         // WS2: when the contract fails, keep the last known valid canonical result so the headline
         // numbers never silently degrade onto the legacy native engines.
@@ -180,6 +202,7 @@ class DashboardDeriver {
 
         val canonicalFailure = contractOutcome as? ContractCalculationResult.Failure
         val canonicalStatus = when {
+            debtEventFailure != null -> CanonicalForecastStatus.Failed
             !contractForecastEnabled -> CanonicalForecastStatus.Native
             contractOutcome is ContractCalculationResult.Success -> CanonicalForecastStatus.Live
             lastKnownCanonical != null -> CanonicalForecastStatus.Stale
@@ -452,6 +475,7 @@ class DashboardDeriver {
             billOccurrences = pack.billOccurrences,
             simulation = ContractScenarioBridge.simulationParams(calibration),
             paymentCategories = paymentCategories,
+            debts = pack.debts,
         )
     }
 

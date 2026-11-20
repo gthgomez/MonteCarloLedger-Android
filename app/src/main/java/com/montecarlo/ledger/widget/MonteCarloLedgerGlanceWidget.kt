@@ -24,6 +24,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.montecarlo.ledger.CanonicalForecastStatus
+import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.data.AppDatabase
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.TimelineService
@@ -96,6 +97,7 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         val occurrences = db.billOccurrenceDao().getAllOccurrencesList()
         val accounts = db.accountDao().getAll().first()
         val rules = db.transactionRuleDao().getAll().first()
+        val debts = db.debtDao().getActive().first()
 
         val bankBalanceCents = settings["bank_balance_cents"]?.toLongOrNull() ?: 0L
         val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
@@ -120,15 +122,35 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
             occurrences = occurrences,
             txns = txns,
             rules = rules,
+            debts = debts,
         )
 
-        val nextBillLabel = TimelineService
-            .generateTimeline(incomes, payments, today, 90, occurrences, rules)
-            .filter { it.type == "bill" }
-            .take(1)
-            .firstOrNull()
-            ?.let { "${it.description} • ${centsToDisplay(it.amount_cents)} (${it.date.formatDateDisplay()})" }
-            ?: "No upcoming bills"
+        val nextBillLabel = if (!forecast.available) {
+            "Payment schedule unavailable"
+        } else {
+            val paymentCategories = payments.mapNotNull { payment ->
+                TimelineService.resolveCategory(payment.name, rules)?.let { payment.id to it }
+            }.toMap()
+            val scheduledPayments = TimelineService
+                .generateTimeline(incomes, payments, today, 90, occurrences, rules) +
+                ContractScenarioBridge.debtMinimumForecastEvents(
+                    ContractScenarioBridge.Inputs(
+                        startingBalanceCents = forecastSeedCents,
+                        asOf = today,
+                        incomes = incomes,
+                        payments = payments,
+                        billOccurrences = occurrences,
+                        horizonDays = 90,
+                        paymentCategories = paymentCategories,
+                        debts = debts,
+                    ),
+                )
+            scheduledPayments
+                .filter { it.type == "bill" }
+                .minWithOrNull(compareBy<com.montecarlo.ledger.processing.ForecastEvent> { it.date }.thenBy { it.description })
+                ?.let { "${it.description} • ${centsToDisplay(it.amount_cents)} (${it.date.formatDateDisplay()})" }
+                ?: "No upcoming payments"
+        }
 
         return WidgetData(
             safeToSpendCents = forecast.safeToSpendCents,
@@ -212,7 +234,7 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
             Spacer(modifier = GlanceModifier.height(12.dp))
 
             Text(
-                text = "Next Bill",
+                text = "Next payment",
                 style = TextStyle(
                     color = ColorProvider(Color(0xFF64748B)),
                     fontSize = 10.sp,
