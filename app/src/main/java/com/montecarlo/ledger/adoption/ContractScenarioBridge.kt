@@ -181,14 +181,21 @@ object ContractScenarioBridge {
                 ?.takeIf { it.amount_cents > 0L } ?: return@forEach
             val original = LedgerDate.parseIsoOrNull(occurrence.original_due_date ?: occurrence.due_date)
                 ?: return@forEach
-            if (original.isBefore(inputs.asOf) || !original.isBefore(endExclusive)) return@forEach
+            val originalMonth = YearMonth.from(original)
+            val currentMonth = YearMonth.from(inputs.asOf)
+            // An occurrence from earlier this month can still represent the current debt
+            // obligation (for example, a paid bill due on the 10th when today is the 20th).
+            // Older months must not suppress a new minimum in the current month.
+            val originalIsInForecast = originalMonth >= currentMonth && original.isBefore(endExclusive)
             val months = monthsByPayment.getOrPut(payment.id) { mutableSetOf() }
-            if (occurrence.is_paid != 0) months.add(YearMonth.from(original))
+            if (occurrence.is_paid != 0 && originalIsInForecast) months.add(originalMonth)
             if (occurrence.is_paid == 0 && occurrence.is_user_modified != 0) {
                 val moved = LedgerDate.parseIsoOrNull(occurrence.due_date) ?: return@forEach
-                if (!moved.isBefore(inputs.asOf) && moved.isBefore(endExclusive) && occurrence.amount_cents > 0L) {
-                    months.add(YearMonth.from(original))
-                    months.add(YearMonth.from(moved))
+                if (occurrence.amount_cents > 0L) {
+                    if (originalIsInForecast) months.add(originalMonth)
+                    if (!moved.isBefore(inputs.asOf) && moved.isBefore(endExclusive)) {
+                        months.add(YearMonth.from(moved))
+                    }
                 }
             }
         }
@@ -218,7 +225,10 @@ object ContractScenarioBridge {
                 val due = month.atDay(minOf(liability.dueDayOfMonth, month.lengthOfMonth()))
                 if (!due.isBefore(endExclusive)) break
                 month = month.plusMonths(1)
-                if (due.isBefore(inputs.asOf)) continue
+                // A current-month minimum whose due day has passed is still an outstanding
+                // obligation unless its linked bill occurrence records it as paid or moved.
+                // Project it at the as-of date so it reduces available cash immediately.
+                val eventDate = maxOf(due, inputs.asOf)
 
                 if (!first) {
                     val interest = ContractMoney.toLong(
@@ -237,7 +247,7 @@ object ContractScenarioBridge {
                         ContractEvent(
                             id = "debt-${liability.id}-$due",
                             name = liability.name,
-                            date = due,
+                            date = eventDate,
                             amountCents = -minimum,
                             type = "expense",
                             sequence = DEBT_MINIMUM_SEQUENCE,

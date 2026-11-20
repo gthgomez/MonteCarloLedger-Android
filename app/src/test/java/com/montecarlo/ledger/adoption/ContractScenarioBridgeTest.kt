@@ -215,6 +215,94 @@ class ContractScenarioBridgeTest {
         )
     }
 
+    @Test
+    fun overdueDebtMinimumIsProjectedNowUnlessItsLinkedBillWasPaid() {
+        val today = LocalDate.of(2026, 1, 20)
+        val bill = payment(id = 7, amountCents = 30_000L, dayOfMonth = 10, nextDate = "2026-02-10")
+        val debt = DebtEntity(
+            id = 1,
+            name = "Rent card",
+            balanceCents = 50_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 10,
+            linkedPaymentId = bill.id,
+        )
+        val overdue = build(
+            payments = listOf(bill),
+            debts = listOf(debt),
+            horizonDays = 40,
+            startDate = today,
+        )
+
+        assertEquals(
+            listOf(today to -30_000L, LocalDate.of(2026, 2, 10) to -30_000L),
+            ContractEngine.inWindowBaseEvents(overdue).map { it.date to it.amountCents },
+        )
+
+        val paidThisMonth = build(
+            payments = listOf(bill),
+            occurrences = listOf(
+                BillOccurrenceEntity(
+                    payment_id = bill.id,
+                    due_date = "2026-01-10",
+                    original_due_date = "2026-01-10",
+                    amount_cents = bill.amount_cents,
+                    is_paid = 1,
+                ),
+            ),
+            debts = listOf(debt),
+            horizonDays = 40,
+            startDate = today,
+        )
+        assertEquals(
+            listOf(LocalDate.of(2026, 2, 10) to -30_000L),
+            ContractEngine.inWindowBaseEvents(paidThisMonth).map { it.date to it.amountCents },
+        )
+    }
+
+    @Test
+    fun movedLinkedBillFromEarlierThisMonthReplacesTheOverdueDebtMinimum() {
+        val today = LocalDate.of(2026, 1, 20)
+        val bill = payment(
+            id = 7,
+            amountCents = 30_000L,
+            dayOfMonth = 10,
+            nextDate = "2026-02-10",
+        )
+        val occurrence = BillOccurrenceEntity(
+            payment_id = bill.id,
+            due_date = "2026-01-25",
+            original_due_date = "2026-01-10",
+            amount_cents = bill.amount_cents,
+            is_user_modified = 1,
+        )
+        val debt = DebtEntity(
+            id = 1,
+            name = "Rent card",
+            balanceCents = 50_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 10,
+            linkedPaymentId = bill.id,
+        )
+        val scenario = build(
+            payments = listOf(bill),
+            occurrences = listOf(occurrence),
+            debts = listOf(debt),
+            horizonDays = 40,
+            startDate = today,
+        )
+
+        assertEquals(
+            listOf(
+                LocalDate.of(2026, 1, 25) to -30_000L,
+                LocalDate.of(2026, 2, 10) to -30_000L,
+            ),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
+    }
+
     /** MCD-0027: every product builder stamps the same (latest released) contract version. */
     @Test
     fun builtScenarioDeclaresTheLatestReleasedContractVersion() {
