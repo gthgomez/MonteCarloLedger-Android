@@ -12,6 +12,7 @@ import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -310,6 +311,25 @@ class BackupRoundTripTest {
         invalidSummaries.forEach { invalid ->
             val json = JsonObject(exported + ("summary" to invalid)).toString()
             assertThrows(IllegalArgumentException::class.java) { parseLedgerBackupJson(json) }
+        }
+    }
+
+    @Test
+    fun currentBackupRejectsMissingOrMalformedAccountAndAssetBalances() {
+        val exported = parseBackupJsonToElement(sampleJson())
+        for (section in listOf("accounts", "assets")) {
+            val records = exported.getValue(section) as JsonArray
+            val original = records.first() as JsonObject
+            val invalidRecords = listOf(
+                JsonObject(original - "balanceCents"),
+                JsonObject(original + ("balanceCents" to JsonPrimitive("unknown"))),
+            )
+            for (invalidRecord in invalidRecords) {
+                val broken = JsonObject(exported + (section to JsonArray(listOf(invalidRecord)))).toString()
+                assertThrows("Malformed $section balance", IllegalArgumentException::class.java) {
+                    parseLedgerBackupJson(broken)
+                }
+            }
         }
     }
 

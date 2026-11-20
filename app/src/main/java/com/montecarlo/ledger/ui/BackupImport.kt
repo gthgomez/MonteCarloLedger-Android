@@ -142,20 +142,20 @@ private fun JsonObject.toRuleEntity(): TransactionRuleEntity =
 
 private fun JsonObject.toAccountEntity(): AccountEntity =
     AccountEntity(
-        id = longOrFallback("id", 0L),
+        id = longOrThrow("id"),
         name = str("name"),
         type = optStr("type").ifBlank { "checking" },
-        balanceCents = longOrFallback("balanceCents", 0L),
+        balanceCents = longOrThrow("balanceCents"),
         isReconciled = optBool("isReconciled", false),
         isDefault = optBool("isDefault", false),
         lastUpdated = optStr("lastUpdated"),
     )
 private fun JsonObject.toAssetEntity(): AssetEntity =
     AssetEntity(
-        id = longOrFallback("id", 0L),
+        id = longOrThrow("id"),
         name = str("name"),
         type = optStr("type").ifBlank { "Other" },
-        balanceCents = longOrFallback("balanceCents", 0L),
+        balanceCents = longOrThrow("balanceCents"),
         lastUpdated = optStr("lastUpdated"),
     )
 
