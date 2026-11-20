@@ -324,6 +324,31 @@ class ContractScenarioBridgeTest {
         )
     }
 
+    @Test
+    fun revolvingMinimumsAccrueMonthlyInterestBeforeLaterDueDates() {
+        val debt = DebtEntity(
+            id = 1,
+            name = "Card",
+            balanceCents = 100_000L,
+            aprBasisPoints = 12_000,
+            minimumPaymentCents = 0L,
+            dueDayOfMonth = 10,
+            kind = DebtKind.REVOLVING,
+            minPaymentPercentBps = 1_000,
+        )
+
+        val scenario = build(debts = listOf(debt), horizonDays = 90)
+
+        assertEquals(
+            listOf(
+                LocalDate.of(2026, 1, 10) to -10_000L,
+                LocalDate.of(2026, 2, 10) to -9_900L,
+                LocalDate.of(2026, 3, 10) to -9_801L,
+            ),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
+    }
+
     /** MCD-0027: every product builder stamps the same (latest released) contract version. */
     @Test
     fun builtScenarioDeclaresTheLatestReleasedContractVersion() {
