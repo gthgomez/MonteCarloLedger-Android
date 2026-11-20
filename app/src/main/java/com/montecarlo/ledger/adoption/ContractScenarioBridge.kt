@@ -169,7 +169,7 @@ object ContractScenarioBridge {
                 endExclusive = endExclusive,
                 suppressed = suppressed,
                 category = inputs.paymentCategories[payment.id],
-            }
+            )
             if (recurrence != null) {
                 ContractEngine.generateOccurrences(recurrence.recurrence, endExclusive)
                     .filter { !it.isBefore(inputs.asOf) }
