@@ -281,27 +281,21 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     fun approveTransactionReview(transactionId: Int) {
-        viewModelScope.launch {
-            repo.approveTransactionReview(transactionId)
-        }
+        launchPersistence { repo.approveTransactionReview(transactionId) }
     }
 
     fun setTransactionPending(transactionId: Int, pending: Boolean) {
-        viewModelScope.launch {
-            repo.setTransactionClearingStatus(transactionId, pending)
-        }
+        launchPersistence { repo.setTransactionClearingStatus(transactionId, pending) }
     }
 
     fun createRuleFromTransactionReview(transactionId: Int, category: String) {
         val trimmedCategory = category.trim()
-        val transaction = allTransactions.value.firstOrNull { it.id == transactionId } ?: return
         if (trimmedCategory.isBlank()) {
             approveTransactionReview(transactionId)
             return
         }
-        viewModelScope.launch {
-            repo.saveTransactionRule(transaction.description, trimmedCategory)
-            repo.updateTransaction(transaction.copy(category = trimmedCategory))
+        launchPersistence {
+            repo.createRuleFromTransactionReview(transactionId, trimmedCategory)
         }
     }
 

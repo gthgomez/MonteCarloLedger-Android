@@ -187,6 +187,23 @@ class LedgerRepository(private val db: AppDatabase) {
             val normalized = applyTransactionRules(entity)
                 .withReviewState(source = SOURCE_MANUAL)
                 .copy(review_status = REVIEW_APPROVED, reviewed_at = LocalDateTime.now().toString())
+            val occurrence = db.billOccurrenceDao().getById(linkedOccurrenceId)
+                ?: throw IllegalArgumentException("Occurrence not found.")
+            DomainRules.validateOccurrenceLink(occurrence, normalized)
+
+            val existingTransactionId = occurrence.transaction_id
+            if (existingTransactionId != null) {
+                val existing = db.transactionDao().getById(existingTransactionId)
+                DomainRules.validateOccurrenceLink(occurrence, existing)
+                if (occurrence.is_paid == 0) {
+                    db.billOccurrenceDao().markPaid(linkedOccurrenceId, existingTransactionId)
+                }
+                return@withTransaction existingTransactionId.toLong()
+            }
+            if (occurrence.is_paid != 0) {
+                throw IllegalArgumentException("This bill occurrence has already been paid.")
+            }
+
             val transactionId = db.transactionDao().insert(normalized)
             markOccurrencePaid(linkedOccurrenceId, transactionId.toInt())
             applyTransactionToBankBalanceIfReconciled(normalized.amount_cents)
@@ -243,12 +260,10 @@ class LedgerRepository(private val db: AppDatabase) {
         }
     }
     suspend fun approveTransactionReview(transactionId: Int) {
-        val transaction = db.transactionDao().getById(transactionId) ?: return
-        db.transactionDao().update(
-            transaction.copy(
-                review_status = REVIEW_APPROVED,
-                reviewed_at = LocalDateTime.now().toString(),
-            )
+        db.transactionDao().updateReviewState(
+            transactionId,
+            REVIEW_APPROVED,
+            LocalDateTime.now().toString(),
         )
     }
 
@@ -258,11 +273,32 @@ class LedgerRepository(private val db: AppDatabase) {
      * toward balances, so posting never re-applies an amount.
      */
     suspend fun setTransactionClearingStatus(transactionId: Int, pending: Boolean) {
-        val transaction = db.transactionDao().getById(transactionId) ?: return
         val status = if (pending) ClearingStatus.PENDING else ClearingStatus.POSTED
-        db.transactionDao().update(
-            transaction.copy(clearing_status = ClearingStatus.normalize(status))
+        db.transactionDao().updateClearingStatus(
+            transactionId,
+            ClearingStatus.normalize(status),
         )
+    }
+
+    suspend fun createRuleFromTransactionReview(transactionId: Int, category: String) {
+        val trimmedCategory = category.trim()
+        if (trimmedCategory.isBlank()) {
+            approveTransactionReview(transactionId)
+            return
+        }
+
+        db.withTransaction {
+            val existing = db.transactionDao().getById(transactionId)
+                ?: throw IllegalArgumentException("This transaction no longer exists.")
+            val categorized = applyTransactionRules(existing.copy(category = trimmedCategory))
+            saveTransactionRule(existing.description, trimmedCategory)
+            db.transactionDao().updateCategoryAndReviewState(
+                id = transactionId,
+                category = categorized.category,
+                reviewStatus = REVIEW_APPROVED,
+                reviewedAt = existing.reviewed_at ?: LocalDateTime.now().toString(),
+            )
+        }
     }
     suspend fun deleteTransaction(entity: TransactionEntity) {
         db.withTransaction {
@@ -903,7 +939,7 @@ class LedgerRepository(private val db: AppDatabase) {
 
         db.withTransaction {
             targetTxns.forEach { txn ->
-                db.transactionDao().update(txn.copy(category = rule.category))
+                db.transactionDao().updateCategoryIfUncategorized(txn.id, rule.category)
             }
         }
     }
