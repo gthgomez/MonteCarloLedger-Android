@@ -32,6 +32,32 @@ interface TransactionDao {
     suspend fun getById(id: Int): TransactionEntity?
 
     @Query(
+        "UPDATE transactions SET review_status = :reviewStatus, reviewed_at = :reviewedAt " +
+            "WHERE id = :id"
+    )
+    suspend fun updateReviewState(id: Int, reviewStatus: String, reviewedAt: String): Int
+
+    @Query(
+        "UPDATE transactions SET category = :category, review_status = :reviewStatus, " +
+            "reviewed_at = :reviewedAt WHERE id = :id"
+    )
+    suspend fun updateCategoryAndReviewState(
+        id: Int,
+        category: String,
+        reviewStatus: String,
+        reviewedAt: String,
+    ): Int
+
+    @Query("UPDATE transactions SET clearing_status = :clearingStatus WHERE id = :id")
+    suspend fun updateClearingStatus(id: Int, clearingStatus: String): Int
+
+    @Query(
+        "UPDATE transactions SET category = :category WHERE id = :id " +
+            "AND lower(trim(category)) IN ('', 'uncategorized')"
+    )
+    suspend fun updateCategoryIfUncategorized(id: Int, category: String): Int
+
+    @Query(
         "SELECT COUNT(*) FROM transactions " +
             "WHERE type = 'income' AND date = :date AND description = :description"
     )
