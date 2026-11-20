@@ -64,6 +64,29 @@ class DashboardDeriverTest {
     }
 
     @Test
+    fun debtMinimumsAppearInCashFlowWindowsAndScheduledPaymentTotal() = runBlocking {
+        val debt = DebtEntity(
+            name = "Synthetic loan",
+            balanceCents = 50_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 22,
+        )
+        val pack = emptyPack().copy(
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 50_000L, isReconciled = true),
+            debts = listOf(debt),
+        )
+
+        val canonical = DashboardDeriver().derive(pack, today)
+        val native = DashboardDeriver().derive(pack, today, contractForecastEnabled = false)
+
+        assertEquals(50_000L, canonical.uiState.upcomingBillBurdenCents)
+        assertEquals(50_000L, canonical.uiState.cashFlowWindows.single().billCents)
+        assertEquals(50_000L, native.uiState.cashFlowWindows.single().billCents)
+        assertTrue(canonical.uiState.upcomingBills.any { it.startsWith("Debt payment:") })
+    }
+
+    @Test
     fun derive_calibratesBasisLabelFromHistoryMonths() = runBlocking {
         val txns = mutableListOf<TransactionEntity>()
         for (month in 1..5) {

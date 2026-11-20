@@ -5,6 +5,7 @@ import com.montecarlo.ledger.data.SettingsEntity
 import com.montecarlo.ledger.data.isAppLockSettingKey
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.flow.first
 
 /**
  * Android-only ledger data not carried in the cross-platform vault envelope (2.0/2.1).
@@ -20,6 +21,7 @@ object LocalLedgerPreservation {
         if (repo.getAllCategoryBudgetsList().isNotEmpty()) return true
         if (repo.hasCustomAccounts()) return true
         if (repo.hasNonVaultLocalSettings()) return true
+        if (repo.allDebts.first().any(::debtHasUnrepresentableVaultFields)) return true
         return false
     }
 
@@ -119,8 +121,37 @@ object LocalLedgerPreservation {
                     }
             },
         )
+        root.put(
+            "unrepresentableDebts",
+            JSONArray().apply {
+                repo.allDebts.first()
+                    .filter(::debtHasUnrepresentableVaultFields)
+                    .sortedBy { it.id }
+                    .forEach { debt ->
+                        put(
+                            JSONObject()
+                                .put("id", debt.id)
+                                .put("name", debt.name)
+                                .put("balanceCents", debt.balanceCents)
+                                .put("aprBasisPoints", debt.aprBasisPoints)
+                                .put("minimumPaymentCents", debt.minimumPaymentCents)
+                                .put("dueDayOfMonth", debt.dueDayOfMonth)
+                                .put("linkedPaymentId", debt.linkedPaymentId ?: JSONObject.NULL)
+                                .put("isActive", debt.isActive)
+                                .put("kind", debt.kind)
+                                .put("statementDayOfMonth", debt.statementDayOfMonth ?: JSONObject.NULL)
+                                .put("minPaymentPercentBps", debt.minPaymentPercentBps)
+                                .put("minPaymentFloorCents", debt.minPaymentFloorCents)
+                                .put("linkedAccountId", debt.linkedAccountId ?: JSONObject.NULL),
+                        )
+                    }
+            },
+        )
         return root.toString()
     }
+
+    private fun debtHasUnrepresentableVaultFields(debt: com.montecarlo.ledger.data.DebtEntity): Boolean =
+        !debt.isActive || debt.linkedPaymentId != null || debt.linkedAccountId != null
 
     private fun settingsRowIncludedInPreservation(row: SettingsEntity): Boolean {
         if (isAppLockSettingKey(row.key)) return false

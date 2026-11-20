@@ -134,6 +134,68 @@ class ContractScenarioBridgeTest {
     }
 
     @Test
+    fun unusableLinkedBillDoesNotEraseDebtMinimum() {
+        val debt = DebtEntity(
+            id = 1,
+            name = "Card",
+            balanceCents = 50_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 10,
+            linkedPaymentId = 9,
+        )
+        val linkedBill = payment(
+            id = 9,
+            amountCents = 0L,
+            frequency = "One-time",
+            nextDate = "2026-01-10",
+        ).copy(name = "Card")
+
+        val scenario = build(payments = listOf(linkedBill), debts = listOf(debt), horizonDays = 30)
+
+        assertEquals(listOf("debt-1-2026-01-10"), ContractEngine.inWindowBaseEvents(scenario).map { it.id })
+        assertEquals(
+            listOf(30_000L),
+            ContractScenarioBridge.debtMinimumForecastEvents(
+                ContractScenarioBridge.Inputs(
+                    startingBalanceCents = 50_000L,
+                    asOf = asOf,
+                    incomes = emptyList(),
+                    payments = listOf(linkedBill),
+                    debts = listOf(debt),
+                    horizonDays = 30,
+                ),
+            ).map { it.amount_cents },
+        )
+    }
+
+    @Test
+    fun oneTimeLinkedBillOnlyReplacesThatMonthsDebtMinimum() {
+        val bill = payment(
+            id = 12,
+            amountCents = 30_000L,
+            frequency = "One-time",
+            nextDate = "2026-01-10",
+        ).copy(name = "Loan")
+        val debt = DebtEntity(
+            id = 2,
+            name = "Loan",
+            balanceCents = 100_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 10,
+            linkedPaymentId = bill.id,
+        )
+
+        val scenario = build(payments = listOf(bill), debts = listOf(debt), horizonDays = 90)
+
+        assertEquals(
+            listOf("payment-12", "debt-2-2026-02-10", "debt-2-2026-03-10"),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.id },
+        )
+    }
+
+    @Test
     fun revolvingDebtUsesTheOpeningBalanceAndAnExclusiveEndDate() {
         val debt = DebtEntity(
             id = 1,

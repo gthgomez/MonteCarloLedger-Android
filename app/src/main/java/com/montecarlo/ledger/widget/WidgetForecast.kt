@@ -94,7 +94,38 @@ internal fun deriveWidgetForecast(
     rules: List<TransactionRuleEntity>,
     debts: List<DebtEntity> = emptyList(),
 ): WidgetForecast {
-    val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules)
+    val paymentCategories = payments
+        .mapNotNull { payment ->
+            TimelineService.resolveCategory(payment.name, rules)?.let { payment.id to it }
+        }
+        .toMap()
+    val debtEventsResult = canonicalCalculation {
+        ContractScenarioBridge.debtMinimumForecastEvents(
+            ContractScenarioBridge.Inputs(
+                startingBalanceCents = forecastSeedCents,
+                asOf = today,
+                incomes = incomes,
+                payments = payments,
+                billOccurrences = occurrences,
+                horizonDays = 90,
+                paymentCategories = paymentCategories,
+                debts = debts,
+            ),
+        )
+    }
+    val debtEventFailure = debtEventsResult as? ContractCalculationResult.Failure
+    if (debtEventFailure != null) {
+        return WidgetForecast(
+            safeToSpendCents = 0L,
+            probabilityNegativePct = 0.0,
+            riskLabel = WIDGET_WITHHELD_LABEL,
+            status = CanonicalForecastStatus.Failed,
+            available = false,
+            calibrated = false,
+        )
+    }
+    val debtEvents = (debtEventsResult as? ContractCalculationResult.Success)?.value.orEmpty()
+    val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules) + debtEvents
     val calibration = MonteCarloCalibrator.calibrate(transactions = txns, today = today)
 
     if (!contractForecastEnabled) {
@@ -116,11 +147,6 @@ internal fun deriveWidgetForecast(
     val outcome: ContractCalculationResult<CanonicalAdoption> = canonicalCalculation {
         // Contract 1.2: carry each bill's resolved category so per-category variation can match,
         // exactly as DashboardDeriver.adoptContract does.
-        val paymentCategories = payments
-            .mapNotNull { payment ->
-                TimelineService.resolveCategory(payment.name, rules)?.let { payment.id to it }
-            }
-            .toMap()
         val built = ContractScenarioBridge.build(
             ContractScenarioBridge.Inputs(
                 startingBalanceCents = forecastSeedCents,

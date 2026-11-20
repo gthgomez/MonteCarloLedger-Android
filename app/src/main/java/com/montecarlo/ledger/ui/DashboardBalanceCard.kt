@@ -215,7 +215,7 @@ internal fun BalanceCard(
             }
             if (showForecastCards && uiState.upcomingBillBurdenCents > 0) {
                 Text(
-                    "Scheduled bills in forecast: ${centsToDisplay(uiState.upcomingBillBurdenCents)}",
+                    "Scheduled bills and debt payments: ${centsToDisplay(uiState.upcomingBillBurdenCents)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = GlassTokens.VioletLight
                 )
@@ -238,7 +238,7 @@ internal fun BalanceCard(
                     uiState.safeToSpendCents < 0 -> {
                         val trouble = uiState.firstNegativeDateLabel?.let { " around $it" }.orEmpty()
                         Text(
-                            "Based on upcoming bills, your balance could dip short by " +
+                            "After scheduled bills and debt payments, your balance could be short by " +
                                 "${centsToDisplay(-uiState.safeToSpendCents)}$trouble.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = GlassTokens.ErrorRed,

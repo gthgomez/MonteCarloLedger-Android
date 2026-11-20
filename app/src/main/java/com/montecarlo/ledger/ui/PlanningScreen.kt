@@ -202,7 +202,7 @@ private fun PaycheckWindowCard(windows: List<CashFlowWindow>) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Paycheck windows", style = MaterialTheme.typography.titleLarge, color = GlassTokens.TextPrimary)
             Text(
-                "Each row reserves bills before the next paycheck, then shows the safe daily amount for that stretch.",
+                "Each row sets aside bills and debt payments before the next paycheck, then shows a daily planning amount for that stretch.",
                 style = MaterialTheme.typography.bodySmall,
                 color = GlassTokens.TextSecondary,
             )
@@ -232,7 +232,7 @@ private fun PaycheckWindowRow(window: CashFlowWindow) {
                 color = GlassTokens.TextPrimary,
             )
             Text(
-                "Start ${centsToDisplay(window.startingBalanceCents)} + income ${centsToDisplay(window.incomeCents)} - bills ${centsToDisplay(window.billCents)}",
+                "Start ${centsToDisplay(window.startingBalanceCents)} + income ${centsToDisplay(window.incomeCents)} - scheduled payments ${centsToDisplay(window.billCents)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = GlassTokens.TextDim,
             )

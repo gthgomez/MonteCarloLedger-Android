@@ -6,8 +6,10 @@ import com.montecarlo.ledger.data.AccountEntity
 import com.montecarlo.ledger.data.AppDatabase
 import com.montecarlo.ledger.data.AssetEntity
 import com.montecarlo.ledger.data.CategoryBudgetEntity
+import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.GoalEntity
 import com.montecarlo.ledger.data.LedgerRepository
+import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -91,6 +93,46 @@ class LocalLedgerPreservationTest {
             db.transactionRuleDao().upsert(rules.single().copy(is_active = 0))
             val after = LocalLedgerPreservation.fingerprint(repo)
             assertNotEquals(before, after)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun linkedDebtIsProtectedAndCrossPlatformExportFailsClosed(): Unit = runBlocking {
+        val (repo, db) = openRepo()
+        try {
+            db.paymentDao().insert(
+                PaymentEntity(
+                    id = 7,
+                    name = "Card payment",
+                    amount_cents = 2_500,
+                    frequency = "Monthly",
+                    day_of_month = 10,
+                    next_date = "2026-12-10",
+                ),
+            )
+            db.debtDao().insert(
+                DebtEntity(
+                    id = 11,
+                    name = "Card",
+                    balanceCents = 50_000,
+                    aprBasisPoints = 1_900,
+                    minimumPaymentCents = 2_500,
+                    dueDayOfMonth = 10,
+                    linkedPaymentId = 7,
+                ),
+            )
+
+            assertTrue(LocalLedgerPreservation.hasPreservationRisk(repo))
+            val before = LocalLedgerPreservation.fingerprint(repo)
+            val snapshot = JSONObject(LocalLedgerPreservation.preservationSnapshotJson(repo))
+            assertEquals(7, snapshot.getJSONArray("unrepresentableDebts").getJSONObject(0).getInt("linkedPaymentId"))
+            db.debtDao().update(db.debtDao().getAll().first().single().copy(minimumPaymentCents = 3_000))
+            assertNotEquals(before, LocalLedgerPreservation.fingerprint(repo))
+            val failure = runCatching { repo.exportCrossPlatformVaultJson("test") }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure?.message.orEmpty().contains("cannot preserve"))
         } finally {
             db.close()
         }

@@ -14,6 +14,7 @@ import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import com.montecarlo.ledger.processing.RecurrenceMath
+import com.montecarlo.ledger.processing.ForecastEvent
 import com.montecarlo.ledger.sync.CanonicalVaultMapper
 import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
@@ -75,6 +76,7 @@ object ContractScenarioBridge {
         val activePayments = inputs.payments.filter { it.is_active != 0 }
         val paymentById = activePayments.associateBy { it.id }
         val suppressed = suppressedDates(inputs.billOccurrences)
+        val representedPayments = representedPaymentMonths(inputs, activePayments, endExclusive, suppressed)
 
         val explicit = ArrayList<ContractEvent>()
         var inputIndex = 0
@@ -101,7 +103,7 @@ object ContractScenarioBridge {
                 )
             )
         }
-        appendDebtMinimums(inputs, paymentById.keys, endExclusive, explicit)
+        explicit.addAll(debtMinimumEvents(inputs, representedPayments, endExclusive))
 
         val recurrences = ArrayList<ContractRecurrence>()
         val exclusions = ArrayList<ContractRecurrenceExclusion>()
@@ -130,19 +132,84 @@ object ContractScenarioBridge {
     }
 
     /**
-     * Turns active unlinked debt minimums into cash events. A linked active bill owns its
-     * schedule and paid/moved status. The opening debt balance estimates the first minimum.
+     * Debt cash events in the same form used by the contract scenario, for native dashboard
+     * summaries and widgets. This keeps the no-contract path from silently dropping obligations.
+     */
+    fun debtMinimumForecastEvents(inputs: Inputs): List<ForecastEvent> {
+        val endExclusive = inputs.asOf.plusDays(inputs.horizonDays.toLong())
+        val activePayments = inputs.payments.filter { it.is_active != 0 }
+        val representedPayments = representedPaymentMonths(
+            inputs,
+            activePayments,
+            endExclusive,
+            suppressedDates(inputs.billOccurrences),
+        )
+        return debtMinimumEvents(inputs, representedPayments, endExclusive).map { event ->
+            ForecastEvent(
+                date = event.date,
+                description = "Debt payment: ${event.name}",
+                amount_cents = -event.amountCents,
+                type = "bill",
+                recurrenceLabel = "Debt minimum",
+            )
+        }
+    }
+
+    private fun representedPaymentMonths(
+        inputs: Inputs,
+        activePayments: List<PaymentEntity>,
+        endExclusive: LocalDate,
+        suppressed: Set<Pair<Int, String>>,
+    ): Map<Int, Set<YearMonth>> {
+        val monthsByPayment = mutableMapOf<Int, MutableSet<YearMonth>>()
+        activePayments.forEach { payment ->
+            val recurrence = buildPaymentRecurrence(
+                payment = payment,
+                asOf = inputs.asOf,
+                endExclusive = endExclusive,
+                suppressed = suppressed,
+                category = inputs.paymentCategories[payment.id],
+            }
+            if (recurrence != null) {
+                ContractEngine.generateOccurrences(recurrence.recurrence, endExclusive)
+                    .filter { !it.isBefore(inputs.asOf) }
+                    .forEach { date -> monthsByPayment.getOrPut(payment.id) { mutableSetOf() }.add(YearMonth.from(date)) }
+            }
+        }
+        inputs.billOccurrences.forEach { occurrence ->
+            val payment = activePayments.firstOrNull { it.id == occurrence.payment_id }
+                ?.takeIf { it.amount_cents > 0L } ?: return@forEach
+            val original = LedgerDate.parseIsoOrNull(occurrence.original_due_date ?: occurrence.due_date)
+                ?: return@forEach
+            if (original.isBefore(inputs.asOf) || !original.isBefore(endExclusive)) return@forEach
+            val months = monthsByPayment.getOrPut(payment.id) { mutableSetOf() }
+            if (occurrence.is_paid != 0) months.add(YearMonth.from(original))
+            if (occurrence.is_paid == 0 && occurrence.is_user_modified != 0) {
+                val moved = LedgerDate.parseIsoOrNull(occurrence.due_date) ?: return@forEach
+                if (!moved.isBefore(inputs.asOf) && moved.isBefore(endExclusive) && occurrence.amount_cents > 0L) {
+                    months.add(YearMonth.from(original))
+                    months.add(YearMonth.from(moved))
+                }
+            }
+        }
+        return monthsByPayment.mapValues { (_, months) -> months.toSet() }
+    }
+
+    /**
+     * Turns debt minimums not already represented by a linked bill in that month into cash events.
+     * The opening debt balance estimates the first minimum.
      * Later months accrue interest on the remaining balance before computing their minimum.
      */
-    private fun appendDebtMinimums(
+    private fun debtMinimumEvents(
         inputs: Inputs,
-        activePaymentIds: Set<Int>,
+        representedPaymentMonths: Map<Int, Set<YearMonth>>,
         endExclusive: LocalDate,
-        events: MutableList<ContractEvent>,
-    ) {
-        val debts = inputs.debts.filter { it.linkedPaymentId !in activePaymentIds }
+    ): List<ContractEvent> {
+        val debts = inputs.debts
         val liabilities = CanonicalVaultMapper.liabilitiesFromDebts(debts).sortedBy { it.id }
+        val linkedPaymentByDebtId = debts.associate { it.id.toString() to it.linkedPaymentId }
         ContractDebt.validateLiabilities(liabilities)
+        val events = ArrayList<ContractEvent>()
         for (liability in liabilities) {
             var month = YearMonth.from(inputs.asOf)
             var first = true
@@ -162,7 +229,10 @@ object ContractScenarioBridge {
                 first = false
                 val minimum = ContractDebt.minimumPaymentCents(liability, balance)
                 balance -= minimum
-                if (minimum > 0L) {
+                val linkedBillCoversMonth = linkedPaymentByDebtId[liability.id]
+                    ?.let { paymentId -> YearMonth.from(due) in representedPaymentMonths[paymentId].orEmpty() }
+                    ?: false
+                if (minimum > 0L && !linkedBillCoversMonth) {
                     events.add(
                         ContractEvent(
                             id = "debt-${liability.id}-$due",
@@ -177,6 +247,7 @@ object ContractScenarioBridge {
                 }
             }
         }
+        return events
     }
 
     /**
