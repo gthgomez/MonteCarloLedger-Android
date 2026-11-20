@@ -275,12 +275,6 @@ internal fun JsonObject.nullableString(name: String): String? =
         else -> throw IllegalArgumentException("Invalid string field: $name")
     }
 
-internal fun JsonObject.array(name: String): List<JsonObject> =
-    ((this[name] as? JsonArray) ?: JsonArray(emptyList())).map { element ->
-        element as? JsonObject
-            ?: throw IllegalArgumentException("Expected a JSON object in array '$name'.")
-    }
-
 private fun JsonObjectBuilder.putNullableInt(name: String, value: Int?) =
     put(name, value?.let { JsonPrimitive(it) } ?: JsonNull)
 

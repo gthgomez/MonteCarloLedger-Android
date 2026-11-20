@@ -111,6 +111,23 @@ class BackupRestoreIntegrationTest {
     }
 
     @Test
+    fun incompleteBackupPreservesTheExistingLedger() = runBlocking {
+        populateLedger()
+        val balance = repo.getBankBalanceCents()
+        val transactions = repo.allTransactions.first()
+        val debts = repo.allDebts.first()
+
+        val failure = runCatching {
+            repo.restoreBackup(parseLedgerBackupJson("""{"schemaVersion":6}"""))
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals(balance, repo.getBankBalanceCents())
+        assertEquals(transactions, repo.allTransactions.first())
+        assertEquals(debts, repo.allDebts.first())
+    }
+
+    @Test
     fun exportThenRestoreIntoDirtyDatabaseReproducesTheLedger() = runBlocking {
         populateLedger()
 
