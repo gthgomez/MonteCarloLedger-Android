@@ -44,6 +44,8 @@ data class CanonicalIdMapping(
     }.toString()
 
     companion object {
+        internal const val SETTINGS_KEY = "canonical_id_mapping_v1"
+
         fun fromJson(value: String?): CanonicalIdMapping {
             if (value.isNullOrBlank()) return CanonicalIdMapping()
             val root = JSONObject(value)

@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.LocalDateTime
+import com.montecarlo.ledger.contract.ContractMoney
 import com.montecarlo.ledger.domain.Categories
 import com.montecarlo.ledger.domain.DomainRules
 import com.montecarlo.ledger.processing.CategoryRuleEngine
@@ -65,7 +66,6 @@ class LedgerRepository(private val db: AppDatabase) {
         const val KEY_ONBOARDING_DISMISSED = "onboarding_dismissed"
         const val KEY_ONBOARDING_MONITORING_INTRO_SEEN = "onboarding_monitoring_intro_seen"
         const val KEY_CONTRACT_FORECAST_ENABLED = "contract_forecast_enabled"
-        const val KEY_CANONICAL_ID_MAPPING = "canonical_id_mapping_v1"
     }
 
     // Income
@@ -1144,7 +1144,8 @@ class LedgerRepository(private val db: AppDatabase) {
     /** Settings beyond vault cross-platform restore and app-lock material. */
     suspend fun hasNonVaultLocalSettings(): Boolean {
         return getAllSettingsList().any { row ->
-            !isAppLockSettingKey(row.key) && row.key != KEY_CURRENT_BALANCE
+            !isAppLockSettingKey(row.key) &&
+                row.key != KEY_CURRENT_BALANCE && row.key != CanonicalIdMapping.SETTINGS_KEY
         }
     }
 
@@ -1170,7 +1171,7 @@ class LedgerRepository(private val db: AppDatabase) {
             occurrences = db.billOccurrenceDao().getAllOccurrencesList(),
             debts = debts,
             updatedAtIso = updatedAtIso,
-            canonicalIds = CanonicalIdMapping.fromJson(db.settingsDao().getValue(KEY_CANONICAL_ID_MAPPING)),
+            canonicalIds = CanonicalIdMapping.fromJson(db.settingsDao().getValue(CanonicalIdMapping.SETTINGS_KEY)),
         )
         Json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), snapshot)
     }
@@ -1197,20 +1198,25 @@ class LedgerRepository(private val db: AppDatabase) {
         val root = JSONObject(jsonText)
         val version = root.getString("version")
         require(version == "2.0" || version == "2.1" || version == "2.2") { "Unsupported snapshot version: $version" }
-        val declaredBalance = root.getLong("current_balance_cents")
+        validateVaultFields(root)
+        val declaredBalance = root.vaultCents("current_balance_cents")
         val canonicalIds = buildCanonicalIdMapping(root)
         val payments = root.getJSONArray("payments").toVaultPayments(canonicalIds)
         val paymentsById = payments.associateBy { it.id }
         require(paymentsById.size == payments.size) { "Snapshot payments has duplicate identifiers" }
         val paymentAmounts = paymentsById.mapValues { (_, payment) -> payment.amount_cents }
         val transactions = root.getJSONArray("transactions").toVaultTransactions(canonicalIds)
-        val sum = transactions.sumOf { it.amount_cents }
+        val sum = ContractMoney.toLong(transactions.fold(java.math.BigInteger.ZERO) { total, tx ->
+            total + java.math.BigInteger.valueOf(tx.amount_cents)
+        })
         require(sum == declaredBalance) {
             "Snapshot inconsistent: transactions sum to $sum but declared balance is $declaredBalance"
         }
         transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
         val incomes = root.getJSONArray("incomes").toVaultIncomes(canonicalIds)
-        val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(paymentAmounts, canonicalIds)
+        val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(
+            paymentAmounts, transactions.associateBy { it.id }, canonicalIds,
+        )
         val liabilities = if (root.has("liabilities")) root.getJSONArray("liabilities") else JSONArray()
         val linkedPaymentIds = HashSet<Int>()
         for (index in 0 until liabilities.length()) {
@@ -1281,9 +1287,9 @@ class LedgerRepository(private val db: AppDatabase) {
                     DebtEntity(
                         id = requireNotNull(canonicalIds.local("debts", item.getString("id"))).toLong(),
                         name = item.getString("name"),
-                        balanceCents = item.getLong("balance_cents"),
+                        balanceCents = item.vaultCents("balance_cents"),
                         aprBasisPoints = item.getInt("apr_basis_points"),
-                        minimumPaymentCents = item.getLong("min_payment_cents"),
+                        minimumPaymentCents = item.vaultCents("min_payment_cents"),
                         dueDayOfMonth = item.optInt("due_day_of_month", 1),
                         linkedPaymentId = if (version == "2.2" && item.has("linked_payment_id") && !item.isNull("linked_payment_id")) {
                             canonicalIds.local("payments", item.getString("linked_payment_id"))
@@ -1293,7 +1299,7 @@ class LedgerRepository(private val db: AppDatabase) {
                         isActive = item.optBoolean("is_active", true),
                         kind = item.optString("kind", "installment"),
                         minPaymentPercentBps = item.optInt("min_payment_percent_bps", 0),
-                        minPaymentFloorCents = item.optLong("min_payment_floor_cents", 0L),
+                        minPaymentFloorCents = if (item.has("min_payment_floor_cents")) item.vaultCents("min_payment_floor_cents") else 0L,
                     ),
                 )
 
@@ -1302,7 +1308,7 @@ class LedgerRepository(private val db: AppDatabase) {
             db.settingsDao().deleteAllSettings()
             lockSettings.forEach { db.settingsDao().setValue(it) }
             db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, declaredBalance.toString()))
-            db.settingsDao().setValue(SettingsEntity(KEY_CANONICAL_ID_MAPPING, canonicalIds.toJson()))
+            db.settingsDao().setValue(SettingsEntity(CanonicalIdMapping.SETTINGS_KEY, canonicalIds.toJson()))
             ensureDefaultAccountSeeded()
             postRestorePreservationFingerprint = LocalLedgerPreservation.fingerprint(this@LedgerRepository)
             val localExportJson = exportCrossPlatformVaultJson("restore-baseline-capture")
@@ -1313,6 +1319,36 @@ class LedgerRepository(private val db: AppDatabase) {
             postRestorePreservationFingerprint = postRestorePreservationFingerprint,
             remotePayloadCoreFingerprint = remotePayloadCoreFingerprint,
         )
+    }
+
+    private fun validateVaultFields(root: JSONObject) {
+        val rowFields = mapOf(
+            "incomes" to setOf("id", "name", "amount_cents", "frequency", "last_payday", "next_payday", "expected_amount"),
+            "payments" to setOf("id", "name", "amount_cents", "recurrence", "due_day", "due_date", "is_auto_withdraw"),
+            "transactions" to setOf("id", "amount_cents", "category", "type", "date", "description"),
+            "bill_occurrences" to setOf("id", "payment_id", "due_date", "paid", "transaction_id", "original_due_date", "is_user_modified"),
+            "liabilities" to setOf(
+                "id", "name", "balance_cents", "apr_basis_points", "min_payment_cents", "kind",
+                "min_payment_percent_bps", "min_payment_floor_cents", "due_day_of_month", "is_active", "linked_payment_id",
+            ),
+        )
+        val top = rowFields.keys + setOf("version", "updated_at", "current_balance_cents")
+        require(root.keys().asSequence().all { it in top }) { "The snapshot has unsupported ledger fields" }
+        for ((name, allowed) in rowFields) {
+            if (name == "liabilities" && !root.has(name)) continue
+            val rows = root.getJSONArray(name)
+            for (index in 0 until rows.length()) {
+                require(rows.getJSONObject(index).keys().asSequence().all { it in allowed }) {
+                    "The snapshot has unsupported fields in $name[$index]"
+                }
+            }
+        }
+    }
+
+    private fun JSONObject.vaultCents(key: String): Long {
+        val value = get(key)
+        require(value is Int || value is Long) { "$key must be a whole number of cents" }
+        return ContractMoney.requireValid((value as Number).toLong(), key)
     }
 
     private fun buildCanonicalIdMapping(root: JSONObject): CanonicalIdMapping {
@@ -1339,11 +1375,11 @@ class LedgerRepository(private val db: AppDatabase) {
                 IncomeEntity(
                     id = ids.local("incomes", obj.getString("id")) ?: error("Unknown income id"),
                     name = obj.getString("name"),
-                    amount_cents = obj.getLong("amount_cents"),
+                    amount_cents = obj.vaultCents("amount_cents"),
                     frequency = obj.getString("frequency"),
                     day_of_month = null,
                     next_date = obj.getString("next_payday"),
-                    expectedAmountCents = if (obj.isNull("expected_amount")) null else obj.getLong("expected_amount"),
+                    expectedAmountCents = if (obj.isNull("expected_amount")) null else obj.vaultCents("expected_amount"),
                 ),
             )
         }
@@ -1362,7 +1398,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 PaymentEntity(
                     id = ids.local("payments", obj.getString("id")) ?: error("Unknown payment id"),
                     name = obj.getString("name"),
-                    amount_cents = obj.getLong("amount_cents"),
+                    amount_cents = obj.vaultCents("amount_cents"),
                     frequency = obj.getString("recurrence"),
                     day_of_month = if (obj.isNull("due_day")) null else obj.getInt("due_day"),
                     next_date = dueDate,
@@ -1379,7 +1415,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 TransactionEntity(
                     id = ids.local("transactions", obj.getString("id")) ?: error("Unknown transaction id"),
                     description = obj.optString("description", ""),
-                    amount_cents = obj.getLong("amount_cents"),
+                    amount_cents = obj.vaultCents("amount_cents"),
                     date = obj.getString("date"),
                     type = obj.getString("type").lowercase(),
                     category = obj.optString("category", "uncategorized"),
@@ -1390,6 +1426,7 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun JSONArray.toVaultOccurrences(
         paymentAmounts: Map<Int, Long>,
+        transactions: Map<Int, TransactionEntity>,
         ids: CanonicalIdMapping,
     ): List<BillOccurrenceEntity> = buildList {
         val occupiedSlots = HashSet<Pair<Int, String>>()
@@ -1406,20 +1443,37 @@ class LedgerRepository(private val db: AppDatabase) {
                 ids.local("transactions", obj.getString("transaction_id"))
                     ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown transaction_id")
             }
-            if (transactionId != null) require(linkedTransactions.add(transactionId)) {
-                "bill_occurrences reuses transaction_id ${obj.getString("transaction_id")}"
+            val paid = obj.get("paid")
+            require(paid is Boolean) { "bill_occurrences[$index].paid must be a boolean" }
+            val modified = obj.opt("is_user_modified")
+            require(modified == null || modified is Boolean) {
+                "bill_occurrences[$index].is_user_modified must be a boolean"
+            }
+            val amount = paymentAmounts[paymentId]
+                ?: throw IllegalArgumentException("bill_occurrences[$index] references an unknown payment")
+            if (transactionId != null) {
+                require(linkedTransactions.add(transactionId)) {
+                    "bill_occurrences[$index] reuses a settling transaction"
+                }
+                val posted = transactions.getValue(transactionId)
+                require(paid && posted.type == "expense" && posted.amount_cents == -amount) {
+                    "bill_occurrences[$index] has an invalid settling transaction"
+                }
+            } else {
+                require(!paid || modified != true) {
+                    "bill_occurrences[$index] is moved and paid without a settling transaction"
+                }
             }
             add(
                 BillOccurrenceEntity(
                     id = ids.local("occurrences", obj.getString("id")) ?: error("Unknown occurrence id"),
                     payment_id = paymentId,
                     due_date = obj.getString("due_date"),
-                    amount_cents = paymentAmounts[paymentId]
-                        ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown payment_id $paymentId"),
-                    is_paid = if (obj.getBoolean("paid")) 1 else 0,
+                    amount_cents = amount,
+                    is_paid = if (paid) 1 else 0,
                     transaction_id = transactionId,
                     original_due_date = originalDueDate,
-                    is_user_modified = if (obj.optBoolean("is_user_modified", false)) 1 else 0,
+                    is_user_modified = if (modified == true || (modified == null && originalDueDate != obj.getString("due_date"))) 1 else 0,
                 ),
             )
         }

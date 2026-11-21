@@ -8,11 +8,13 @@ import org.json.JSONObject
 import kotlinx.coroutines.flow.first
 
 /**
- * Android-only ledger data not carried in the cross-platform vault envelope (2.0/2.1).
+ * Android-only ledger data not carried in the cross-platform vault envelope (2.0–2.2).
  * Preservation checks are intentionally separate from [VaultSnapshotFingerprint].
  */
 object LocalLedgerPreservation {
-    private val VAULT_RESTORED_SETTING_KEYS = setOf("current_balance", "canonical_id_mapping_v1")
+    private val VAULT_RESTORED_SETTING_KEYS = setOf(
+        "current_balance", CanonicalIdMapping.SETTINGS_KEY,
+    )
 
     suspend fun hasPreservationRisk(repo: LedgerRepository): Boolean {
         if (repo.getAllGoalsList().isNotEmpty()) return true
@@ -21,6 +23,7 @@ object LocalLedgerPreservation {
         if (repo.getAllCategoryBudgetsList().isNotEmpty()) return true
         if (repo.hasCustomAccounts()) return true
         if (repo.hasNonVaultLocalSettings()) return true
+        if (repo.allPayments.first().any { it.is_active == 0 }) return true
         if (repo.allDebts.first().any(::debtHasUnrepresentableVaultFields)) return true
         return false
     }
@@ -122,6 +125,23 @@ object LocalLedgerPreservation {
             },
         )
         root.put(
+            "inactivePayments",
+            JSONArray().apply {
+                repo.allPayments.first().filter { it.is_active == 0 }.sortedBy { it.id }.forEach { payment ->
+                    put(
+                        JSONObject()
+                            .put("id", payment.id)
+                            .put("name", payment.name)
+                            .put("amountCents", payment.amount_cents)
+                            .put("frequency", payment.frequency)
+                            .put("nextDate", payment.next_date)
+                            .put("dueDay", payment.day_of_month ?: JSONObject.NULL)
+                            .put("autoWithdraw", payment.isAutoWithdraw),
+                    )
+                }
+            },
+        )
+        root.put(
             "unrepresentableDebts",
             JSONArray().apply {
                 repo.allDebts.first()
@@ -151,7 +171,7 @@ object LocalLedgerPreservation {
     }
 
     private fun debtHasUnrepresentableVaultFields(debt: com.montecarlo.ledger.data.DebtEntity): Boolean =
-        !debt.isActive || debt.linkedPaymentId != null || debt.linkedAccountId != null
+        debt.linkedAccountId != null || debt.statementDayOfMonth != null
 
     private fun settingsRowIncludedInPreservation(row: SettingsEntity): Boolean {
         if (isAppLockSettingKey(row.key)) return false

@@ -100,7 +100,7 @@ class LocalLedgerPreservationTest {
     }
 
     @Test
-    fun linkedDebtIsProtectedAndCrossPlatformExportFailsClosed(): Unit = runBlocking {
+    fun vaultCarriesPaymentLinksAndProtectsUnsupportedDebtFields(): Unit = runBlocking {
         val (repo, db) = openRepo()
         try {
             db.paymentDao().insert(
@@ -125,15 +125,21 @@ class LocalLedgerPreservationTest {
                 ),
             )
 
+            assertEquals(false, LocalLedgerPreservation.hasPreservationRisk(repo))
+            val exported = JSONObject(repo.exportCrossPlatformVaultJson("test"))
+            assertEquals("2.2", exported.getString("version"))
+            assertEquals(7, exported.getJSONArray("liabilities").getJSONObject(0).getInt("linked_payment_id"))
+
+            val debt = db.debtDao().getAll().first().single()
+            db.debtDao().update(debt.copy(statementDayOfMonth = 20))
             assertTrue(LocalLedgerPreservation.hasPreservationRisk(repo))
             val before = LocalLedgerPreservation.fingerprint(repo)
-            val snapshot = JSONObject(LocalLedgerPreservation.preservationSnapshotJson(repo))
-            assertEquals(7, snapshot.getJSONArray("unrepresentableDebts").getJSONObject(0).getInt("linkedPaymentId"))
-            db.debtDao().update(db.debtDao().getAll().first().single().copy(minimumPaymentCents = 3_000))
+            val preservation = JSONObject(LocalLedgerPreservation.preservationSnapshotJson(repo))
+            assertEquals(20, preservation.getJSONArray("unrepresentableDebts").getJSONObject(0).getInt("statementDayOfMonth"))
+            db.debtDao().update(debt.copy(statementDayOfMonth = 21))
             assertNotEquals(before, LocalLedgerPreservation.fingerprint(repo))
             val failure = runCatching { repo.exportCrossPlatformVaultJson("test") }.exceptionOrNull()
             assertTrue(failure is IllegalArgumentException)
-            assertTrue(failure?.message.orEmpty().contains("cannot preserve"))
         } finally {
             db.close()
         }

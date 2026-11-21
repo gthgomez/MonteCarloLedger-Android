@@ -175,6 +175,32 @@ class AccountPreservationVaultTest {
         }
         assertEquals(exported, repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z"))
 
+        val fractional = JSONObject(exported).put("current_balance_cents", 120_000.5)
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repo.restoreCrossPlatformVaultJson(fractional.toString()) }
+        }
+        val unsupported = JSONObject(exported).put("accounts", org.json.JSONArray())
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repo.restoreCrossPlatformVaultJson(unsupported.toString()) }
+        }
+        assertEquals(exported, repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z"))
+
+        val invalidSettlement = JSONObject(exported).put(
+            "bill_occurrences",
+            org.json.JSONArray().put(
+                JSONObject()
+                    .put("id", "invalid-occurrence")
+                    .put("payment_id", "payment-car")
+                    .put("due_date", "2028-02-15")
+                    .put("paid", false)
+                    .put("transaction_id", "opening"),
+            ),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repo.restoreCrossPlatformVaultJson(invalidSettlement.toString()) }
+        }
+        assertEquals(exported, repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z"))
+
         linkedDebt.remove("linked_payment_id")
         repo.restoreCrossPlatformVaultJson(snapshot.toString())
         val unlinked = ContractRunner.run(ContractScenarioBridge.build(inputs.copy(
