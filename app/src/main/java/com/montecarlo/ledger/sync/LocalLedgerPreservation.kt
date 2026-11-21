@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.first
  * Preservation checks are intentionally separate from [VaultSnapshotFingerprint].
  */
 object LocalLedgerPreservation {
-    private val VAULT_RESTORED_SETTING_KEYS = setOf("current_balance")
+    private val VAULT_RESTORED_SETTING_KEYS = setOf("current_balance", "canonical_id_mapping_v1")
 
     suspend fun hasPreservationRisk(repo: LedgerRepository): Boolean {
         if (repo.getAllGoalsList().isNotEmpty()) return true

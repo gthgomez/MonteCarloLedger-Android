@@ -16,12 +16,21 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * Maps the cross-platform vault snapshot (2.1) to/from the Android Room core.
+ * Maps the cross-platform vault snapshot (2.1/2.2) to/from the Android Room core.
  * Android-only rows (goals, assets, rules) are intentionally excluded from the vault envelope.
  */
 object CanonicalVaultMapper {
     private val SUPPORTED_INCOME_FREQUENCIES = setOf("Weekly", "Bi-weekly", "Monthly", "One-time")
     private val SUPPORTED_PAYMENT_RECURRENCES = setOf("Monthly", "One-time", "Weekly", "Bi-weekly")
+
+    internal fun isLinkable(payment: PaymentEntity): Boolean {
+        if (payment.is_active == 0) return false
+        return when (payment.frequency) {
+            "Monthly" -> (payment.day_of_month ?: 0) in 1..31
+            "One-time" -> runCatching { java.time.LocalDate.parse(payment.next_date) }.isSuccess
+            else -> false
+        }
+    }
 
     fun buildSnapshot(
         ledgerBalanceCents: Long,
@@ -31,13 +40,33 @@ object CanonicalVaultMapper {
         occurrences: List<BillOccurrenceEntity>,
         debts: List<DebtEntity>,
         updatedAtIso: String,
+        canonicalIds: CanonicalIdMapping = CanonicalIdMapping(),
     ): JsonObject {
-        require(debts.none { !it.isActive || it.linkedPaymentId != null || it.linkedAccountId != null }) {
-            "This ledger has inactive or account/bill-linked debts that vault format 2.1 cannot preserve. " +
-                "Use the encrypted Android backup until the vault format supports these debt links."
+        require(payments.none { it.is_active == 0 }) {
+            "This ledger has inactive payments that vault format cannot preserve. Use the encrypted Android backup."
         }
+        require(debts.none { it.statementDayOfMonth != null }) {
+            "This ledger has statement-day debt data that vault format cannot preserve. Use the encrypted Android backup."
+        }
+        val paymentIds = payments.map { it.id }
+        require(paymentIds.size == paymentIds.toSet().size) {
+            "Cannot export a vault with duplicate payment identifiers"
+        }
+        val linkablePaymentIds = payments.filter(::isLinkable).map { it.id }.toSet()
+        val linkedPaymentIds = debts.mapNotNull { it.linkedPaymentId }
+        require(linkedPaymentIds.size == linkedPaymentIds.toSet().size) {
+            "Cannot export a vault with multiple debts linked to the same payment"
+        }
+        require(linkedPaymentIds.all { it in linkablePaymentIds }) {
+            "This ledger has a debt linked to a missing, inactive, or unsupported payment"
+        }
+        require(debts.none { it.linkedAccountId != null }) {
+            "This ledger has account-linked debts that the cross-platform vault cannot preserve. " +
+                "Use the encrypted Android backup until the vault format supports account links."
+        }
+        val requiresV22 = debts.any { !it.isActive || it.linkedPaymentId != null }
         return buildJsonObject {
-        put("version", "2.1")
+        put("version", if (requiresV22) "2.2" else "2.1")
         put("updated_at", updatedAtIso)
         put("current_balance_cents", ledgerBalanceCents)
         putJsonArray("incomes") {
@@ -45,7 +74,7 @@ object CanonicalVaultMapper {
                 val frequency = mapIncomeFrequency(inc.frequency)
                 add(
                     buildJsonObject {
-                        put("id", inc.id)
+                        put("id", canonicalIds.canonicalElement("incomes", inc.id))
                         put("name", inc.name)
                         put("amount_cents", inc.amount_cents)
                         put("frequency", frequency)
@@ -60,7 +89,7 @@ object CanonicalVaultMapper {
             payments.forEach { pmt ->
                 add(
                     buildJsonObject {
-                        put("id", pmt.id)
+                        put("id", canonicalIds.canonicalElement("payments", pmt.id))
                         put("name", pmt.name)
                         put("amount_cents", pmt.amount_cents)
                         put("recurrence", mapPaymentRecurrence(pmt.frequency))
@@ -75,7 +104,7 @@ object CanonicalVaultMapper {
             transactions.forEach { tx ->
                 add(
                     buildJsonObject {
-                        put("id", tx.id)
+                        put("id", canonicalIds.canonicalElement("transactions", tx.id))
                         put("amount_cents", tx.amount_cents)
                         put("category", tx.category)
                         put("type", mapTransactionType(tx.type))
@@ -89,11 +118,11 @@ object CanonicalVaultMapper {
             occurrences.forEach { occ ->
                 add(
                     buildJsonObject {
-                        put("id", occ.id)
-                        put("payment_id", occ.payment_id)
+                        put("id", canonicalIds.canonicalElement("occurrences", occ.id))
+                        put("payment_id", canonicalIds.canonicalElement("payments", occ.payment_id))
                         put("due_date", occ.due_date)
                         put("paid", occ.is_paid != 0)
-                        occ.transaction_id?.let { put("transaction_id", it) }
+                        occ.transaction_id?.let { put("transaction_id", canonicalIds.canonicalElement("transactions", it)) }
                         put("original_due_date", occ.original_due_date ?: occ.due_date)
                         put("is_user_modified", occ.is_user_modified != 0)
                     },
@@ -101,10 +130,10 @@ object CanonicalVaultMapper {
             }
         }
         putJsonArray("liabilities") {
-            debts.filter { it.isActive }.forEach { debt ->
+            debts.filter { requiresV22 || it.isActive }.forEach { debt ->
                 add(
                     buildJsonObject {
-                        put("id", debt.id.toString())
+                        put("id", canonicalIds.canonicalElement("debts", debt.id))
                         put("name", debt.name)
                         put("balance_cents", debt.balanceCents)
                         put("apr_basis_points", debt.aprBasisPoints)
@@ -113,6 +142,10 @@ object CanonicalVaultMapper {
                         if (debt.minPaymentPercentBps != 0) put("min_payment_percent_bps", debt.minPaymentPercentBps)
                         if (debt.minPaymentFloorCents != 0L) put("min_payment_floor_cents", debt.minPaymentFloorCents)
                         put("due_day_of_month", debt.dueDayOfMonth)
+                        if (requiresV22) {
+                            put("is_active", debt.isActive)
+                            debt.linkedPaymentId?.let { put("linked_payment_id", canonicalIds.canonicalElement("payments", it)) }
+                        }
                     },
                 )
             }

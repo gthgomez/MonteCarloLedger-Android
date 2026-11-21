@@ -18,6 +18,7 @@ import com.montecarlo.ledger.util.LedgerDate
 import com.montecarlo.ledger.util.toPersistedBoolean
 import com.montecarlo.ledger.util.toPersistedValue
 import com.montecarlo.ledger.sync.CanonicalVaultMapper
+import com.montecarlo.ledger.sync.CanonicalIdMapping
 import com.montecarlo.ledger.sync.LocalLedgerPreservation
 import com.montecarlo.ledger.sync.VaultDestructivePullGuard
 import com.montecarlo.ledger.sync.VaultPullRestoreBaselines
@@ -64,6 +65,7 @@ class LedgerRepository(private val db: AppDatabase) {
         const val KEY_ONBOARDING_DISMISSED = "onboarding_dismissed"
         const val KEY_ONBOARDING_MONITORING_INTRO_SEEN = "onboarding_monitoring_intro_seen"
         const val KEY_CONTRACT_FORECAST_ENABLED = "contract_forecast_enabled"
+        const val KEY_CANONICAL_ID_MAPPING = "canonical_id_mapping_v1"
     }
 
     // Income
@@ -1155,9 +1157,10 @@ class LedgerRepository(private val db: AppDatabase) {
         return false
     }
 
-    /** Cross-platform vault snapshot (version 2.1) for optional cloud sync. */
-    suspend fun exportCrossPlatformVaultJson(updatedAtIso: String): String {
-        CanonicalVaultMapper.validateLiabilities(db.debtDao().getAll().first())
+    /** Cross-platform vault snapshot (version 2.1/2.2) for optional cloud sync. */
+    suspend fun exportCrossPlatformVaultJson(updatedAtIso: String): String = db.withTransaction {
+        val debts = db.debtDao().getAll().first()
+        CanonicalVaultMapper.validateLiabilities(debts)
         val balance = db.transactionDao().getTotalBalanceCents().first() ?: 0L
         val snapshot = CanonicalVaultMapper.buildSnapshot(
             ledgerBalanceCents = balance,
@@ -1165,10 +1168,11 @@ class LedgerRepository(private val db: AppDatabase) {
             payments = db.paymentDao().getAllPaymentsList(),
             transactions = db.transactionDao().getAllTransactionsList(),
             occurrences = db.billOccurrenceDao().getAllOccurrencesList(),
-            debts = db.debtDao().getAll().first(),
+            debts = debts,
             updatedAtIso = updatedAtIso,
+            canonicalIds = CanonicalIdMapping.fromJson(db.settingsDao().getValue(KEY_CANONICAL_ID_MAPPING)),
         )
-        return Json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), snapshot)
+        Json.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), snapshot)
     }
 
     /** Direct vault JSON restore (tests / explicit overwrite after UI confirmation). */
@@ -1192,19 +1196,57 @@ class LedgerRepository(private val db: AppDatabase) {
         val remotePayloadCoreFingerprint = VaultSnapshotFingerprint.ofSnapshotJson(jsonText)
         val root = JSONObject(jsonText)
         val version = root.getString("version")
-        require(version == "2.0" || version == "2.1") { "Unsupported snapshot version: $version" }
+        require(version == "2.0" || version == "2.1" || version == "2.2") { "Unsupported snapshot version: $version" }
         val declaredBalance = root.getLong("current_balance_cents")
-        val payments = root.getJSONArray("payments").toVaultPayments()
-        val paymentAmounts = payments.associate { it.id to it.amount_cents }
-        val transactions = root.getJSONArray("transactions").toVaultTransactions()
+        val canonicalIds = buildCanonicalIdMapping(root)
+        val payments = root.getJSONArray("payments").toVaultPayments(canonicalIds)
+        val paymentsById = payments.associateBy { it.id }
+        require(paymentsById.size == payments.size) { "Snapshot payments has duplicate identifiers" }
+        val paymentAmounts = paymentsById.mapValues { (_, payment) -> payment.amount_cents }
+        val transactions = root.getJSONArray("transactions").toVaultTransactions(canonicalIds)
         val sum = transactions.sumOf { it.amount_cents }
         require(sum == declaredBalance) {
             "Snapshot inconsistent: transactions sum to $sum but declared balance is $declaredBalance"
         }
         transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
-        val incomes = root.getJSONArray("incomes").toVaultIncomes()
-        val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(paymentAmounts)
+        val incomes = root.getJSONArray("incomes").toVaultIncomes(canonicalIds)
+        val occurrences = root.getJSONArray("bill_occurrences").toVaultOccurrences(paymentAmounts, canonicalIds)
         val liabilities = if (root.has("liabilities")) root.getJSONArray("liabilities") else JSONArray()
+        val linkedPaymentIds = HashSet<Int>()
+        for (index in 0 until liabilities.length()) {
+            val item = liabilities.getJSONObject(index)
+            require(item.get("id") is String) { "Snapshot liabilities[$index].id must be a string" }
+            val rawActive = item.opt("is_active")
+            require(rawActive == null || rawActive is Boolean) {
+                "Snapshot liabilities[$index].is_active must be a boolean"
+            }
+            if (version == "2.1" || version == "2.0") {
+                require(!item.has("is_active") && !item.has("linked_payment_id")) {
+                    "Snapshot version $version cannot carry v2.2 liability fields"
+                }
+            } else {
+                if (item.has("linked_payment_id") && !item.isNull("linked_payment_id")) {
+                    val rawLinkedPaymentId = item.get("linked_payment_id")
+                    require(rawLinkedPaymentId is String || (rawLinkedPaymentId is Number && rawLinkedPaymentId !is Float && rawLinkedPaymentId !is Double)) {
+                        "Snapshot liabilities[$index].linked_payment_id must be a canonical payment id"
+                    }
+                    val linkedPaymentCanonical = rawLinkedPaymentId.toString()
+                    val linkedPaymentId = canonicalIds.local("payments", linkedPaymentCanonical)
+                    require(linkedPaymentId != null) {
+                        "Snapshot liabilities[$index] references unknown linked_payment_id $linkedPaymentCanonical"
+                    }
+                    val payment = requireNotNull(paymentsById[linkedPaymentId]) {
+                        "Snapshot liabilities[$index] references unknown linked_payment_id $linkedPaymentId"
+                    }
+                    require(CanonicalVaultMapper.isLinkable(payment)) {
+                        "Snapshot liabilities[$index] must reference a dated monthly or one-time payment"
+                    }
+                    require(linkedPaymentIds.add(linkedPaymentId)) {
+                        "Snapshot liabilities has duplicate linked_payment_id $linkedPaymentId"
+                    }
+                }
+            }
+        }
 
         lateinit var postRestorePreservationFingerprint: String
         lateinit var restoredLocalCoreFingerprint: String
@@ -1237,21 +1279,30 @@ class LedgerRepository(private val db: AppDatabase) {
                 val item = liabilities.getJSONObject(index)
                 db.debtDao().insert(
                     DebtEntity(
+                        id = requireNotNull(canonicalIds.local("debts", item.getString("id"))).toLong(),
                         name = item.getString("name"),
                         balanceCents = item.getLong("balance_cents"),
                         aprBasisPoints = item.getInt("apr_basis_points"),
                         minimumPaymentCents = item.getLong("min_payment_cents"),
                         dueDayOfMonth = item.optInt("due_day_of_month", 1),
+                        linkedPaymentId = if (version == "2.2" && item.has("linked_payment_id") && !item.isNull("linked_payment_id")) {
+                            canonicalIds.local("payments", item.getString("linked_payment_id"))
+                        } else {
+                            null
+                        },
+                        isActive = item.optBoolean("is_active", true),
                         kind = item.optString("kind", "installment"),
                         minPaymentPercentBps = item.optInt("min_payment_percent_bps", 0),
                         minPaymentFloorCents = item.optLong("min_payment_floor_cents", 0L),
                     ),
                 )
+
             }
 
             db.settingsDao().deleteAllSettings()
             lockSettings.forEach { db.settingsDao().setValue(it) }
             db.settingsDao().setValue(SettingsEntity(KEY_CURRENT_BALANCE, declaredBalance.toString()))
+            db.settingsDao().setValue(SettingsEntity(KEY_CANONICAL_ID_MAPPING, canonicalIds.toJson()))
             ensureDefaultAccountSeeded()
             postRestorePreservationFingerprint = LocalLedgerPreservation.fingerprint(this@LedgerRepository)
             val localExportJson = exportCrossPlatformVaultJson("restore-baseline-capture")
@@ -1264,12 +1315,29 @@ class LedgerRepository(private val db: AppDatabase) {
         )
     }
 
-    private fun JSONArray.toVaultIncomes(): List<IncomeEntity> = buildList {
+    private fun buildCanonicalIdMapping(root: JSONObject): CanonicalIdMapping {
+        val localToCanonical = linkedMapOf<String, Map<Int, CanonicalIdMapping.CanonicalValue>>()
+        val tables = listOf(
+            "incomes" to "incomes", "payments" to "payments", "transactions" to "transactions",
+            "bill_occurrences" to "occurrences", "liabilities" to "debts",
+        )
+        for ((arrayKey, kind) in tables) {
+            val rows = if (root.has(arrayKey)) root.getJSONArray(arrayKey) else JSONArray()
+            localToCanonical[kind] = CanonicalIdMapping.assign(
+                (0 until rows.length()).map { index ->
+                    CanonicalIdMapping.readId(rows.getJSONObject(index).opt("id"))
+                },
+            )
+        }
+        return CanonicalIdMapping(localToCanonical)
+    }
+
+    private fun JSONArray.toVaultIncomes(ids: CanonicalIdMapping): List<IncomeEntity> = buildList {
         for (index in 0 until length()) {
             val obj = getJSONObject(index)
             add(
                 IncomeEntity(
-                    id = obj.getInt("id"),
+                    id = ids.local("incomes", obj.getString("id")) ?: error("Unknown income id"),
                     name = obj.getString("name"),
                     amount_cents = obj.getLong("amount_cents"),
                     frequency = obj.getString("frequency"),
@@ -1281,7 +1349,7 @@ class LedgerRepository(private val db: AppDatabase) {
         }
     }
 
-    private fun JSONArray.toVaultPayments(): List<PaymentEntity> = buildList {
+    private fun JSONArray.toVaultPayments(ids: CanonicalIdMapping): List<PaymentEntity> = buildList {
         for (index in 0 until length()) {
             val obj = getJSONObject(index)
             val dueDate = if (!obj.isNull("due_date")) {
@@ -1292,7 +1360,7 @@ class LedgerRepository(private val db: AppDatabase) {
             }
             add(
                 PaymentEntity(
-                    id = obj.getInt("id"),
+                    id = ids.local("payments", obj.getString("id")) ?: error("Unknown payment id"),
                     name = obj.getString("name"),
                     amount_cents = obj.getLong("amount_cents"),
                     frequency = obj.getString("recurrence"),
@@ -1304,12 +1372,12 @@ class LedgerRepository(private val db: AppDatabase) {
         }
     }
 
-    private fun JSONArray.toVaultTransactions(): List<TransactionEntity> = buildList {
+    private fun JSONArray.toVaultTransactions(ids: CanonicalIdMapping): List<TransactionEntity> = buildList {
         for (index in 0 until length()) {
             val obj = getJSONObject(index)
             add(
                 TransactionEntity(
-                    id = obj.getInt("id"),
+                    id = ids.local("transactions", obj.getString("id")) ?: error("Unknown transaction id"),
                     description = obj.optString("description", ""),
                     amount_cents = obj.getLong("amount_cents"),
                     date = obj.getString("date"),
@@ -1322,20 +1390,35 @@ class LedgerRepository(private val db: AppDatabase) {
 
     private fun JSONArray.toVaultOccurrences(
         paymentAmounts: Map<Int, Long>,
+        ids: CanonicalIdMapping,
     ): List<BillOccurrenceEntity> = buildList {
+        val occupiedSlots = HashSet<Pair<Int, String>>()
+        val linkedTransactions = HashSet<Int>()
         for (index in 0 until length()) {
             val obj = getJSONObject(index)
-            val paymentId = obj.getInt("payment_id")
+            val paymentId = ids.local("payments", obj.getString("payment_id"))
+                ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown payment_id")
+            val originalDueDate = obj.optString("original_due_date", obj.getString("due_date"))
+            require(occupiedSlots.add(paymentId to originalDueDate)) {
+                "bill_occurrences has duplicate original slot for payment_id ${obj.getString("payment_id")}"
+            }
+            val transactionId = if (obj.isNull("transaction_id")) null else {
+                ids.local("transactions", obj.getString("transaction_id"))
+                    ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown transaction_id")
+            }
+            if (transactionId != null) require(linkedTransactions.add(transactionId)) {
+                "bill_occurrences reuses transaction_id ${obj.getString("transaction_id")}"
+            }
             add(
                 BillOccurrenceEntity(
-                    id = obj.getInt("id"),
+                    id = ids.local("occurrences", obj.getString("id")) ?: error("Unknown occurrence id"),
                     payment_id = paymentId,
                     due_date = obj.getString("due_date"),
                     amount_cents = paymentAmounts[paymentId]
                         ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown payment_id $paymentId"),
                     is_paid = if (obj.getBoolean("paid")) 1 else 0,
-                    transaction_id = if (obj.isNull("transaction_id")) null else obj.getInt("transaction_id"),
-                    original_due_date = obj.optString("original_due_date", obj.getString("due_date")),
+                    transaction_id = transactionId,
+                    original_due_date = originalDueDate,
                     is_user_modified = if (obj.optBoolean("is_user_modified", false)) 1 else 0,
                 ),
             )

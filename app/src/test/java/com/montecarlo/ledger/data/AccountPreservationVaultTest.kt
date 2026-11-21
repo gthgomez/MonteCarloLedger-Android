@@ -3,6 +3,8 @@ package com.montecarlo.ledger.data
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.montecarlo.ledger.adoption.ContractScenarioBridge
+import com.montecarlo.ledger.contract.ContractRunner
 import com.montecarlo.ledger.sync.CloudVaultSync
 import com.montecarlo.ledger.sync.LocalLedgerPreservation
 import com.montecarlo.ledger.sync.VaultLocalChangesException
@@ -10,6 +12,8 @@ import com.montecarlo.ledger.sync.VaultSnapshotFingerprint
 import com.montecarlo.ledger.sync.VaultSyncStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import java.time.LocalDate
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -126,5 +130,62 @@ class AccountPreservationVaultTest {
         assertEquals("Primary account", after!!.name)
         assertEquals(0L, after.balanceCents)
         assertFalse(after.isReconciled)
+    }
+    @Test
+    fun vaultRoundTripPreservesLinkedDebtAndIndependentForecastOracle() = runBlocking {
+        val payload = """
+            {
+              "version": "2.2",
+              "current_balance_cents": 120000,
+              "incomes": [],
+              "payments": [
+                {"id": "payment-car", "name": "Car loan", "amount_cents": 50000, "recurrence": "Monthly", "due_day": 15}
+              ],
+              "transactions": [
+                {"id": "opening", "type": "Adjustment", "amount_cents": 120000, "date": "2028-01-31"}
+              ],
+              "bill_occurrences": [],
+              "liabilities": [
+                {"id": "debt-car", "name": "Car loan", "balance_cents": 300000,
+                 "apr_basis_points": 0, "min_payment_cents": 50000,
+                 "due_day_of_month": 15, "linked_payment_id": "payment-car"},
+                {"id": "10", "name": "Archived", "balance_cents": 45000,
+                 "apr_basis_points": 0, "min_payment_cents": 8000, "is_active": false}
+              ]
+            }
+        """.trimIndent()
+        repo.restoreCrossPlatformVaultJson(payload)
+        val exported = repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z")
+        repeat(2) { repo.restoreCrossPlatformVaultJson(exported) }
+        val debts = db.debtDao().getAll().first().associateBy { it.name }
+        val payment = db.paymentDao().getAllPaymentsList().single()
+        assertEquals(payment.id, debts.getValue("Car loan").linkedPaymentId)
+        assertFalse(debts.getValue("Archived").isActive)
+        val snapshot = JSONObject(exported)
+        assertEquals("payment-car", snapshot.getJSONArray("payments").getJSONObject(0).getString("id"))
+        assertEquals("opening", snapshot.getJSONArray("transactions").getJSONObject(0).getString("id"))
+        val debtRows = snapshot.getJSONArray("liabilities")
+        val linkedDebt = (0 until debtRows.length()).map { debtRows.getJSONObject(it) }
+            .single { it.getString("id") == "debt-car" }
+        assertEquals("payment-car", linkedDebt.getString("linked_payment_id"))
+        val inputs = ContractScenarioBridge.Inputs(
+            startingBalanceCents = db.transactionDao().getTotalBalanceCents().first()!!,
+            asOf = LocalDate.parse("2028-02-01"),
+            horizonDays = 35,
+            incomes = db.incomeDao().getAllIncomesList(),
+            payments = db.paymentDao().getAllPaymentsList(),
+            billOccurrences = db.billOccurrenceDao().getAllOccurrencesList(),
+            debts = debts.values.toList(),
+        )
+        assertEquals(70_000L, ContractRunner.run(ContractScenarioBridge.build(inputs)).forecast.endingBalanceCents)
+        val invalid = JSONObject(exported)
+        val liabilities = invalid.getJSONArray("liabilities")
+        for (index in 0 until liabilities.length()) {
+            liabilities.getJSONObject(index).put("linked_payment_id", "payment-car")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repo.restoreCrossPlatformVaultJson(invalid.toString()) }
+        }
+        assertEquals(exported, repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z"))
     }
 }

@@ -325,6 +325,50 @@ class ContractScenarioBridgeTest {
     }
 
     @Test
+    fun linkedBillShortfallUsesOccurrenceAmountWithoutChargingPaidAmountAgain() {
+        val bill = payment(
+            id = 7,
+            amountCents = 10_000L,
+            dayOfMonth = 10,
+            nextDate = "2026-02-10",
+        )
+        val debt = DebtEntity(
+            id = 1,
+            name = "Card",
+            balanceCents = 100_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 10,
+            linkedPaymentId = bill.id,
+        )
+        val inputs = ContractScenarioBridge.Inputs(
+            startingBalanceCents = 100_000L,
+            asOf = LocalDate.of(2026, 1, 20),
+            incomes = emptyList(),
+            payments = listOf(bill),
+            billOccurrences = listOf(
+                BillOccurrenceEntity(
+                    payment_id = bill.id,
+                    due_date = "2026-01-10",
+                    original_due_date = "2026-01-10",
+                    amount_cents = 10_000L,
+                    is_paid = 1,
+                ),
+            ),
+            debts = listOf(debt),
+            horizonDays = 40,
+        )
+
+        assertEquals(
+            listOf(
+                LocalDate.of(2026, 1, 20) to 20_000L,
+                LocalDate.of(2026, 2, 10) to 20_000L,
+            ),
+            ContractScenarioBridge.debtMinimumForecastEvents(inputs).map { it.date to it.amount_cents },
+        )
+    }
+
+    @Test
     fun revolvingMinimumsAccrueMonthlyInterestBeforeLaterDueDates() {
         val debt = DebtEntity(
             id = 1,
