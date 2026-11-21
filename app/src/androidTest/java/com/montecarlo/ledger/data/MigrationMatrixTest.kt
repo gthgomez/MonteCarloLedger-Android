@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
  * Every historically supported upgrade path must reach the current schema (v18)
  * without dropping, corrupting, or misrepresenting user financial state. We
  * exercise:
- *   - the schema-exported chain 9 -> 17 with representative data
+ *   - the schema-exported chain 9 -> 18 with representative data
  *   - the 14 -> 15 and 17 -> 18 migrations
  *   - hand-built legacy databases (v1 and v5) upgraded through the FULL chain
  *     and then OPENED through Room so entity mapping is exercised, not just SQL
@@ -61,6 +61,7 @@ class MigrationMatrixTest {
         AppDatabase.MIGRATION_14_15_FOR_TEST,
         AppDatabase.MIGRATION_15_16_FOR_TEST,
         AppDatabase.MIGRATION_16_17_FOR_TEST,
+        AppDatabase.MIGRATION_17_18_FOR_TEST,
     )
 
     @After
@@ -73,11 +74,11 @@ class MigrationMatrixTest {
     }
 
     // ---------------------------------------------------------------------
-    // Schema-exported chain: 9 -> 17
+    // Schema-exported chain: 9 -> 18
     // ---------------------------------------------------------------------
 
     @Test
-    fun fullChain9To17_preservesRepresentativeLedgerData() {
+    fun fullChain9To18_preservesRepresentativeLedgerData() {
         val name = "migration-fullchain"
         val db9 = helper.createDatabase(name, 9)
 
@@ -113,8 +114,8 @@ class MigrationMatrixTest {
         db9.close()
 
         val migrated = helper.runMigrationsAndValidate(
-            name, 17, true,
-            *fullChain.drop(8).toTypedArray() // 9_10 .. 16_17
+            name, 18, true,
+            *fullChain.drop(8).toTypedArray() // 9_10 .. 17_18
         )
 
         // Ledger rows survive.
@@ -125,10 +126,11 @@ class MigrationMatrixTest {
         assertEquals("posted", txn.getString(2))
         txn.close()
 
-        val income = migrated.query("SELECT amount_cents, payType FROM income WHERE id = 1")
+        val income = migrated.query("SELECT amount_cents, payType, last_date FROM income WHERE id = 1")
         assertTrue(income.moveToFirst())
         assertEquals(250000L, income.getLong(0))
         assertEquals("FLAT", income.getString(1))
+        assertTrue("legacy income has no recorded last payday", income.isNull(2))
         income.close()
 
         val settings = migrated.query("SELECT value FROM settings WHERE key = 'bank_balance_cents'")
@@ -186,7 +188,7 @@ class MigrationMatrixTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun legacyV1To17_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
+    fun legacyV1To18_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
         val name = "migration-legacy-v1"
         createLegacyDb(
             name,
@@ -208,7 +210,7 @@ class MigrationMatrixTest {
             .addMigrations(*fullChain.toTypedArray())
             .build()
         try {
-            assertEquals("Room must run the whole chain on open", 17, room.openHelper.writableDatabase.version)
+            assertEquals("Room must run the whole chain on open", 18, room.openHelper.writableDatabase.version)
 
             val transactions = room.transactionDao().getAll().first()
             assertEquals(1, transactions.size)
@@ -240,7 +242,7 @@ class MigrationMatrixTest {
     }
 
     @Test
-    fun legacyV5To17_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
+    fun legacyV5To18_fullChain_opensThroughRoomAndPreservesLedger() = runBlocking {
         val name = "migration-legacy-v5"
         createLegacyDb(
             name,
@@ -262,7 +264,7 @@ class MigrationMatrixTest {
             .addMigrations(*fullChain.toTypedArray())
             .build()
         try {
-            assertEquals(17, room.openHelper.writableDatabase.version)
+            assertEquals(18, room.openHelper.writableDatabase.version)
 
             val txn = room.transactionDao().getAll().first().single()
             assertEquals("Coffee", txn.description)
@@ -304,7 +306,7 @@ class MigrationMatrixTest {
             .addMigrations(*fullChain.toTypedArray())
             .build()
         try {
-            assertEquals(17, room.openHelper.writableDatabase.version)
+            assertEquals(18, room.openHelper.writableDatabase.version)
             val count = room.transactionDao().getAll().first().size
             assertEquals("every legacy transaction must survive", 2000, count)
             val total = room.transactionDao().getTotalBalanceCents().first() ?: 0L
