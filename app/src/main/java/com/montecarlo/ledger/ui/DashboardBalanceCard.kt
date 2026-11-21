@@ -83,7 +83,7 @@ internal fun BalanceCard(
     var showHelpDialog by remember { mutableStateOf(false) }
     val forecastAvailable = showForecastCards && uiState.canonicalForecastStatus != CanonicalForecastStatus.Failed
     val usingPreviousForecast = uiState.canonicalForecastStatus == CanonicalForecastStatus.Stale
-    val openingSource = if (reconciled) "Confirmed bank balance" else "Cash recorded through today"
+    val openingSource = if (reconciled) "Bank balance" else "Cash recorded through today"
     GlassCard(
         modifier = Modifier
             .testTag(DashboardTestTags.BALANCE_CARD)
