@@ -319,7 +319,11 @@ fun EditIncomeScreen(
                                 name = name,
                                 amount_cents = cents,
                                 frequency = frequency,
-                                day_of_month = nextPayday.dayOfMonth,
+                                day_of_month = if (income.frequency == frequency && income.next_date == nextPayday.toString()) {
+                                    income.day_of_month
+                                } else {
+                                    nextPayday.dayOfMonth
+                                },
                                 next_date = nextPayday.toString(),
                                 expectedAmountCents = if (payType == EditPayType.PER_PROJECT) null else expectedAmount,
                                 payType = payType.name

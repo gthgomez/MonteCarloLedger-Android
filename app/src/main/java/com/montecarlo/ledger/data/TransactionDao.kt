@@ -57,12 +57,6 @@ interface TransactionDao {
     )
     suspend fun updateCategoryIfUncategorized(id: Int, category: String): Int
 
-    @Query(
-        "SELECT COUNT(*) FROM transactions " +
-            "WHERE type = 'income' AND date = :date AND description = :description"
-    )
-    suspend fun countIncomeByDescriptionAndDate(description: String, date: String): Int
-
     @Query("SELECT SUM(amount_cents) FROM transactions")
     fun getTotalBalanceCents(): Flow<Long?>
 

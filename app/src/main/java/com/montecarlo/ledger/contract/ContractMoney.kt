@@ -44,7 +44,7 @@ object ContractMoney {
     fun roundHalfAway(n: BigInteger, d: BigInteger): BigInteger {
         require(d.signum() > 0) { "denominator must be positive" }
         if (n.signum() == 0) return BigInteger.ZERO
-        val quotient = (n.abs() + d.divide(BigInteger.TWO)).divide(d)
+        val quotient = (n.abs() + d.shiftRight(1)).divide(d)
         return if (n.signum() < 0) quotient.negate() else quotient
     }
 

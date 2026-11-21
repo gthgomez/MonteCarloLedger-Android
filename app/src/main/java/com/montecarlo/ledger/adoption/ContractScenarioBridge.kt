@@ -12,6 +12,7 @@ import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
+import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import com.montecarlo.ledger.processing.RecurrenceMath
 import com.montecarlo.ledger.processing.ForecastEvent
@@ -68,6 +69,7 @@ object ContractScenarioBridge {
         /** Resolved bill categories (contract 1.2): payment id -> category. */
         val paymentCategories: Map<Int, String> = emptyMap(),
         val debts: List<DebtEntity> = emptyList(),
+        val transactions: List<TransactionEntity> = emptyList(),
     )
 
     /** Builds the canonical scenario. Callers pass `asOf` from the UI/ViewModel clock boundary. */
@@ -76,25 +78,24 @@ object ContractScenarioBridge {
         val activePayments = inputs.payments.filter { it.is_active != 0 }
         val paymentById = activePayments.associateBy { it.id }
         val suppressed = suppressedDates(inputs.billOccurrences)
-        val representedPayments = representedPaymentMonths(inputs, activePayments, endExclusive, suppressed)
+        val representedPayments = representedPaymentSlots(inputs, activePayments, endExclusive, suppressed)
 
         val explicit = ArrayList<ContractEvent>()
         var inputIndex = 0
 
-        // User-moved (unpaid, modified) occurrences are explicit events; their original
-        // template date is suppressed below so it is not projected twice.
+        // Persisted unpaid occurrences are authoritative. Past-due ones affect cash today.
         for (occurrence in inputs.billOccurrences) {
-            if (occurrence.is_paid != 0 || occurrence.is_user_modified == 0) continue
+            if (occurrence.is_paid != 0) continue
             val payment = paymentById[occurrence.payment_id] ?: continue
             val due = LedgerDate.parseIsoOrNull(occurrence.due_date) ?: continue
-            if (due.isBefore(inputs.asOf) || !due.isBefore(endExclusive)) continue
+            if (!due.isBefore(endExclusive)) continue
             val amount = -abs(occurrence.amount_cents)
             if (amount == 0L) continue
             explicit.add(
                 ContractEvent(
                     id = "occurrence-${occurrence.id}",
                     name = payment.name,
-                    date = due,
+                    date = maxOf(due, inputs.asOf),
                     amountCents = amount,
                     type = "expense",
                     sequence = null,
@@ -103,6 +104,26 @@ object ContractScenarioBridge {
                 )
             )
         }
+        // Posted transactions after `asOf` are future cash events, not opening balance. The
+        // caller resolves the opening seed from the full ledger, so future rows are reintroduced
+        // here on their actual dates to keep receipt/expense timing visible.
+        inputs.transactions
+            .filter { it.date > inputs.asOf.toString() && it.date < endExclusive.toString() }
+            .forEach { transaction ->
+                val date = LedgerDate.parseIsoOrNull(transaction.date) ?: return@forEach
+                val eventType = transaction.type.lowercase()
+                explicit.add(
+                    ContractEvent(
+                        id = "transaction-${transaction.id}",
+                        name = transaction.description.ifBlank { transaction.category },
+                        date = date,
+                        amountCents = transaction.amount_cents,
+                        type = eventType,
+                        sequence = null,
+                        inputIndex = inputIndex++,
+                    )
+                )
+            }
         explicit.addAll(debtMinimumEvents(inputs, representedPayments, endExclusive))
 
         val recurrences = ArrayList<ContractRecurrence>()
@@ -138,7 +159,7 @@ object ContractScenarioBridge {
     fun debtMinimumForecastEvents(inputs: Inputs): List<ForecastEvent> {
         val endExclusive = inputs.asOf.plusDays(inputs.horizonDays.toLong())
         val activePayments = inputs.payments.filter { it.is_active != 0 }
-        val representedPayments = representedPaymentMonths(
+        val representedPayments = representedPaymentSlots(
             inputs,
             activePayments,
             endExclusive,
@@ -155,13 +176,16 @@ object ContractScenarioBridge {
         }
     }
 
-    private fun representedPaymentMonths(
+    private data class PaymentCoverage(val cents: Long, val paid: Boolean)
+
+    /** Amounts represented by each linked payment's original scheduled slot. */
+    private fun representedPaymentSlots(
         inputs: Inputs,
         activePayments: List<PaymentEntity>,
         endExclusive: LocalDate,
         suppressed: Set<Pair<Int, String>>,
-    ): Map<Int, Set<YearMonth>> {
-        val monthsByPayment = mutableMapOf<Int, MutableSet<YearMonth>>()
+    ): Map<Int, Map<LocalDate, PaymentCoverage>> {
+        val slotsByPayment = mutableMapOf<Int, MutableMap<LocalDate, PaymentCoverage>>()
         activePayments.forEach { payment ->
             val recurrence = buildPaymentRecurrence(
                 payment = payment,
@@ -172,8 +196,11 @@ object ContractScenarioBridge {
             )
             if (recurrence != null) {
                 ContractEngine.generateOccurrences(recurrence.recurrence, endExclusive)
-                    .filter { !it.isBefore(inputs.asOf) }
-                    .forEach { date -> monthsByPayment.getOrPut(payment.id) { mutableSetOf() }.add(YearMonth.from(date)) }
+                    .filter { !it.isBefore(inputs.asOf) && Pair(payment.id, it.toString()) !in suppressed }
+                    .forEach { date ->
+                        slotsByPayment.getOrPut(payment.id) { mutableMapOf() }[date] =
+                            PaymentCoverage(payment.amount_cents, paid = false)
+                    }
             }
         }
         inputs.billOccurrences.forEach { occurrence ->
@@ -181,25 +208,18 @@ object ContractScenarioBridge {
                 ?.takeIf { it.amount_cents > 0L } ?: return@forEach
             val original = LedgerDate.parseIsoOrNull(occurrence.original_due_date ?: occurrence.due_date)
                 ?: return@forEach
-            val originalMonth = YearMonth.from(original)
-            val currentMonth = YearMonth.from(inputs.asOf)
-            // An occurrence from earlier this month can still represent the current debt
-            // obligation (for example, a paid bill due on the 10th when today is the 20th).
-            // Older months must not suppress a new minimum in the current month.
-            val originalIsInForecast = originalMonth >= currentMonth && original.isBefore(endExclusive)
-            val months = monthsByPayment.getOrPut(payment.id) { mutableSetOf() }
-            if (occurrence.is_paid != 0 && originalIsInForecast) months.add(originalMonth)
-            if (occurrence.is_paid == 0 && occurrence.is_user_modified != 0) {
-                val moved = LedgerDate.parseIsoOrNull(occurrence.due_date) ?: return@forEach
-                if (occurrence.amount_cents > 0L) {
-                    if (originalIsInForecast) months.add(originalMonth)
-                    if (!moved.isBefore(inputs.asOf) && moved.isBefore(endExclusive)) {
-                        months.add(YearMonth.from(moved))
-                    }
-                }
+            // A moved occurrence represents its original scheduled slot, never the destination
+            // slot. This matters when a debt is due on the 31st and a bill is moved into another
+            // date/month: only the original clamped schedule can replace that debt minimum.
+            if (occurrence.amount_cents > 0L) {
+                val prior = slotsByPayment.getOrPut(payment.id) { mutableMapOf() }.put(
+                    original,
+                    PaymentCoverage(occurrence.amount_cents, paid = occurrence.is_paid != 0),
+                )
+                require(prior == null) { "Payment ${payment.id} has duplicate occurrences for $original" }
             }
         }
-        return monthsByPayment.mapValues { (_, months) -> months.toSet() }
+        return slotsByPayment.mapValues { (_, slots) -> slots.toMap() }
     }
 
     /**
@@ -209,12 +229,20 @@ object ContractScenarioBridge {
      */
     private fun debtMinimumEvents(
         inputs: Inputs,
-        representedPaymentMonths: Map<Int, Set<YearMonth>>,
+        representedPaymentSlots: Map<Int, Map<LocalDate, PaymentCoverage>>,
         endExclusive: LocalDate,
     ): List<ContractEvent> {
         val debts = inputs.debts
         val liabilities = CanonicalVaultMapper.liabilitiesFromDebts(debts).sortedBy { it.id }
-        val linkedPaymentByDebtId = debts.associate { it.id.toString() to it.linkedPaymentId }
+        val activeDebts = debts.filter { it.isActive }
+        val activePaymentIds = inputs.payments.filter { it.is_active != 0 }.map { it.id }.toSet()
+        // A dangling/inactive link is unusable and therefore cannot suppress the debt minimum;
+        // this keeps malformed local rows fail-safe without erasing the obligation.
+        val linkedIds = activeDebts.mapNotNull { it.linkedPaymentId?.takeIf { id -> id in activePaymentIds } }
+        require(linkedIds.size == linkedIds.toSet().size) {
+            "Each payment may be linked to at most one active debt"
+        }
+        val linkedPaymentByDebtId = activeDebts.associate { it.id.toString() to it.linkedPaymentId }
         ContractDebt.validateLiabilities(liabilities)
         val events = ArrayList<ContractEvent>()
         for (liability in liabilities) {
@@ -238,17 +266,18 @@ object ContractScenarioBridge {
                 }
                 first = false
                 val minimum = ContractDebt.minimumPaymentCents(liability, balance)
-                balance -= minimum
-                val linkedBillCoversMonth = linkedPaymentByDebtId[liability.id]
-                    ?.let { paymentId -> YearMonth.from(due) in representedPaymentMonths[paymentId].orEmpty() }
-                    ?: false
-                if (minimum > 0L && !linkedBillCoversMonth) {
+                val coverage = linkedPaymentByDebtId[liability.id]
+                    ?.let { paymentId -> representedPaymentSlots[paymentId]?.get(due) }
+                val shortfall = (minimum - (coverage?.cents ?: 0L)).coerceAtLeast(0L)
+                // Starting debt is the amount still owed. Only future payments reduce it.
+                balance -= if (coverage?.paid == true) shortfall else minimum
+                if (shortfall > 0L) {
                     events.add(
                         ContractEvent(
                             id = "debt-${liability.id}-$due",
                             name = liability.name,
                             date = eventDate,
-                            amountCents = -minimum,
+                            amountCents = -shortfall,
                             type = "expense",
                             sequence = DEBT_MINIMUM_SEQUENCE,
                             inputIndex = events.size,
@@ -324,7 +353,9 @@ object ContractScenarioBridge {
         suppressed: Set<Pair<Int, String>>,
         category: String?,
     ): PaymentRecurrence? {
-        val start = LedgerDate.parseIsoOrNull(payment.next_date) ?: return null
+        val start = com.montecarlo.ledger.processing.PaymentSchedule.firstDueInOrBeforeWindow(
+            payment.frequency, payment.day_of_month, payment.next_date, asOf,
+        ) ?: return null
         val amount = -abs(payment.amount_cents)
         if (amount >= 0L) return null
         val frequency = contractFrequency(payment.frequency) ?: return null
@@ -356,9 +387,7 @@ object ContractScenarioBridge {
     private fun suppressedDates(occurrences: List<BillOccurrenceEntity>): Set<Pair<Int, String>> {
         val result = HashSet<Pair<Int, String>>()
         for (occurrence in occurrences) {
-            if (occurrence.is_paid != 0) {
-                result.add(Pair(occurrence.payment_id, occurrence.original_due_date ?: occurrence.due_date))
-            }
+            result.add(Pair(occurrence.payment_id, occurrence.original_due_date ?: occurrence.due_date))
             if (occurrence.is_user_modified != 0) {
                 result.add(Pair(occurrence.payment_id, occurrence.original_due_date ?: occurrence.due_date))
                 result.add(Pair(occurrence.payment_id, occurrence.due_date))

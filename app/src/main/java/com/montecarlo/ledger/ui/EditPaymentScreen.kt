@@ -169,14 +169,17 @@ fun EditPaymentScreen(
                     }
                     val validation = DomainRules.validatePaymentSign(cents)
                     val dueDate = LedgerDate.parseIsoOrNull(dueDateText)
-                    val dueDay = dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth
+                    val keepRule = payment.next_date.isEmpty() && dueDateText.isEmpty() &&
+                        recurrence == "Monthly" && payment.day_of_month != null
+                    val dueDay = if (keepRule) payment.day_of_month
+                        else dueDate?.takeIf { recurrence.usesMonthlyAnchor() }?.dayOfMonth
                     if (validation.isFailure) {
                         errorMessage = validation.exceptionOrNull()?.message ?: "Invalid amount"
-                    } else if (dueDate == null) {
+                    } else if (dueDate == null && !keepRule) {
                         errorMessage = "Enter a valid next due date"
                     } else {
                         val today = LocalDate.now()
-                        val nextDate = PaymentSchedule.resolveNextPaymentDate(today, recurrence, dueDay, dueDate)
+                        val nextDate = if (keepRule) "" else PaymentSchedule.resolveNextPaymentDate(today, recurrence, dueDay, dueDate)
                         if (nextDate == null) {
                             errorMessage = "Enter a valid next due date"
                         } else {

@@ -116,7 +116,9 @@ object TimelineService {
     ): List<ForecastEvent> {
         val category = resolveCategory(payment.name, rules)
         val events = mutableListOf<ForecastEvent>()
-        var currentDate = LedgerDate.parseIsoOrNull(payment.next_date) ?: return emptyList()
+        var currentDate = PaymentSchedule.firstDueInOrBeforeWindow(
+            payment.frequency, payment.day_of_month, payment.next_date, startDate,
+        ) ?: return emptyList()
         // MCD-0022 / bug B-07: keep the day-of-month anchor across clamped months.
         val anchorDay = payment.day_of_month ?: currentDate.dayOfMonth
 

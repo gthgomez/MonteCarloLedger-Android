@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryBudgetEntity::class,
         DebtEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -67,6 +67,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_14_15,
                         MIGRATION_15_16,
                         MIGRATION_16_17,
+                        MIGRATION_17_18,
                     )
                     .build().also { INSTANCE = it }
             }
@@ -417,5 +418,15 @@ abstract class AppDatabase : RoomDatabase() {
         @VisibleForTesting
         val MIGRATION_16_17_FOR_TEST: Migration
             get() = MIGRATION_16_17
+
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE income ADD COLUMN last_date TEXT")
+            }
+        }
+
+        @VisibleForTesting
+        val MIGRATION_17_18_FOR_TEST: Migration
+            get() = MIGRATION_17_18
     }
 }
