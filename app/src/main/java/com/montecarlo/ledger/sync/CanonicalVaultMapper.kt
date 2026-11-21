@@ -78,7 +78,7 @@ object CanonicalVaultMapper {
                         put("name", inc.name)
                         put("amount_cents", inc.amount_cents)
                         put("frequency", frequency)
-                        put("last_payday", inc.next_date)
+                        put("last_payday", inc.last_date ?: inc.next_date)
                         put("next_payday", inc.next_date)
                         inc.expectedAmountCents?.let { put("expected_amount", it) }
                     },
@@ -94,7 +94,8 @@ object CanonicalVaultMapper {
                         put("amount_cents", pmt.amount_cents)
                         put("recurrence", mapPaymentRecurrence(pmt.frequency))
                         pmt.day_of_month?.let { put("due_day", it) }
-                        put("due_date", pmt.next_date)
+                        if (pmt.next_date.isEmpty()) put("due_date", kotlinx.serialization.json.JsonNull)
+                        else put("due_date", pmt.next_date)
                         put("is_auto_withdraw", pmt.isAutoWithdraw)
                     },
                 )

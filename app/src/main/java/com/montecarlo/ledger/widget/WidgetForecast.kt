@@ -16,6 +16,7 @@ import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.isCreditAccount
 import com.montecarlo.ledger.processing.ForecastEngine
+import com.montecarlo.ledger.processing.CashForecastTiming
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import com.montecarlo.ledger.processing.MonteCarloCalibrator
 import com.montecarlo.ledger.processing.MonteCarloEngine
@@ -93,7 +94,9 @@ internal fun deriveWidgetForecast(
     txns: List<TransactionEntity>,
     rules: List<TransactionRuleEntity>,
     debts: List<DebtEntity> = emptyList(),
+    futureCashTransactions: List<TransactionEntity> = emptyList(),
 ): WidgetForecast {
+    val futureEvents = CashForecastTiming.nativeEvents(futureCashTransactions, today.plusDays(90))
     val paymentCategories = payments
         .mapNotNull { payment ->
             TimelineService.resolveCategory(payment.name, rules)?.let { payment.id to it }
@@ -125,7 +128,7 @@ internal fun deriveWidgetForecast(
         )
     }
     val debtEvents = (debtEventsResult as? ContractCalculationResult.Success)?.value.orEmpty()
-    val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules) + debtEvents
+    val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules) + debtEvents + futureEvents
     val calibration = MonteCarloCalibrator.calibrate(transactions = txns, today = today)
 
     if (!contractForecastEnabled) {
@@ -162,6 +165,7 @@ internal fun deriveWidgetForecast(
                 ),
                 paymentCategories = paymentCategories,
                 debts = debts,
+                transactions = futureCashTransactions,
             )
         )
         val result = ContractRunner.run(built)

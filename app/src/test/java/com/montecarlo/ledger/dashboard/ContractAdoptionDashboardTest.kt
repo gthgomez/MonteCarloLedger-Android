@@ -195,4 +195,34 @@ class ContractAdoptionDashboardTest {
         assertTrue(state.dailyBudgetCents >= 0L)
         if (state.safeToSpendCents <= 0L) assertEquals(0L, state.dailyBudgetCents)
     }
+    @Test
+    fun futurePostedReceiptDoesNotHideEarlierCashShortfall() = runBlocking {
+        val asOf = LocalDate.parse("2027-02-01")
+        val ledger = pack().copy(
+            incomes = emptyList(),
+            payments = listOf(PaymentEntity(
+                id = 1, name = "Early expense", amount_cents = 20_000L,
+                frequency = "One-time", day_of_month = null, next_date = "2027-02-03",
+            )),
+            txns = listOf(
+                TransactionEntity(description = "Opening cash", amount_cents = 10_000L, date = "2027-01-31", type = "adjustment"),
+                TransactionEntity(description = "Posted receipt", amount_cents = 80_000L, date = "2027-02-10", type = "income"),
+            ),
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 0L, isReconciled = false),
+        )
+        val bankStates = listOf(
+            ledger.balanceState,
+            LedgerRepository.BalanceState(bankBalanceCents = 90_000L, isReconciled = true),
+            LedgerRepository.BalanceState(bankBalanceCents = 55_000L, isReconciled = true),
+        )
+        for (balanceState in bankStates) {
+            val result = DashboardDeriver().derive(ledger.copy(balanceState = balanceState), asOf, contractForecastEnabled = true)
+            val scenario = ContractScenarioBridge.build(requireNotNull(result.scenarioInputs))
+            val forecast = ContractRunner.run(scenario).forecast
+            assertEquals(10_000L, scenario.startingBalanceCents)
+            assertEquals(-10_000L, forecast.minimumBalanceCents)
+            assertEquals(asOf.plusDays(2), forecast.minimumBalanceDate)
+            assertEquals(70_000L, forecast.endingBalanceCents)
+        }
+    }
 }

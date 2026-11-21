@@ -11,6 +11,8 @@ data class IncomeEntity(
     val frequency: String,
     val day_of_month: Int?,
     val next_date: String,
+    /** Last recorded payday, when imported from a canonical vault; null for legacy local rows. */
+    val last_date: String? = null,
     val expectedAmountCents: Long? = null,
     val payType: String = "FLAT"
 )

@@ -34,6 +34,7 @@ import com.montecarlo.ledger.data.TransactionRuleEntity
 import com.montecarlo.ledger.data.isCreditAccount
 import com.montecarlo.ledger.processing.BalanceForecastRow
 import com.montecarlo.ledger.processing.CashFlowWindow
+import com.montecarlo.ledger.processing.CashForecastTiming
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.BudgetPacingEngine
 import com.montecarlo.ledger.processing.ForecastEngine
@@ -124,9 +125,8 @@ class DashboardDeriver {
             .map { it.id }
             .toSet()
         val ledgerBalanceCents = pack.txns.sumOf { it.amount_cents }
-        val cashLedgerCents = pack.txns
-            .filter { it.account_id == null || it.account_id !in creditAccountIds }
-            .sumOf { it.amount_cents }
+        val cashTransactions = pack.txns.filter { it.account_id == null || it.account_id !in creditAccountIds }
+        val cashLedgerCents = cashTransactions.sumOf { it.amount_cents }
         val bankBalanceCents = pack.balanceState.bankBalanceCents
         val reconciled = pack.balanceState.isReconciled
         val mismatch = reconciled && bankBalanceCents != cashLedgerCents
@@ -138,9 +138,21 @@ class DashboardDeriver {
             bankBalanceCents,
             reconciled
         )
+        // Future-posted cash transactions belong on their actual day, not in the opening seed.
+        // This prevents a future receipt from appearing as today's cash and then disappearing
+        // from the dated projection. Credit-account transactions are not bank cash events.
+        val futureCashTransactions = cashTransactions.filter { it.date > today.toString() }
+        val timing = canonicalCalculation {
+            CashForecastTiming.opening(forecastSeedCents, cashTransactions, today) to
+                CashForecastTiming.nativeEvents(futureCashTransactions, today.plusDays(90))
+        }
+        val timingFailure = timing as? ContractCalculationResult.Failure
+        val timedCash = (timing as? ContractCalculationResult.Success)?.value
+        val forecastOpeningCents = timedCash?.first ?: 0L
+        val futureTransactionEvents = timedCash?.second.orEmpty()
         val timelineEvents = TimelineService.generateTimeline(pack.incomes, pack.payments, today, 90, pack.billOccurrences, pack.rules)
         val debtInputs = ContractScenarioBridge.Inputs(
-            startingBalanceCents = forecastSeedCents,
+            startingBalanceCents = forecastOpeningCents,
             asOf = today,
             incomes = pack.incomes,
             payments = pack.payments,
@@ -150,13 +162,14 @@ class DashboardDeriver {
                 TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
             }.toMap(),
             debts = pack.debts,
+            transactions = futureCashTransactions,
         )
         val debtEventResult = canonicalCalculation {
             ContractScenarioBridge.debtMinimumForecastEvents(debtInputs)
         }
         val debtEventFailure = debtEventResult as? ContractCalculationResult.Failure
         val debtEvents = (debtEventResult as? ContractCalculationResult.Success)?.value.orEmpty()
-        val events = (timelineEvents + debtEvents).sortedWith(
+        val events = (timelineEvents + debtEvents + futureTransactionEvents).sortedWith(
             compareBy<com.montecarlo.ledger.processing.ForecastEvent> { it.date }
                 .thenBy { if (it.type == "income") 0 else 1 }
                 .thenBy { it.description },
@@ -179,15 +192,15 @@ class DashboardDeriver {
         // WS6: the canonical bridge inputs are built inside [adoptContract] and handed back, so a
         // "what if" comparison is always measured against the exact scenario this dashboard ran.
         val contractRun: Pair<ContractScenarioBridge.Inputs?, ContractCalculationResult<CanonicalAdoption>>? =
-            if (contractForecastEnabled) {
+            if (contractForecastEnabled && timingFailure == null) {
                 withContext(Dispatchers.Default) {
-                    adoptContract(pack, forecastSeedCents, today, calibration)
+                    adoptContract(pack, forecastOpeningCents, today, calibration)
                 }
             } else {
                 null
             }
         val scenarioInputs: ContractScenarioBridge.Inputs? = contractRun?.first
-        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = debtEventFailure ?: contractRun?.second
+        val contractOutcome: ContractCalculationResult<CanonicalAdoption>? = timingFailure ?: debtEventFailure ?: contractRun?.second
 
         // WS2: when the contract fails, keep the last known valid canonical result so the headline
         // numbers never silently degrade onto the legacy native engines.
@@ -202,7 +215,7 @@ class DashboardDeriver {
 
         val canonicalFailure = contractOutcome as? ContractCalculationResult.Failure
         val canonicalStatus = when {
-            debtEventFailure != null -> CanonicalForecastStatus.Failed
+            timingFailure != null || debtEventFailure != null -> CanonicalForecastStatus.Failed
             !contractForecastEnabled -> CanonicalForecastStatus.Native
             contractOutcome is ContractCalculationResult.Success -> CanonicalForecastStatus.Live
             lastKnownCanonical != null -> CanonicalForecastStatus.Stale
@@ -245,8 +258,8 @@ class DashboardDeriver {
                     // Secondary native metrics are safe only when the canonical calculation for
                     // this ledger succeeded. A stale result keeps its canonical headline; an
                     // overflowing new ledger must not be re-read through unchecked native paths.
-                    incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
-                    cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
+                    incomeContribution = ForecastEngine.calculateIncomeContribution(forecastOpeningCents, events)
+                    cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastOpeningCents, events, today, 90)
                 }
             }
             CanonicalForecastStatus.Failed -> {
@@ -256,17 +269,17 @@ class DashboardDeriver {
                 dailyBudgetCents = 0L
             }
             CanonicalForecastStatus.Native -> {
-                forecastSummary = ForecastEngine.calculateForecastSummary(forecastSeedCents, events, today)
+                forecastSummary = ForecastEngine.calculateForecastSummary(forecastOpeningCents, events, today)
                 mc = withContext(Dispatchers.Default) {
                     MonteCarloEngine(calibration.toParams(includeDailyPercentiles = true))
-                        .runSimulation(forecastSeedCents, events, today)
+                        .runSimulation(forecastOpeningCents, events, today)
                 }
-                forecastRows = ForecastEngine.buildBalanceForecast(forecastSeedCents, events)
-                cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastSeedCents, events, today, 90)
+                forecastRows = ForecastEngine.buildBalanceForecast(forecastOpeningCents, events)
+                cashFlowWindows = ForecastEngine.buildCashFlowWindows(forecastOpeningCents, events, today, 90)
                 val currentCashFlowWindow = cashFlowWindows.firstOrNull()
                 dailyBudgetCents = currentCashFlowWindow?.dailyPacingCents
-                    ?: ForecastEngine.calculateDailySafeSpend(forecastSeedCents, events, daysUntilPayday)
-                incomeContribution = ForecastEngine.calculateIncomeContribution(forecastSeedCents, events)
+                    ?: ForecastEngine.calculateDailySafeSpend(forecastOpeningCents, events, daysUntilPayday)
+                incomeContribution = ForecastEngine.calculateIncomeContribution(forecastOpeningCents, events)
             }
         }
         // MCD-0008: only the contract path models a trough distribution, so only it can supply a
@@ -303,7 +316,7 @@ class DashboardDeriver {
             today = today,
         )
         val moneyBuckets = buildMoneyBuckets(
-            forecastSeedCents = forecastSeedCents,
+            forecastSeedCents = forecastOpeningCents,
             scheduledBillBurdenCents = scheduledBillBurdenCents,
             goals = pack.goals,
             safeToSpendCents = safeToSpend,
@@ -333,15 +346,16 @@ class DashboardDeriver {
         // InsufficientData so they are never presented as calibrated.
         val assumptionProvenance = buildAssumptionProvenance(
             calibration = calibration,
-            reconciled = reconciled,
-            forecastSeedCents = forecastSeedCents,
+            reconciled = reconciled && futureCashTransactions.isEmpty(),
+            hasFutureCash = futureCashTransactions.isNotEmpty(),
+            forecastSeedCents = forecastOpeningCents,
             probabilityNegativePct = mc.probability_negative_pct,
         )
         val trustSignals = buildTrustSignals(
             updatedAt = LocalDateTime.now(),
             reconciled = reconciled,
             transactionCount = pack.txns.size,
-            forecastSeedCents = forecastSeedCents,
+            forecastSeedCents = forecastOpeningCents,
             eventCount = events.size,
             reviewCount = reviewItems.size,
             canonicalStatus = canonicalStatus,
@@ -467,6 +481,7 @@ class DashboardDeriver {
                 TimelineService.resolveCategory(payment.name, pack.rules)?.let { payment.id to it }
             }
             .toMap()
+        val creditIds = pack.accounts.filter { it.isCreditAccount() }.map { it.id }.toSet()
         return ContractScenarioBridge.Inputs(
             startingBalanceCents = startingBalanceCents,
             asOf = asOf,
@@ -476,6 +491,10 @@ class DashboardDeriver {
             simulation = ContractScenarioBridge.simulationParams(calibration),
             paymentCategories = paymentCategories,
             debts = pack.debts,
+            transactions = pack.txns.filter {
+                it.date > asOf.toString() &&
+                    (it.account_id == null || it.account_id !in creditIds)
+            },
         )
     }
 
@@ -563,6 +582,7 @@ class DashboardDeriver {
     private fun buildAssumptionProvenance(
         calibration: MonteCarloCalibration,
         reconciled: Boolean,
+        hasFutureCash: Boolean,
         forecastSeedCents: Long,
         probabilityNegativePct: Double,
     ): List<AssumptionProvenance> {
@@ -583,7 +603,11 @@ class DashboardDeriver {
                 value = centsToDisplay(forecastSeedCents),
                 origin = AssumptionOrigin.HistoryDerived,
                 sufficiency = DataSufficiency.Sufficient,
-                detail = "Derived from your logged transactions; confirm your bank balance to pin it.",
+                detail = if (hasFutureCash) {
+                    "Uses transactions dated through today. Future transactions enter on their recorded dates."
+                } else {
+                    "Derived from your logged transactions; confirm your bank balance to pin it."
+                },
             )
         }
 

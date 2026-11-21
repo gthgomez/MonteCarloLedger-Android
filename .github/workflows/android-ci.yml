@@ -58,3 +58,7 @@ jobs:
           name: unit-test-reports
           path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
+
+
+      - name: Lint debug
+        run: ./gradlew :app:lintDebug --no-daemon

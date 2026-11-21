@@ -416,9 +416,9 @@ private fun PaymentCard(
     payment: PaymentEntity,
     onEditPayment: (PaymentEntity) -> Unit,
 ) {
-    val isOverdue = runCatching {
-        LocalDate.parse(payment.next_date).isBefore(LocalDate.now())
-    }.getOrDefault(false)
+    val today = LocalDate.now()
+    val nextDue = PaymentSchedule.firstDueInOrBeforeWindow(payment.frequency, payment.day_of_month, payment.next_date, today)
+    val isOverdue = nextDue != null && nextDue.isBefore(today)
     SolidListSurface(
         modifier = Modifier.heightIn(min = UiLayoutTokens.LedgerListCardMinHeight),
     ) {
@@ -459,7 +459,7 @@ private fun PaymentCard(
                     color = if (isOverdue) GlassTokens.ErrorRed else GlassTokens.CyanBright
                 )
                 Text(
-                    "Next due: ${payment.next_date.formatDateDisplay()}",
+                    "Next due: ${nextDue?.toString()?.formatDateDisplay() ?: "Unknown"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isOverdue) GlassTokens.ErrorRed else GlassTokens.TextDim
                 )

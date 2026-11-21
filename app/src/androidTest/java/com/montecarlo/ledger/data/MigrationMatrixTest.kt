@@ -445,4 +445,25 @@ class MigrationMatrixTest {
                 "balanceCents INTEGER NOT NULL, lastUpdated TEXT NOT NULL)",
         )
     }
+    @Test
+    fun migration17To18RetainsLegacyIncomeAndLeavesUnknownLastDateAbsent() {
+        val name = "migration-timing"
+        try {
+            helper.createDatabase(name, 17).use {
+                it.execSQL("INSERT INTO income (id, name, amount_cents, frequency, day_of_month, next_date, payType) " +
+                    "VALUES (1, 'Legacy salary', 30000, 'Monthly', 31, '2027-02-28', 'FLAT')")
+            }
+            helper.runMigrationsAndValidate(name, 18, true, AppDatabase.MIGRATION_17_18_FOR_TEST).use {
+                it.query("SELECT amount_cents, day_of_month, next_date, last_date FROM income WHERE id=1").use { row ->
+                    assertTrue(row.moveToFirst())
+                    assertEquals(30000L, row.getLong(0))
+                    assertEquals(31, row.getInt(1))
+                    assertEquals("2027-02-28", row.getString(2))
+                    assertTrue(row.isNull(3))
+                }
+            }
+        } finally {
+            context.deleteDatabase(name)
+        }
+    }
 }

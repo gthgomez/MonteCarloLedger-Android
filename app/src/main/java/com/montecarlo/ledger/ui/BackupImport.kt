@@ -79,6 +79,7 @@ private fun JsonObject.toIncomeEntity(): IncomeEntity =
         frequency = str("frequency"),
         day_of_month = nullableInt("day_of_month"),
         next_date = str("next_date"),
+        last_date = nullableString("last_date"),
         expectedAmountCents = nullableLong("expectedAmountCents"),
         payType = optStr("payType").ifBlank { "FLAT" },
     )

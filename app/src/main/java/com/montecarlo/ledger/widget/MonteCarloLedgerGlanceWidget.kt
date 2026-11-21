@@ -24,8 +24,11 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.montecarlo.ledger.CanonicalForecastStatus
+import com.montecarlo.ledger.contract.ContractException
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.data.AppDatabase
+import com.montecarlo.ledger.data.isCreditAccount
+import com.montecarlo.ledger.processing.CashForecastTiming
 import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.TimelineService
 import com.montecarlo.ledger.ui.formatDateDisplay
@@ -103,27 +106,35 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         val reconciled = settings["bank_balance_reconciled"].toPersistedBoolean()
         // MC-06b persisted adoption flag; absent means ON.
         val contractForecastEnabled = settings["contract_forecast_enabled"]?.toPersistedBoolean() ?: true
+        val today = LocalDate.now()
         // Cash-vs-card routing mirrors DashboardDeriver: only the account's TYPE decides. A
         // credit-type account's charges live on the card liability, never in the bank, so they
         // must not lower the widget's cash seed (or the widget would disagree with the dashboard).
         val cashLedgerCents = widgetCashLedgerCents(txns, accounts)
         val forecastSeedCents = BalanceSeedResolver.resolve(cashLedgerCents, bankBalanceCents, reconciled)
+        val creditAccountIds = accounts.filter { it.isCreditAccount() }.map { it.id }.toSet()
+        val cashTransactions = txns.filter { it.account_id == null || it.account_id !in creditAccountIds }
+        val futureCashTransactions = cashTransactions.filter { it.date > today.toString() }
 
-        val today = LocalDate.now()
-        // WS2/F1: headline numbers come from the canonical contract engine while the adoption flag
-        // is on. A canonical failure yields an explicit unavailable state — the native engines are
-        // never silently substituted (the same mechanism the dashboard uses).
-        val forecast = deriveWidgetForecast(
-            today = today,
-            contractForecastEnabled = contractForecastEnabled,
-            forecastSeedCents = forecastSeedCents,
-            incomes = incomes,
-            payments = payments,
-            occurrences = occurrences,
-            txns = txns,
-            rules = rules,
-            debts = debts,
-        )
+        val forecast = try {
+            val forecastOpeningCents = CashForecastTiming.opening(forecastSeedCents, cashTransactions, today)
+            deriveWidgetForecast(
+                today = today,
+                contractForecastEnabled = contractForecastEnabled,
+                forecastSeedCents = forecastOpeningCents,
+                incomes = incomes,
+                payments = payments,
+                occurrences = occurrences,
+                txns = txns,
+                futureCashTransactions = futureCashTransactions,
+                rules = rules,
+                debts = debts,
+            )
+        } catch (_: ContractException) {
+            unavailableTimingForecast()
+        } catch (_: ArithmeticException) {
+            unavailableTimingForecast()
+        }
 
         val nextBillLabel = if (!forecast.available) {
             "Payment schedule unavailable"
@@ -252,3 +263,9 @@ class MonteCarloLedgerGlanceWidget : GlanceAppWidget() {
         }
     }
 }
+
+private fun unavailableTimingForecast() = WidgetForecast(
+    safeToSpendCents = 0L, probabilityNegativePct = 0.0,
+    riskLabel = WIDGET_WITHHELD_LABEL, status = CanonicalForecastStatus.Failed,
+    available = false, calibrated = false,
+)

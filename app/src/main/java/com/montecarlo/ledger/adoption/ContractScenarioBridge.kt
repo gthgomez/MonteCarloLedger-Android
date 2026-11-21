@@ -12,6 +12,7 @@ import com.montecarlo.ledger.data.BillOccurrenceEntity
 import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
+import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import com.montecarlo.ledger.processing.RecurrenceMath
 import com.montecarlo.ledger.processing.ForecastEvent
@@ -68,6 +69,7 @@ object ContractScenarioBridge {
         /** Resolved bill categories (contract 1.2): payment id -> category. */
         val paymentCategories: Map<Int, String> = emptyMap(),
         val debts: List<DebtEntity> = emptyList(),
+        val transactions: List<TransactionEntity> = emptyList(),
     )
 
     /** Builds the canonical scenario. Callers pass `asOf` from the UI/ViewModel clock boundary. */
@@ -102,6 +104,26 @@ object ContractScenarioBridge {
                 )
             )
         }
+        // Posted transactions after `asOf` are future cash events, not opening balance. The
+        // caller resolves the opening seed from the full ledger, so future rows are reintroduced
+        // here on their actual dates to keep receipt/expense timing visible.
+        inputs.transactions
+            .filter { it.date > inputs.asOf.toString() && it.date < endExclusive.toString() }
+            .forEach { transaction ->
+                val date = LedgerDate.parseIsoOrNull(transaction.date) ?: return@forEach
+                val eventType = transaction.type.lowercase()
+                explicit.add(
+                    ContractEvent(
+                        id = "transaction-${transaction.id}",
+                        name = transaction.description.ifBlank { transaction.category },
+                        date = date,
+                        amountCents = transaction.amount_cents,
+                        type = eventType,
+                        sequence = null,
+                        inputIndex = inputIndex++,
+                    )
+                )
+            }
         explicit.addAll(debtMinimumEvents(inputs, representedPayments, endExclusive))
 
         val recurrences = ArrayList<ContractRecurrence>()
@@ -331,7 +353,9 @@ object ContractScenarioBridge {
         suppressed: Set<Pair<Int, String>>,
         category: String?,
     ): PaymentRecurrence? {
-        val start = LedgerDate.parseIsoOrNull(payment.next_date) ?: return null
+        val start = com.montecarlo.ledger.processing.PaymentSchedule.firstDueInOrBeforeWindow(
+            payment.frequency, payment.day_of_month, payment.next_date, asOf,
+        ) ?: return null
         val amount = -abs(payment.amount_cents)
         if (amount >= 0L) return null
         val frequency = contractFrequency(payment.frequency) ?: return null

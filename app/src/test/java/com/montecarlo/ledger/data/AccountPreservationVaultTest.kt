@@ -5,6 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
+import com.montecarlo.ledger.contract.ContractEngine
+import com.montecarlo.ledger.dashboard.DashboardDeriver
+import com.montecarlo.ledger.dashboard.ReportingPackage
+import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.sync.CloudVaultSync
 import com.montecarlo.ledger.sync.LocalLedgerPreservation
@@ -208,5 +212,84 @@ class AccountPreservationVaultTest {
         )))
         assertEquals(20_000L, unlinked.forecast.endingBalanceCents)
         assertEquals(10_000L, requireNotNull(unlinked.risk).safeToSpendCents)
+    }
+    @Test
+    fun vaultTimingRetainsRuleOnlyBillAndExactPaydayDates() = runBlocking {
+        val fixture = javaClass.getResourceAsStream("/households/vault-timing.json")!!
+            .bufferedReader().use { JSONObject(it.readText()) }
+        repo.restoreCrossPlatformVaultJson(fixture.getJSONObject("ledger").toString())
+        val out = JSONObject(repo.exportCrossPlatformVaultJson("2027-02-01T00:00:00Z"))
+        val incomeRows = out.getJSONArray("incomes")
+        val income = (0 until incomeRows.length()).map { incomeRows.getJSONObject(it) }
+            .single { it.getString("id") == "income-month-end" }
+        val bills = out.getJSONArray("payments")
+        val bill = (0 until bills.length()).map { bills.getJSONObject(it) }
+            .single { it.getString("id") == "bill-rule" }
+        assertEquals(listOf("2027-01-31", "2027-02-28", null), listOf(
+            income.getString("last_payday"),
+            income.getString("next_payday"),
+            if (bill.isNull("due_date")) null else bill.getString("due_date"),
+        ))
+    }
+    @Test
+    fun datedRoomHouseholdSurvivesReloadAndLegacyRoundTrip() = runBlocking {
+        val json = javaClass.getResourceAsStream("/households/vault-timing.json")!!
+            .bufferedReader().use { it.readText() }
+        val name = "vault-timing-room"
+        db.close()
+        context.deleteDatabase(name)
+        try {
+            for ((year, version) in listOf("2027" to "2.2", "2028" to "2.1", "2027" to "2.0")) {
+                val fixture = JSONObject(if (year == "2028") {
+                    json.replace("2027-02-28", "2028-02-29").replace("2027-", "2028-")
+                } else json)
+                val snapshot = fixture.getJSONObject("ledger").put("version", version)
+                db = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+                repo = LedgerRepository(db)
+                repo.restoreCrossPlatformVaultJson(snapshot.toString())
+                db.close()
+
+                db = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+                repo = LedgerRepository(db)
+                val exported = repo.exportCrossPlatformVaultJson("2027-02-01T00:00:00Z")
+                repo.restoreCrossPlatformVaultJson(exported)
+                val asOf = LocalDate.parse(fixture.getString("as_of"))
+                val pack = ReportingPackage(
+                    incomes = repo.allIncome.first(), payments = repo.allPayments.first(),
+                    txns = repo.allTransactions.first(), accounts = repo.allAccounts.first(),
+                    balanceState = repo.balanceState.first(), billOccurrences = repo.allBillOccurrences.first(),
+                    assets = emptyList(), goals = emptyList(), categoryBudgets = emptyList(),
+                    debts = emptyList(), rules = emptyList(), dashboardConfig = DashboardConfig(),
+                )
+                val result = DashboardDeriver().derive(pack, asOf, contractForecastEnabled = true)
+                val scenario = ContractScenarioBridge.build(requireNotNull(result.scenarioInputs).copy(
+                    horizonDays = fixture.getInt("horizon_days"), simulation = null,
+                ))
+                val forecast = ContractRunner.run(scenario).forecast
+                assertEquals(10_000L, scenario.startingBalanceCents)
+                assertEquals(-10_000L, forecast.minimumBalanceCents)
+                assertEquals(asOf.plusDays(2), forecast.minimumBalanceDate)
+                assertEquals(204_500L, forecast.endingBalanceCents)
+                val expected = fixture.getJSONObject("expected").getJSONArray("event_dates_and_cents")
+                val expectedEvents = (0 until expected.length()).map { i ->
+                    val row = expected.getJSONArray(i)
+                    "${row.getString(0)}:${row.getLong(1)}"
+                }.sorted()
+                val actual = ContractEngine.inWindowBaseEvents(scenario)
+                    .map { "${it.date}:${it.amountCents}" }.sorted()
+                assertEquals(expectedEvents, actual)
+
+                val malformed = JSONObject(exported)
+                malformed.getJSONArray("incomes").getJSONObject(0).put("next_payday", "$year-02-30")
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking { repo.restoreCrossPlatformVaultJson(malformed.toString()) }
+                }
+                assertEquals(exported, repo.exportCrossPlatformVaultJson("2027-02-01T00:00:00Z"))
+                db.close()
+            }
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
     }
 }

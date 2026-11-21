@@ -508,14 +508,17 @@ class LedgerRepository(private val db: AppDatabase) {
             val horizon = today.plusDays(90)
             val payments = db.paymentDao().getActive().first()
             for (payment in payments) {
-                var cursor = LocalDate.parse(payment.next_date)
+                var cursor = com.montecarlo.ledger.processing.PaymentSchedule.firstDueInOrBeforeWindow(
+                    payment.frequency, payment.day_of_month, payment.next_date, today,
+                ) ?: throw IllegalArgumentException("Invalid payment schedule.")
+                val ruleOnly = payment.next_date.isEmpty()
                 val freq = RecurrenceMath.normalizeFrequency(payment.frequency)
                 val isOneTime = freq == "onetime"
                 // MCD-0022 / bug B-07: anchor to the schedule's day, not the clamped cursor day.
                 val dayOfMonth = payment.day_of_month ?: cursor.dayOfMonth
                 db.billOccurrenceDao().deleteUnpaidForPaymentBetween(payment.id, lookback, horizon)
                 // Rewind cursor to cover the 30-day lookback window for recurring payments
-                if (!isOneTime) {
+                if (!isOneTime && !ruleOnly) {
                     while (cursor.isAfter(lookback)) {
                         val prev = RecurrenceMath.previousDate(cursor, payment.frequency, dayOfMonth) ?: break
                         if (prev.isBefore(lookback)) break
@@ -609,6 +612,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 db.incomeDao().updateIncome(
                     current.copy(
                         next_date = newNextDate,
+                        last_date = paydayDate,
                         expectedAmountCents = null,
                     )
                 )
@@ -1368,17 +1372,28 @@ class LedgerRepository(private val db: AppDatabase) {
         return CanonicalIdMapping(localToCanonical)
     }
 
+    private fun JSONObject.vaultDate(key: String): LocalDate =
+        LedgerDate.parseIsoOrNull(getString(key))
+            ?: throw IllegalArgumentException("Invalid vault date for $key.")
+
     private fun JSONArray.toVaultIncomes(ids: CanonicalIdMapping): List<IncomeEntity> = buildList {
         for (index in 0 until length()) {
             val obj = getJSONObject(index)
+            val next = obj.vaultDate("next_payday")
+            val last = obj.vaultDate("last_payday")
+            val frequency = obj.getString("frequency")
+            val anchor = if (frequency == "Monthly" && next.dayOfMonth == minOf(last.dayOfMonth, next.lengthOfMonth())) {
+                last.dayOfMonth
+            } else null
             add(
                 IncomeEntity(
                     id = ids.local("incomes", obj.getString("id")) ?: error("Unknown income id"),
                     name = obj.getString("name"),
                     amount_cents = obj.vaultCents("amount_cents"),
-                    frequency = obj.getString("frequency"),
-                    day_of_month = null,
-                    next_date = obj.getString("next_payday"),
+                    frequency = frequency,
+                    day_of_month = anchor,
+                    next_date = next.toString(),
+                    last_date = last.toString(),
                     expectedAmountCents = if (obj.isNull("expected_amount")) null else obj.vaultCents("expected_amount"),
                 ),
             )
@@ -1388,19 +1403,23 @@ class LedgerRepository(private val db: AppDatabase) {
     private fun JSONArray.toVaultPayments(ids: CanonicalIdMapping): List<PaymentEntity> = buildList {
         for (index in 0 until length()) {
             val obj = getJSONObject(index)
-            val dueDate = if (!obj.isNull("due_date")) {
-                obj.getString("due_date")
-            } else {
-                val day = obj.optInt("due_day", 1).coerceIn(1, 28)
-                LocalDate.now().withDayOfMonth(day).toString()
+            val frequency = obj.getString("recurrence")
+            val dueDay = if (obj.isNull("due_day")) null else {
+                val day = obj.get("due_day")
+                require(day is Int && day in 1..31) { "Invalid vault bill due day." }
+                day
             }
+            val dueDate = if (obj.isNull("due_date")) {
+                require(frequency == "Monthly" && dueDay != null) { "A vault bill needs a due date or monthly day rule." }
+                ""
+            } else obj.vaultDate("due_date").toString()
             add(
                 PaymentEntity(
                     id = ids.local("payments", obj.getString("id")) ?: error("Unknown payment id"),
                     name = obj.getString("name"),
                     amount_cents = obj.vaultCents("amount_cents"),
-                    frequency = obj.getString("recurrence"),
-                    day_of_month = if (obj.isNull("due_day")) null else obj.getInt("due_day"),
+                    frequency = frequency,
+                    day_of_month = dueDay,
                     next_date = dueDate,
                     isAutoWithdraw = obj.optBoolean("is_auto_withdraw", true),
                 ),
@@ -1416,7 +1435,7 @@ class LedgerRepository(private val db: AppDatabase) {
                     id = ids.local("transactions", obj.getString("id")) ?: error("Unknown transaction id"),
                     description = obj.optString("description", ""),
                     amount_cents = obj.vaultCents("amount_cents"),
-                    date = obj.getString("date"),
+                    date = obj.vaultDate("date").toString(),
                     type = obj.getString("type").lowercase(),
                     category = obj.optString("category", "uncategorized"),
                 ),
@@ -1435,7 +1454,8 @@ class LedgerRepository(private val db: AppDatabase) {
             val obj = getJSONObject(index)
             val paymentId = ids.local("payments", obj.getString("payment_id"))
                 ?: throw IllegalArgumentException("bill_occurrences[$index] references unknown payment_id")
-            val originalDueDate = obj.optString("original_due_date", obj.getString("due_date"))
+            val dueDate = obj.vaultDate("due_date").toString()
+            val originalDueDate = if (obj.isNull("original_due_date")) dueDate else obj.vaultDate("original_due_date").toString()
             require(occupiedSlots.add(paymentId to originalDueDate)) {
                 "bill_occurrences has duplicate original slot for payment_id ${obj.getString("payment_id")}"
             }
@@ -1468,7 +1488,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 BillOccurrenceEntity(
                     id = ids.local("occurrences", obj.getString("id")) ?: error("Unknown occurrence id"),
                     payment_id = paymentId,
-                    due_date = obj.getString("due_date"),
+                    due_date = dueDate,
                     amount_cents = amount,
                     is_paid = if (paid) 1 else 0,
                     transaction_id = transactionId,

@@ -32,7 +32,7 @@ object PaymentSchedule {
                 val day = (dueDay ?: dueDate?.dayOfMonth ?: 1).coerceIn(1, 31)
                 var next = dueDate ?: run {
                     val thisMonth = today.withDayOfMonth(day.coerceAtMost(today.lengthOfMonth()))
-                    if (thisMonth >= today) thisMonth else thisMonth.plusMonths(1)
+                    if (thisMonth >= today) thisMonth else RecurrenceMath.nextDate(thisMonth, recurrence, day)!!
                 }
                 while (next.isBefore(today)) {
                     next = RecurrenceMath.nextDate(next, recurrence, day) ?: return next.toString()
@@ -49,6 +49,14 @@ object PaymentSchedule {
                 next.toString()
             }
         }
+    }
+
+    /** An empty stored date is reserved for an imported monthly day rule. */
+    fun firstDueInOrBeforeWindow(recurrence: String, dueDay: Int?, storedDate: String, asOf: LocalDate): LocalDate? {
+        if (storedDate.isNotEmpty()) return com.montecarlo.ledger.util.LedgerDate.parseIsoOrNull(storedDate)
+        if (normalize(recurrence) != "monthly" || dueDay == null || dueDay !in 1..31) return null
+        val thisMonth = asOf.withDayOfMonth(minOf(dueDay, asOf.lengthOfMonth()))
+        return if (thisMonth >= asOf) thisMonth else RecurrenceMath.nextDate(thisMonth, recurrence, dueDay)
     }
 
     fun recurrenceSummary(

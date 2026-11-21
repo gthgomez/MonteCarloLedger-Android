@@ -114,6 +114,7 @@ private fun IncomeEntity.toJsonElement(): JsonObject = buildJsonObject {
     put("frequency", frequency)
     putNullableInt("day_of_month", day_of_month)
     put("next_date", next_date)
+    putNullableString("last_date", last_date)
     putNullableLong("expectedAmountCents", expectedAmountCents)
     put("payType", payType)
 }

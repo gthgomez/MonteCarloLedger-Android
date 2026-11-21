@@ -1,0 +1,144 @@
+{
+  "as_of": "2027-02-01",
+  "horizon_days": 65,
+  "ledger": {
+    "version": "2.1",
+    "updated_at": "2027-02-01T00:00:00Z",
+    "current_balance_cents": 68000,
+    "incomes": [
+      {
+        "amount_cents": 30000,
+        "expected_amount": null,
+        "frequency": "Monthly",
+        "id": "income-month-end",
+        "last_payday": "2027-01-31",
+        "name": "Month end",
+        "next_payday": "2027-02-28"
+      },
+      {
+        "amount_cents": 80000,
+        "expected_amount": null,
+        "frequency": "Monthly",
+        "id": "income-recorded",
+        "last_payday": "2027-02-10",
+        "name": "Recorded source",
+        "next_payday": "2027-03-10"
+      }
+    ],
+    "payments": [
+      {
+        "amount_cents": 2000,
+        "due_date": null,
+        "due_day": 31,
+        "id": "bill-rule",
+        "is_auto_withdraw": true,
+        "name": "Rule only",
+        "recurrence": "Monthly"
+      },
+      {
+        "amount_cents": 1500,
+        "due_date": "2027-02-15",
+        "due_day": null,
+        "id": "bill-moved",
+        "is_auto_withdraw": true,
+        "name": "Moved bill",
+        "recurrence": "One-time"
+      }
+    ],
+    "transactions": [
+      {
+        "amount_cents": 10000,
+        "category": null,
+        "date": "2027-01-31",
+        "description": null,
+        "id": "opening",
+        "type": "Adjustment"
+      },
+      {
+        "amount_cents": -20000,
+        "category": null,
+        "date": "2027-02-03",
+        "description": "Early expense",
+        "id": "early-expense",
+        "type": "Expense"
+      },
+      {
+        "amount_cents": 80000,
+        "category": null,
+        "date": "2027-02-10",
+        "description": "Recorded receipt",
+        "id": "receipt",
+        "type": "Income"
+      },
+      {
+        "amount_cents": -2000,
+        "category": null,
+        "date": "2027-02-28",
+        "description": "Paid rule",
+        "id": "settlement",
+        "type": "Expense"
+      }
+    ],
+    "bill_occurrences": [
+      {
+        "due_date": "2027-02-28",
+        "id": "paid-slot",
+        "is_user_modified": false,
+        "original_due_date": "2027-02-28",
+        "paid": true,
+        "payment_id": "bill-rule",
+        "transaction_id": "settlement"
+      },
+      {
+        "due_date": "2027-02-17",
+        "id": "moved-slot",
+        "is_user_modified": true,
+        "original_due_date": "2027-02-15",
+        "paid": false,
+        "payment_id": "bill-moved",
+        "transaction_id": null
+      }
+    ],
+    "liabilities": []
+  },
+  "expected": {
+    "opening_cents": 10000,
+    "minimum_cents": -10000,
+    "minimum_date": "2027-02-03",
+    "ending_cents": 204500,
+    "event_dates_and_cents": [
+      [
+        "2027-02-03",
+        -20000
+      ],
+      [
+        "2027-02-10",
+        80000
+      ],
+      [
+        "2027-02-17",
+        -1500
+      ],
+      [
+        "2027-02-28",
+        30000
+      ],
+      [
+        "2027-02-28",
+        -2000
+      ],
+      [
+        "2027-03-10",
+        80000
+      ],
+      [
+        "2027-03-31",
+        30000
+      ],
+      [
+        "2027-03-31",
+        -2000
+      ]
+    ]
+  }
+}
