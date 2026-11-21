@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
 import com.montecarlo.ledger.contract.ContractRunner
+import com.montecarlo.ledger.contract.ContractSimulationParams
 import com.montecarlo.ledger.sync.CloudVaultSync
 import com.montecarlo.ledger.sync.LocalLedgerPreservation
 import com.montecarlo.ledger.sync.VaultLocalChangesException
@@ -133,28 +134,9 @@ class AccountPreservationVaultTest {
     }
     @Test
     fun vaultRoundTripPreservesLinkedDebtAndIndependentForecastOracle() = runBlocking {
-        val payload = """
-            {
-              "version": "2.2",
-              "current_balance_cents": 120000,
-              "incomes": [],
-              "payments": [
-                {"id": "payment-car", "name": "Car loan", "amount_cents": 50000, "recurrence": "Monthly", "due_day": 15}
-              ],
-              "transactions": [
-                {"id": "opening", "type": "Adjustment", "amount_cents": 120000, "date": "2028-01-31"}
-              ],
-              "bill_occurrences": [],
-              "liabilities": [
-                {"id": "debt-car", "name": "Car loan", "balance_cents": 300000,
-                 "apr_basis_points": 0, "min_payment_cents": 50000,
-                 "due_day_of_month": 15, "linked_payment_id": "payment-car"},
-                {"id": "10", "name": "Archived", "balance_cents": 45000,
-                 "apr_basis_points": 0, "min_payment_cents": 8000, "is_active": false}
-              ]
-            }
-        """.trimIndent()
-        repo.restoreCrossPlatformVaultJson(payload)
+        val fixture = javaClass.getResourceAsStream("/households/vault-payment-identity.json")
+            ?.bufferedReader()?.use { JSONObject(it.readText()) } ?: error("Missing household fixture")
+        repo.restoreCrossPlatformVaultJson(fixture.getJSONObject("ledger").toString())
         val exported = repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z")
         repeat(2) { repo.restoreCrossPlatformVaultJson(exported) }
         val debts = db.debtDao().getAll().first().associateBy { it.name }
@@ -170,14 +152,19 @@ class AccountPreservationVaultTest {
         assertEquals("payment-car", linkedDebt.getString("linked_payment_id"))
         val inputs = ContractScenarioBridge.Inputs(
             startingBalanceCents = db.transactionDao().getTotalBalanceCents().first()!!,
-            asOf = LocalDate.parse("2028-02-01"),
-            horizonDays = 35,
+            asOf = LocalDate.parse(fixture.getString("as_of")),
+            horizonDays = fixture.getInt("horizon_days"),
+            simulation = ContractSimulationParams(
+                seed = 7L, surpriseProbabilityPpm = 0, reserveCents = fixture.getLong("reserve_cents"),
+            ),
             incomes = db.incomeDao().getAllIncomesList(),
             payments = db.paymentDao().getAllPaymentsList(),
             billOccurrences = db.billOccurrenceDao().getAllOccurrencesList(),
             debts = debts.values.toList(),
         )
-        assertEquals(70_000L, ContractRunner.run(ContractScenarioBridge.build(inputs)).forecast.endingBalanceCents)
+        val linked = ContractRunner.run(ContractScenarioBridge.build(inputs))
+        assertEquals(70_000L, linked.forecast.endingBalanceCents)
+        assertEquals(60_000L, requireNotNull(linked.risk).safeToSpendCents)
         val invalid = JSONObject(exported)
         val liabilities = invalid.getJSONArray("liabilities")
         for (index in 0 until liabilities.length()) {
@@ -187,5 +174,13 @@ class AccountPreservationVaultTest {
             runBlocking { repo.restoreCrossPlatformVaultJson(invalid.toString()) }
         }
         assertEquals(exported, repo.exportCrossPlatformVaultJson("2028-02-01T00:00:00Z"))
+
+        linkedDebt.remove("linked_payment_id")
+        repo.restoreCrossPlatformVaultJson(snapshot.toString())
+        val unlinked = ContractRunner.run(ContractScenarioBridge.build(inputs.copy(
+            debts = db.debtDao().getAll().first(),
+        )))
+        assertEquals(20_000L, unlinked.forecast.endingBalanceCents)
+        assertEquals(10_000L, requireNotNull(unlinked.risk).safeToSpendCents)
     }
 }
