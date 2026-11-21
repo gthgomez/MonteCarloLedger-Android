@@ -1,5 +1,6 @@
 package com.montecarlo.ledger.dashboard
 
+import com.montecarlo.ledger.CanonicalForecastStatus
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.adoption.ContractDashboardMapper
 import com.montecarlo.ledger.adoption.ContractScenarioBridge
@@ -210,19 +211,23 @@ class ContractAdoptionDashboardTest {
             ),
             balanceState = LedgerRepository.BalanceState(bankBalanceCents = 0L, isReconciled = false),
         )
-        val bankStates = listOf(
-            ledger.balanceState,
-            LedgerRepository.BalanceState(bankBalanceCents = 90_000L, isReconciled = true),
-            LedgerRepository.BalanceState(bankBalanceCents = 55_000L, isReconciled = true),
+        val result = DashboardDeriver().derive(ledger, asOf, contractForecastEnabled = true)
+        val scenario = ContractScenarioBridge.build(requireNotNull(result.scenarioInputs))
+        val forecast = ContractRunner.run(scenario).forecast
+        assertEquals(10_000L, scenario.startingBalanceCents)
+        assertEquals(-10_000L, forecast.minimumBalanceCents)
+        assertEquals(asOf.plusDays(2), forecast.minimumBalanceDate)
+        assertEquals(70_000L, forecast.endingBalanceCents)
+
+        val confirmed = ledger.copy(
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 55_000L, isReconciled = true),
         )
-        for (balanceState in bankStates) {
-            val result = DashboardDeriver().derive(ledger.copy(balanceState = balanceState), asOf, contractForecastEnabled = true)
-            val scenario = ContractScenarioBridge.build(requireNotNull(result.scenarioInputs))
-            val forecast = ContractRunner.run(scenario).forecast
-            assertEquals(10_000L, scenario.startingBalanceCents)
-            assertEquals(-10_000L, forecast.minimumBalanceCents)
-            assertEquals(asOf.plusDays(2), forecast.minimumBalanceDate)
-            assertEquals(70_000L, forecast.endingBalanceCents)
-        }
+        val deriver = DashboardDeriver()
+        val unambiguous = deriver.derive(confirmed, asOf.plusDays(10), contractForecastEnabled = true)
+        assertEquals(55_000L, requireNotNull(unambiguous.scenarioInputs).startingBalanceCents)
+        val ambiguous = deriver.derive(confirmed, asOf, contractForecastEnabled = true)
+        assertEquals(CanonicalForecastStatus.Failed, ambiguous.uiState.canonicalForecastStatus)
+        assertTrue(requireNotNull(ambiguous.uiState.canonicalForecastError).contains("confirmed bank balance"))
+        assertEquals(null, ambiguous.scenarioInputs)
     }
 }

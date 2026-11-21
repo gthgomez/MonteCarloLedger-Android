@@ -22,11 +22,11 @@ import org.junit.runner.RunWith
 /**
  * Migration matrix torture tests.
  *
- * Every historically supported upgrade path must reach the current schema (v17)
+ * Every historically supported upgrade path must reach the current schema (v18)
  * without dropping, corrupting, or misrepresenting user financial state. We
  * exercise:
  *   - the schema-exported chain 9 -> 17 with representative data
- *   - the previously untested 14 -> 15 migration
+ *   - the 14 -> 15 and 17 -> 18 migrations
  *   - hand-built legacy databases (v1 and v5) upgraded through the FULL chain
  *     and then OPENED through Room so entity mapping is exercised, not just SQL
  *   - adversarial inputs: duplicate case-only categories, missing settings,

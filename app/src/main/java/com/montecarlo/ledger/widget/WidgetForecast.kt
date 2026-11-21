@@ -96,13 +96,12 @@ internal fun deriveWidgetForecast(
     debts: List<DebtEntity> = emptyList(),
     futureCashTransactions: List<TransactionEntity> = emptyList(),
 ): WidgetForecast {
-    val futureEvents = CashForecastTiming.nativeEvents(futureCashTransactions, today.plusDays(90))
     val paymentCategories = payments
         .mapNotNull { payment ->
             TimelineService.resolveCategory(payment.name, rules)?.let { payment.id to it }
         }
         .toMap()
-    val debtEventsResult = canonicalCalculation {
+    val eventResult = canonicalCalculation {
         ContractScenarioBridge.debtMinimumForecastEvents(
             ContractScenarioBridge.Inputs(
                 startingBalanceCents = forecastSeedCents,
@@ -114,21 +113,11 @@ internal fun deriveWidgetForecast(
                 paymentCategories = paymentCategories,
                 debts = debts,
             ),
-        )
+        ) + CashForecastTiming.nativeEvents(futureCashTransactions, today.plusDays(90))
     }
-    val debtEventFailure = debtEventsResult as? ContractCalculationResult.Failure
-    if (debtEventFailure != null) {
-        return WidgetForecast(
-            safeToSpendCents = 0L,
-            probabilityNegativePct = 0.0,
-            riskLabel = WIDGET_WITHHELD_LABEL,
-            status = CanonicalForecastStatus.Failed,
-            available = false,
-            calibrated = false,
-        )
-    }
-    val debtEvents = (debtEventsResult as? ContractCalculationResult.Success)?.value.orEmpty()
-    val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules) + debtEvents + futureEvents
+    val explicitEvents = (eventResult as? ContractCalculationResult.Success)?.value
+        ?: return unavailableWidgetForecast()
+    val events = TimelineService.generateTimeline(incomes, payments, today, 90, occurrences, rules) + explicitEvents
     val calibration = MonteCarloCalibrator.calibrate(transactions = txns, today = today)
 
     if (!contractForecastEnabled) {
@@ -223,3 +212,9 @@ private fun riskLabel(safeToSpendCents: Long, probabilityNegativePct: Double): S
     probabilityNegativePct >= 25.0 -> "High Risk (${String.format("%.0f", probabilityNegativePct)}%)"
     else -> "Stable Forecast"
 }
+
+internal fun unavailableWidgetForecast() = WidgetForecast(
+    safeToSpendCents = 0L, probabilityNegativePct = 0.0,
+    riskLabel = WIDGET_WITHHELD_LABEL, status = CanonicalForecastStatus.Failed,
+    available = false, calibrated = false,
+)

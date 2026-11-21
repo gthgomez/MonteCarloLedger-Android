@@ -7,17 +7,22 @@ import java.math.BigInteger
 import java.time.LocalDate
 
 object CashForecastTiming {
-    fun opening(seed: Long, cash: List<TransactionEntity>, asOf: LocalDate): Long {
+    fun opening(confirmedBankCents: Long?, cash: List<TransactionEntity>, asOf: LocalDate): Long {
         val day = asOf.toString()
-        if (cash.none { it.date > day }) return seed
-        // Reconciliation stores no cutoff that says whether the manually entered bank
-        // figure includes each future row. The dated ledger supplies an unambiguous
-        // opening when there are future entries. The displayed bank figure stays intact.
+        if (confirmedBankCents != null) {
+            require(cash.none { it.date > day }) {
+                "The forecast cannot tell whether future-dated transactions are included in your confirmed bank balance. " +
+                    "Check those transaction dates before using this forecast."
+            }
+            return ContractMoney.requireValid(confirmedBankCents, "confirmed bank balance")
+        }
         val datedTotal = cash.asSequence().filter { it.date <= day }
             .fold(BigInteger.ZERO) { total, row -> total + BigInteger.valueOf(row.amount_cents) }
         return ContractMoney.toLong(datedTotal)
     }
 
+    // Pending cash rows remain scheduled on their recorded date. They are ledger commitments,
+    // not evidence that the bank has already cleared the payment or receipt.
     fun nativeEvents(rows: List<TransactionEntity>, endExclusive: LocalDate): List<ForecastEvent> =
         rows.mapNotNull { row ->
             val date = LedgerDate.parseIsoOrNull(row.date) ?: return@mapNotNull null

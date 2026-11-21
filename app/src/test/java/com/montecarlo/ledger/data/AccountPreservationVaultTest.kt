@@ -232,6 +232,35 @@ class AccountPreservationVaultTest {
         ))
     }
     @Test
+    fun legacyClampedPaydayWithoutLastDateCannotSilentlyLoseItsAnchor() = runBlocking {
+        repo.insertIncome(IncomeEntity(
+            name = "Legacy month-end income", amount_cents = 30_000L, frequency = "Monthly",
+            day_of_month = 31, next_date = "2027-02-28",
+        ))
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repo.exportCrossPlatformVaultJson("2027-02-01T00:00:00Z") }
+        }
+        assertTrue(requireNotNull(failure.message).contains("encrypted Android backup"))
+        assertEquals(31, repo.allIncome.first().single().day_of_month)
+    }
+
+    @Test
+    fun recordingIdenticalPaydaysUsesScheduleIdentityAndKeepsMonthEnd() = runBlocking {
+        repeat(2) {
+            repo.insertIncome(IncomeEntity(
+                name = "Paycheck", amount_cents = 30_000L, frequency = "Monthly", day_of_month = 31,
+                next_date = "2027-02-28", last_date = "2027-01-31",
+            ))
+        }
+        val paydays = repo.allIncome.first()
+        paydays.forEach { repo.processPayday(it, 30_000L) }
+        paydays.forEach { repo.processPayday(it, 30_000L) }
+        assertEquals(listOf(30_000L, 30_000L), repo.allTransactions.first().map { it.amount_cents })
+        assertEquals(listOf("2027-03-31", "2027-03-31"), repo.allIncome.first().map { it.next_date })
+        assertEquals(listOf("2027-02-28", "2027-02-28"), repo.allIncome.first().map { it.last_date })
+    }
+
+    @Test
     fun datedRoomHouseholdSurvivesReloadAndLegacyRoundTrip() = runBlocking {
         val json = javaClass.getResourceAsStream("/households/vault-timing.json")!!
             .bufferedReader().use { it.readText() }

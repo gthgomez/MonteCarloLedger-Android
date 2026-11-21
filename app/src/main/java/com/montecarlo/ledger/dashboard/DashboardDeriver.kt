@@ -35,7 +35,6 @@ import com.montecarlo.ledger.data.isCreditAccount
 import com.montecarlo.ledger.processing.BalanceForecastRow
 import com.montecarlo.ledger.processing.CashFlowWindow
 import com.montecarlo.ledger.processing.CashForecastTiming
-import com.montecarlo.ledger.processing.BalanceSeedResolver
 import com.montecarlo.ledger.processing.BudgetPacingEngine
 import com.montecarlo.ledger.processing.ForecastEngine
 import com.montecarlo.ledger.processing.MonteCarloCalibration
@@ -130,20 +129,12 @@ class DashboardDeriver {
         val bankBalanceCents = pack.balanceState.bankBalanceCents
         val reconciled = pack.balanceState.isReconciled
         val mismatch = reconciled && bankBalanceCents != cashLedgerCents
-        // Until the user confirms a reconciled balance, keep forecasts anchored to the live CASH
-        // ledger so first-run balances don't collapse to zero and a card charge (which never left
-        // the bank) cannot understate the forecast, safe-to-spend or the money buckets.
-        val forecastSeedCents = BalanceSeedResolver.resolve(
-            cashLedgerCents,
-            bankBalanceCents,
-            reconciled
-        )
         // Future-posted cash transactions belong on their actual day, not in the opening seed.
         // This prevents a future receipt from appearing as today's cash and then disappearing
         // from the dated projection. Credit-account transactions are not bank cash events.
         val futureCashTransactions = cashTransactions.filter { it.date > today.toString() }
         val timing = canonicalCalculation {
-            CashForecastTiming.opening(forecastSeedCents, cashTransactions, today) to
+            CashForecastTiming.opening(bankBalanceCents.takeIf { reconciled }, cashTransactions, today) to
                 CashForecastTiming.nativeEvents(futureCashTransactions, today.plusDays(90))
         }
         val timingFailure = timing as? ContractCalculationResult.Failure
@@ -346,7 +337,8 @@ class DashboardDeriver {
         // InsufficientData so they are never presented as calibrated.
         val assumptionProvenance = buildAssumptionProvenance(
             calibration = calibration,
-            reconciled = reconciled && futureCashTransactions.isEmpty(),
+            reconciled = reconciled,
+            openingAvailable = timingFailure == null,
             hasFutureCash = futureCashTransactions.isNotEmpty(),
             forecastSeedCents = forecastOpeningCents,
             probabilityNegativePct = mc.probability_negative_pct,
@@ -582,6 +574,7 @@ class DashboardDeriver {
     private fun buildAssumptionProvenance(
         calibration: MonteCarloCalibration,
         reconciled: Boolean,
+        openingAvailable: Boolean,
         hasFutureCash: Boolean,
         forecastSeedCents: Long,
         probabilityNegativePct: Double,
@@ -589,7 +582,15 @@ class DashboardDeriver {
         val sufficiency =
             if (calibration.isCalibrated) DataSufficiency.Sufficient else DataSufficiency.InsufficientData
 
-        val seedProvenance = if (reconciled) {
+        val seedProvenance = if (!openingAvailable) {
+            AssumptionProvenance(
+                label = "Forecast balance",
+                value = "Unavailable",
+                origin = AssumptionOrigin.Unverified,
+                sufficiency = DataSufficiency.InsufficientData,
+                detail = "See the forecast message for guidance.",
+            )
+        } else if (reconciled) {
             AssumptionProvenance(
                 label = "Forecast balance",
                 value = centsToDisplay(forecastSeedCents),

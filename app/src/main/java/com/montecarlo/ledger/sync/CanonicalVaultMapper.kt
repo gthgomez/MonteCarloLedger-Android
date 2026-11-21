@@ -8,6 +8,8 @@ import com.montecarlo.ledger.data.DebtKind
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.TransactionEntity
+import com.montecarlo.ledger.util.LedgerDate
+import java.time.LocalDate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -22,6 +24,10 @@ import kotlinx.serialization.json.putJsonArray
 object CanonicalVaultMapper {
     private val SUPPORTED_INCOME_FREQUENCIES = setOf("Weekly", "Bi-weekly", "Monthly", "One-time")
     private val SUPPORTED_PAYMENT_RECURRENCES = setOf("Monthly", "One-time", "Weekly", "Bi-weekly")
+
+    internal fun monthlyIncomeAnchor(last: LocalDate, next: LocalDate): Int =
+        if (next.dayOfMonth == minOf(last.dayOfMonth, next.lengthOfMonth())) last.dayOfMonth
+        else next.dayOfMonth
 
     internal fun isLinkable(payment: PaymentEntity): Boolean {
         if (payment.is_active == 0) return false
@@ -72,13 +78,21 @@ object CanonicalVaultMapper {
         putJsonArray("incomes") {
             incomes.forEach { inc ->
                 val frequency = mapIncomeFrequency(inc.frequency)
+                val next = requireNotNull(LedgerDate.parseIsoOrNull(inc.next_date)) { "Invalid next payday." }
+                val last = inc.last_date?.let {
+                    requireNotNull(LedgerDate.parseIsoOrNull(it)) { "Invalid last payday." }
+                } ?: next
+                require(frequency != "Monthly" ||
+                    monthlyIncomeAnchor(last, next) == (inc.day_of_month ?: next.dayOfMonth)) {
+                    "The vault cannot preserve a month-end payday for this income. Use the encrypted Android backup."
+                }
                 add(
                     buildJsonObject {
                         put("id", canonicalIds.canonicalElement("incomes", inc.id))
                         put("name", inc.name)
                         put("amount_cents", inc.amount_cents)
                         put("frequency", frequency)
-                        put("last_payday", inc.last_date ?: inc.next_date)
+                        put("last_payday", last.toString())
                         put("next_payday", inc.next_date)
                         inc.expectedAmountCents?.let { put("expected_amount", it) }
                     },

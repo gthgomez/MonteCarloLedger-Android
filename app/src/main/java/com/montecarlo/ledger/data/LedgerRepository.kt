@@ -580,17 +580,14 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun processPayday(income: IncomeEntity, actualAmountCents: Long) {
         DomainRules.validateTransactionSign(actualAmountCents, "income")
         val paydayDate = income.next_date
-        val description = "Paycheck: ${income.name}"
-
         db.withTransaction {
-            // Already recorded this period (double-tap / stale UI).
-            val alreadyRecorded =
-                db.transactionDao().countIncomeByDescriptionAndDate(description, paydayDate) > 0
-            if (alreadyRecorded) return@withTransaction
-
+            // The persisted schedule identifies the payable slot. Advancing or deleting it
+            // within this transaction makes a stale retry a no-op, regardless of other names.
+            val current = db.incomeDao().getIncomeById(income.id) ?: return@withTransaction
+            if (current.next_date != paydayDate) return@withTransaction
             db.transactionDao().insert(
                 TransactionEntity(
-                    description = description,
+                    description = "Paycheck: ${current.name}",
                     amount_cents = actualAmountCents,
                     date = paydayDate,
                     type = "income"
@@ -599,10 +596,6 @@ class LedgerRepository(private val db: AppDatabase) {
             if (isBalanceReconciled()) {
                 writeBankBalanceCents(getBankBalanceCents() + actualAmountCents)
             }
-
-            // Re-read so concurrent advances cannot apply twice from a stale entity.
-            val current = db.incomeDao().getIncomeById(income.id) ?: return@withTransaction
-            if (current.next_date != paydayDate) return@withTransaction
 
             val isOneTime = RecurrenceMath.normalizeFrequency(current.frequency) == "onetime"
             if (isOneTime) {
@@ -1382,8 +1375,8 @@ class LedgerRepository(private val db: AppDatabase) {
             val next = obj.vaultDate("next_payday")
             val last = obj.vaultDate("last_payday")
             val frequency = obj.getString("frequency")
-            val anchor = if (frequency == "Monthly" && next.dayOfMonth == minOf(last.dayOfMonth, next.lengthOfMonth())) {
-                last.dayOfMonth
+            val anchor = if (frequency == "Monthly") {
+                CanonicalVaultMapper.monthlyIncomeAnchor(last, next)
             } else null
             add(
                 IncomeEntity(
