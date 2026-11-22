@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.AppUiState
+import com.montecarlo.ledger.CanonicalForecastStatus
 import com.montecarlo.ledger.util.centsToDisplay
 import com.montecarlo.ledger.util.centsToDisplayWhole
 import com.montecarlo.ledger.util.centsToDollarInputString
@@ -80,6 +81,9 @@ internal fun BalanceCard(
     onAddGoal: () -> Unit = {},
 ) {
     var showHelpDialog by remember { mutableStateOf(false) }
+    val forecastAvailable = showForecastCards && uiState.canonicalForecastStatus != CanonicalForecastStatus.Failed
+    val usingPreviousForecast = uiState.canonicalForecastStatus == CanonicalForecastStatus.Stale
+    val openingSource = if (reconciled) "Bank balance" else "Cash recorded through today"
     GlassCard(
         modifier = Modifier
             .testTag(DashboardTestTags.BALANCE_CARD)
@@ -89,8 +93,12 @@ internal fun BalanceCard(
                     append(if (reconciled) "Bank balance confirmed. " else "Bank balance not confirmed yet. ")
                     append("Bank balance ${centsToDollarInputString(bankBalanceCents)}. ")
                     append("App balance ${centsToDollarInputString(ledgerBalanceCents)}. ")
-                    if (showForecastCards) {
-                        append(if (reconciled) "Forecast starts from your bank balance. " else "Forecast starts from your app balance until you confirm. ")
+                    if (forecastAvailable) {
+                        if (usingPreviousForecast) {
+                            append("Showing the last available forecast. ")
+                        } else {
+                            append("Forecast starts from ${openingSource.lowercase()}. ")
+                        }
                         if (!actionCenterVisible) {
                             if (!reconciled) {
                                 append("Safe to spend is provisional until you confirm bank balance.")
@@ -100,6 +108,8 @@ internal fun BalanceCard(
                                 append("Safe to spend ${centsToDollarInputString(uiState.safeToSpendCents)}.")
                             }
                         }
+                    } else if (showForecastCards) {
+                        append("Forecast unavailable.")
                     } else {
                         append("Add a paycheck or a bill to start the forecast. ")
                     }
@@ -151,7 +161,7 @@ internal fun BalanceCard(
                     "This is the bank balance you confirmed."
                 } else {
                     if (showForecastCards) {
-                        "Forecasts use your app balance until you confirm a bank balance."
+                        "Forecasts without a confirmed bank balance start with cash recorded through today."
                     } else {
                         "Add a paycheck or a bill to start the forecast."
                     }
@@ -183,7 +193,11 @@ internal fun BalanceCard(
                             technical = "forecast seed",
                         )
                             Text(
-                                if (reconciled) "Bank balance" else "App balance",
+                                when {
+                                    !forecastAvailable -> "Unavailable"
+                                    usingPreviousForecast -> "Previous forecast"
+                                    else -> openingSource
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = GlassTokens.PositiveGreen
@@ -225,12 +239,17 @@ internal fun BalanceCard(
                 onClick = onCheckBalance,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (showForecastCards && !actionCenterVisible) {
+            if (showForecastCards && !forecastAvailable) {
+                Text(
+                    "Forecast unavailable.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GlassTokens.TextSecondary,
+                )
+            } else if (forecastAvailable && !actionCenterVisible) {
                 when {
                     !reconciled -> {
                         Text(
-                            "Confirm your bank balance to unlock a trusted safe-to-spend number. " +
-                                "Forecast below is provisional from your app total.",
+                            "The spending estimate is provisional until you confirm your bank balance.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = GlassTokens.TextSecondary,
                         )
@@ -256,7 +275,7 @@ internal fun BalanceCard(
                 Spacer(modifier = Modifier.height(12.dp))
             } else if (showForecastCards && !reconciled) {
                 Text(
-                    "Confirm your bank balance to unlock a trusted safe-to-spend number.",
+                    "The spending estimate is provisional until you confirm your bank balance.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = GlassTokens.TextSecondary,
                 )
@@ -265,7 +284,7 @@ internal fun BalanceCard(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            if (showForecastCards) {
+            if (forecastAvailable) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Financial Runway", style = MaterialTheme.typography.labelSmall, color = GlassTokens.TextSecondary)
@@ -310,7 +329,7 @@ internal fun BalanceCard(
                         color = GlassTokens.TextDim
                     )
                 }
-            } else {
+            } else if (!showForecastCards) {
                 Text(
                     "Once you have income or bills in place, the forecast and safe-to-spend numbers will appear here.",
                     style = MaterialTheme.typography.bodySmall,
@@ -356,7 +375,7 @@ internal fun BalanceCard(
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         FriendlyTechnicalLabel(friendly = "App total", technical = "ledger balance")
                         Text(
-                            "What the app calculates by adding up all the paychecks, bills, and spending you've recorded.",
+                            "The total of recorded transactions, including future-dated entries.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = GlassTokens.TextSecondary
                         )
@@ -365,7 +384,7 @@ internal fun BalanceCard(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             FriendlyTechnicalLabel(friendly = "Starting point", technical = "forecast seed")
                             Text(
-                                "Where the 3-month estimate starts. Uses your confirmed bank balance if available, otherwise uses the app total.",
+                                "A current forecast starts from confirmed bank cash or cash recorded through today. Future transactions enter on their recorded dates.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = GlassTokens.TextSecondary
                             )
@@ -373,7 +392,7 @@ internal fun BalanceCard(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             FriendlyTechnicalLabel(friendly = "Okay to spend today", technical = "forecast-safe amount")
                             Text(
-                                "How much you can spend right now without running out of money before your next bill or paycheck.",
+                                "An estimate based on your plan and modeled risks. Your actual balance can be lower.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = GlassTokens.TextSecondary
                             )

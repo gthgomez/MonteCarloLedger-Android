@@ -1,5 +1,7 @@
 package com.montecarlo.ledger.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasAnyAncestor
@@ -21,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.montecarlo.ledger.AppTheme
 import com.montecarlo.ledger.AppUiState
+import com.montecarlo.ledger.CanonicalForecastStatus
 import com.montecarlo.ledger.DashboardConfig
 import com.montecarlo.ledger.DashboardWidget
 import com.montecarlo.ledger.data.OnboardingProgress
@@ -75,8 +78,8 @@ class DashboardScreenTest {
         composeRule.onAllNodesWithText("This is the bank balance you confirmed.").assertCountEquals(1)
         composeRule.onNodeWithContentDescription("How to read these numbers").performClick()
         composeRule.onNodeWithText("What your bank says you have right now. Update this after each paycheck or large purchase.").assertIsDisplayed()
-        composeRule.onNodeWithText("What the app calculates by adding up all the paychecks, bills, and spending you've recorded.").assertIsDisplayed()
-        composeRule.onNodeWithText("Where the 3-month estimate starts. Uses your confirmed bank balance if available, otherwise uses the app total.").assertIsDisplayed()
+        composeRule.onNodeWithText("The total of recorded transactions, including future-dated entries.").assertIsDisplayed()
+        composeRule.onNodeWithText("A current forecast starts from confirmed bank cash or cash recorded through today. Future transactions enter on their recorded dates.").assertIsDisplayed()
         composeRule.onAllNodesWithText("Scheduled bills and debt payments: \$25.00").assertCountEquals(1)
         composeRule.onAllNodesWithText("Safe to spend: \$90.00").assertCountEquals(1)
     }
@@ -132,7 +135,7 @@ class DashboardScreenTest {
             hasText("\$123.45") and hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
         ).assertCountEquals(1)
         composeRule.onAllNodes(
-            hasText("Forecasts use your app balance until you confirm a bank balance.") and
+            hasText("Forecasts without a confirmed bank balance start with cash recorded through today.") and
                 hasAnyAncestor(hasTestTag(DashboardTestTags.BALANCE_CARD))
         ).assertCountEquals(1)
         composeRule.onAllNodes(
@@ -146,6 +149,38 @@ class DashboardScreenTest {
         dashboardScroller.performScrollToNode(hasText("Provisional safe-to-spend"))
         composeRule.onAllNodesWithText("Provisional safe-to-spend").assertCountEquals(1)
         composeRule.onAllNodesWithText("\$75.00").assertCountEquals(1)
+    }
+
+    @Test
+    fun balanceCardWithheldForecastHasNoSpendingAmountOrSeedSource() {
+        composeRule.setContent {
+            AppTheme {
+                BalanceCard(
+                    reconciled = true,
+                    bankBalanceCents = 55_000,
+                    ledgerBalanceCents = 90_000,
+                    uiState = AppUiState(canonicalForecastStatus = CanonicalForecastStatus.Failed),
+                    showForecastCards = true,
+                    onboardingProgress = OnboardingProgress(),
+                    actionCenterVisible = false,
+                    hazeState = null,
+                    onCheckBalance = {},
+                    onAddIncome = {},
+                    onAddPayment = {},
+                    onAddTransaction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Forecast unavailable.").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Safe to spend: \$0.00").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Financial Runway").assertCountEquals(0)
+        composeRule.onNode(
+            hasTestTag(DashboardTestTags.BALANCE_CARD) and SemanticsMatcher("withheld forecast announcement") {
+                val description = it.config[SemanticsProperties.StateDescription]
+                description.contains("Forecast unavailable.") && !description.contains("Safe to spend")
+            }
+        ).assertIsDisplayed()
     }
 
     @Test
