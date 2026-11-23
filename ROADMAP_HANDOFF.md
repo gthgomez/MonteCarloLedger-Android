@@ -72,7 +72,8 @@ An independent review of this branch corrected three release-path defects:
   credentials in scope.
 - **Doc honesty.** This file's stale `.\gradlew.bat` verification commands (and the "182 tests" count) are
   updated to `./gradlew … --no-daemon` / 368 tests, and `PRIVACY.md` now marks its URL as not-live-until-merged
-  and points at the stable `raw.githubusercontent.com` form.
+  and points at the stable `raw.githubusercontent.com` form. *(That URL statement is historical and was
+  superseded by the 2026-11-23 correction below.)*
 
 ### New artifacts from WS5
 
@@ -86,7 +87,9 @@ An independent review of this branch corrected three release-path defects:
 - `docs/RELEASE.md` — authoritative versioning + signing + release-command documentation.
 - `PRIVACY.md` — placeholders replaced with the public policy URL
   <https://raw.githubusercontent.com/gthgomez/MonteCarloLedger-Android/main/PRIVACY.md> (the served policy is
-  still the placeholder until this branch merges; HTTP 200 verified 2026-10-11).
+  still the placeholder until this branch merges; HTTP 200 verified 2026-10-11). **Historical:** this URL
+  claim was withdrawn by the 2026-11-23 correction below; the current [PRIVACY.md](PRIVACY.md) makes no
+  public-URL claim.
 - `QA_CHECKLIST.md` — rewritten into an execution record: build/unit/static items marked with real results,
   device/Play items explicitly NOT RUN with reasons.
 - `.gitignore` — `keystore.properties` / `**/keystore.properties` added.
@@ -100,11 +103,35 @@ An independent review of this branch corrected three release-path defects:
 4. **Instrumented migration (device/emulator only, still outstanding)**:
    `./gradlew :app:connectedDebugAndroidTest --tests com.montecarlo.ledger.data.MigrationTest --no-daemon`.
 
+### 2026-11-23 — Privacy disclosure correction (supersedes URL statements above)
+
+Documentation-only review. Android runtime, tests, builds, devices, signing, publication,
+and live network behavior were not run.
+
+- [PRIVACY.md](PRIVACY.md) now describes local-first use with no account required, plus
+  optional, user-initiated encrypted vault sync. It deliberately makes no claim that a
+  public policy URL is live, that a build is signed, or that a store release occurred.
+- The WS5 statements above that `PRIVACY.md` was replaced with a public URL, and the
+  2026-10-11 HTTP 200 result, are historical evidence of that earlier candidate. They are
+  not current publication evidence and do not describe the current file.
+- **Android release blocker for the later code+device pass:** the in-app Privacy policy
+  dialog still says the app is local-only, does not use `INTERNET`, and displays
+  `TODO_PRIVACY_URL` (`app/src/main/java/com/montecarlo/ledger/ui/AppDialogs.kt:157-161`).
+  It must be corrected against [PRIVACY.md](PRIVACY.md) and verified on a device before
+  any release claim.
+- Static source basis: the manifest declares `INTERNET` for optional vault sync and
+  `POST_NOTIFICATIONS` for local reminders; the only HTTP client is the vault client; the
+  declared app dependencies contain no analytics, advertising, or crash-reporting SDK.
+
 ### Next-session priorities
 
-1. Owner supplies the release keystore as the `ANDROID_KEYSTORE_BASE64` repo secret plus
-   `ANDROID_KEY_ALIAS` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD` (or a local
-   `keystore.properties`) → produce a signed `.aab`/`.apk`.
-2. Run `connectedDebugAndroidTest` on a device/emulator to close the migration-matrix evidence gap.
-3. Manual UI pass against `QA_CHECKLIST.md` §5 and §2 filter/search items.
-4. Play Console setup: listing, data-safety form, privacy-policy URL entry.
+1. Fix the in-app Privacy policy dialog (`AppDialogs.kt:157-161`) to match
+   [PRIVACY.md](PRIVACY.md), then verify it on a device. **Android release blocker** for the
+   later code+device pass.
+2. Check the intended release's merged permissions and run migration, UI, backup, and
+   device-transfer verification. See [QA_CHECKLIST.md](QA_CHECKLIST.md).
+3. The owner confirms and publishes the policy, including the preset vault server's
+   storage, logging, retention, and deletion practices.
+4. Once separately authorized, follow [docs/RELEASE.md](docs/RELEASE.md) for signing and
+   distribution. The Play Console listing and data-safety form must match the exact build
+   and published policy.

@@ -98,14 +98,18 @@ All items in this section require a device/emulator run (`connectedDebugAndroidT
 
 Source of truth: `app/src/main/AndroidManifest.xml` (read directly).
 
-- [x] Storage access scoped to backups only
-      — evidence: the manifest declares **no** `READ_/WRITE_EXTERNAL_STORAGE` or `MANAGE_EXTERNAL_STORAGE`; exports use the Storage Access Framework (user-picked URI). Verified by manifest inspection.
-- [x] No internet permission
-      — evidence: no `android.permission.INTERNET` in the manifest (grep confirmed). Matches PRIVACY.md's "local-only" claim.
-- [x] No unnecessary permissions
-      — evidence: the only declared permission is `POST_NOTIFICATIONS`, used for local bill/risk reminders; `com.android.vending.BILLING` is commented out pending Play Billing. Reviewable statically; no runtime prompt behavior was tested on device.
+> **Static re-check 2026-11-23:** manifest and source inspection only. The dated execution
+> record above is historical; no device, emulator, runtime permission prompt, or network
+> behavior was tested here. Current disclosures are in [PRIVACY.md](PRIVACY.md).
 
-**Pass criteria: 3/3** → 3/3 verified statically.
+- [x] File access scoped to user-selected imports, exports, and backups
+      — evidence: the source manifest declares **no** `READ_/WRITE_EXTERNAL_STORAGE` or `MANAGE_EXTERNAL_STORAGE`; imports and exports use the Storage Access Framework (user-picked URI). Verified by source inspection.
+- [x] Internet permission limited to optional vault sync
+      — evidence: the manifest declares `android.permission.INTERNET` for the optional vault client; source inspection finds one HTTP client (`VaultHttpClient`) used by that flow. Core ledger use is local-first, but no runtime network behavior was tested here. See [PRIVACY.md](PRIVACY.md).
+- [x] Purpose identified for the source-manifest permissions
+      — evidence: the source manifest declares `INTERNET` (optional vault sync) and `POST_NOTIFICATIONS` (local reminders); `com.android.vending.BILLING` is commented out. Dependencies can add permissions in the merged manifest. The merged release manifest and runtime prompts were not tested.
+
+**Pass criteria: 3/3** → 3/3 verified statically; runtime permission behavior remains device-only.
 
 ---
 
@@ -115,11 +119,13 @@ Source of truth: `app/src/main/AndroidManifest.xml` (read directly).
 
 - [x] No floating-point currency in any file
       — evidence: static scan (see §1). All `Double`/`Float` occurrences in money-adjacent packages are probabilities, percentiles, calibration statistics (rounded back to `Long`) or normalized UI fractions — none persist or accumulate currency.
-- [ ] NOT RUN — Room migration doesn't destroy data. Reason: the migration tests (`app/src/androidTest/.../MigrationTest.kt`, `MigrationMatrixTest.kt`) are **instrumented** and require a device/emulator. Room schema JSON for versions 9–17 is present and the DB is at version 17, but the destructive-migration guarantee is unproven until `connectedDebugAndroidTest` runs.
+- [ ] NOT RUN for this candidate — Room migration doesn't destroy data. The intended release needs device/emulator evidence from `MigrationTest.kt` and `MigrationMatrixTest.kt`. Source contains schema versions 9–18; the database is at version 18. A schema file is not a migration test.
 - [x] Forecast deterministic with same seed
       — evidence: `MonteCarloEngineTest` same-seed repeatability assertions pass.
 
 **Result: 2/3 executed and passing; 1 device-only item outstanding → NOT GO for public release.**
+**Also blocking:** the in-app Privacy policy dialog still says local-only/no `INTERNET` and
+shows `TODO_PRIVACY_URL`; see the blocker row below.
 
 ---
 
@@ -129,5 +135,8 @@ Source of truth: `app/src/main/AndroidManifest.xml` (read directly).
 |------|--------------------|-------|
 | `connectedDebugAndroidTest` (migration + UI suites) | No device/emulator in this environment | Repo owner |
 | Manual UI pass (§5, §2 filters/search) | Needs a running app | Repo owner / tester |
-| Play Console data-safety form, store listing, privacy URL entry | Console access required; policy URL is now public (see PRIVACY.md) | Repo owner |
+| **In-app Privacy policy dialog** | `AppDialogs.kt` still says local-only/no `INTERNET` and shows `TODO_PRIVACY_URL`; it contradicts [PRIVACY.md](PRIVACY.md) and the manifest. **Android release blocker** for the later code+device pass. | Repo owner / code+device pass |
+| Exact-build merged manifest and device transfer | Check dependency-contributed permissions and verify what Android copies during backup and device transfer. The source review does not prove runtime behavior. | Repo owner / code+device pass |
+| Preset vault server disclosure | Confirm and disclose the default Web companion's operator and its vault storage, logging, retention, and deletion practices before policy publication. | Repo owner / service operator |
+| Play Console data-safety form, store listing, privacy URL entry | Console access required; the owner must publish the policy and enter the URL. [PRIVACY.md](PRIVACY.md) does not assert that a URL is live. | Repo owner |
 | Release keystore / signing secrets | Human-held secret; never committed (see docs/RELEASE.md) | Repo owner |
