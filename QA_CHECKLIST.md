@@ -124,8 +124,8 @@ Source of truth: `app/src/main/AndroidManifest.xml` (read directly).
       — evidence: `MonteCarloEngineTest` same-seed repeatability assertions pass.
 
 **Result: 2/3 executed and passing; 1 device-only item outstanding → NOT GO for public release.**
-**Also blocking:** the in-app Privacy policy dialog still says local-only/no `INTERNET` and
-shows `TODO_PRIVACY_URL`; see the blocker row below.
+The in-app Privacy policy dialog text now agrees with [PRIVACY.md](PRIVACY.md); device
+verification remains outstanding.
 
 ---
 
@@ -135,7 +135,7 @@ shows `TODO_PRIVACY_URL`; see the blocker row below.
 |------|--------------------|-------|
 | `connectedDebugAndroidTest` (migration + UI suites) | No device/emulator in this environment | Repo owner |
 | Manual UI pass (§5, §2 filters/search) | Needs a running app | Repo owner / tester |
-| **In-app Privacy policy dialog** | `AppDialogs.kt` still says local-only/no `INTERNET` and shows `TODO_PRIVACY_URL`; it contradicts [PRIVACY.md](PRIVACY.md) and the manifest. **Android release blocker** for the later code+device pass. | Repo owner / code+device pass |
+| **In-app Privacy policy dialog on a device** | Text now describes optional `INTERNET` vault sync, unencrypted export, erase boundaries, and the repository policy. Static source review only; it has not been rendered on a device. | Repo owner / device pass |
 | Exact-build merged manifest and device transfer | Check dependency-contributed permissions and verify what Android copies during backup and device transfer. The source review does not prove runtime behavior. | Repo owner / code+device pass |
 | Preset vault server disclosure | Confirm and disclose the default Web companion's operator and its vault storage, logging, retention, and deletion practices before policy publication. | Repo owner / service operator |
 | Play Console data-safety form, store listing, privacy URL entry | Console access required; the owner must publish the policy and enter the URL. [PRIVACY.md](PRIVACY.md) does not assert that a URL is live. | Repo owner |

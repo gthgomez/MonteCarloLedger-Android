@@ -154,11 +154,12 @@ internal fun PrivacyPolicyDialog(onDismiss: () -> Unit) {
         title = { Text("Privacy policy") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("MonteCarlo Ledger is local-only. Your ledger stays on this device.")
-                Text("The app does not use the INTERNET permission and does not send your data to our servers.")
-                Text("Standard export and encrypted backup use Android's file picker — you choose when and where files are saved.")
+                Text("MonteCarlo Ledger is local-first. Your ledger is stored on this device and does not need an account.")
+                Text("Cloud sync is optional and user-started. It uses the INTERNET permission and sends an encrypted ledger snapshot, vault ID, and sync metadata to the server you choose. The passphrase is not sent or saved.")
+                Text("Standard export is unencrypted; encrypted backup uses a password you choose. Both use Android's file picker.")
+                Text("Erase all local data removes on-device ledger data. It does not erase saved backup files or a vault copy on a server. The app's saved vault settings may also remain.")
                 Text("App Lock PIN is stored as a salted hash on-device only. It is not included in plaintext or encrypted backup files.")
-                Text("Full policy URL: TODO_PRIVACY_URL")
+                Text("Policy: github.com/gthgomez/MonteCarloLedger-Android/blob/main/PRIVACY.md")
             }
         },
         confirmButton = {

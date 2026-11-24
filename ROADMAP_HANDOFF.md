@@ -114,20 +114,18 @@ and live network behavior were not run.
 - The WS5 statements above that `PRIVACY.md` was replaced with a public URL, and the
   2026-10-11 HTTP 200 result, are historical evidence of that earlier candidate. They are
   not current publication evidence and do not describe the current file.
-- **Android release blocker for the later code+device pass:** the in-app Privacy policy
-  dialog still says the app is local-only, does not use `INTERNET`, and displays
-  `TODO_PRIVACY_URL` (`app/src/main/java/com/montecarlo/ledger/ui/AppDialogs.kt:157-161`).
-  It must be corrected against [PRIVACY.md](PRIVACY.md) and verified on a device before
-  any release claim.
+- **Device verification outstanding:** the in-app Privacy policy dialog text was corrected
+  against [PRIVACY.md](PRIVACY.md) (`app/src/main/java/com/montecarlo/ledger/ui/AppDialogs.kt`)
+  to describe optional `INTERNET` vault sync, unencrypted export, erase boundaries, and the
+  repository policy. It has not been rendered on a device.
 - Static source basis: the manifest declares `INTERNET` for optional vault sync and
   `POST_NOTIFICATIONS` for local reminders; the only HTTP client is the vault client; the
   declared app dependencies contain no analytics, advertising, or crash-reporting SDK.
 
 ### Next-session priorities
 
-1. Fix the in-app Privacy policy dialog (`AppDialogs.kt:157-161`) to match
-   [PRIVACY.md](PRIVACY.md), then verify it on a device. **Android release blocker** for the
-   later code+device pass.
+1. Verify the corrected in-app Privacy policy dialog on a device. Its source text now
+   matches [PRIVACY.md](PRIVACY.md).
 2. Check the intended release's merged permissions and run migration, UI, backup, and
    device-transfer verification. See [QA_CHECKLIST.md](QA_CHECKLIST.md).
 3. The owner confirms and publishes the policy, including the preset vault server's
