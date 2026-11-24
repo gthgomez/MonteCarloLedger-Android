@@ -22,7 +22,7 @@ Nothing in this file should be read as a claim that the implementation is correc
 
 ## Documented integrity controls
 
-- [PRIVACY.md](PRIVACY.md) — local-only data model: no account, no `INTERNET` permission, on-device Room database, user-initiated SAF export, and an explicit statement that the App Lock PIN is stored as a salted hash on-device only and is not emitted in plaintext JSON or in encrypted backup files.
+- [PRIVACY.md](PRIVACY.md) — the current user-facing policy: local-first use with no account required; optional, user-initiated encrypted vault sync; `INTERNET` declared for that vault client; on-device Room database; user-initiated SAF exports; encrypted vault snapshot contents and excluded Android-only data; local and remote erase boundaries; and the App Lock PIN stored as a salted hash on-device only, not emitted in plaintext JSON or encrypted backup files. It makes no claim that a policy URL is live or that a build is signed or published.
 - [docs/SHIP_STANDARD.md](docs/SHIP_STANDARD.md) — the normative ship process. It classifies money math, Room, security and backup, lock, and forecast changes as **HIGH** surfaces requiring explicit human approval after structured review, and forbids committing `local.properties`, keystores, `.env*`, or secrets. It also defines a verification ladder in which a documentation-only change is tier **V0**, human review of links and claims.
 - [QA_CHECKLIST.md](QA_CHECKLIST.md) and [STATUS.md](STATUS.md) — the project's own verification and status record.
 

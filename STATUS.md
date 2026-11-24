@@ -1,5 +1,9 @@
 # MonteCarloLedger Status
 
+> **Historical status:** Sections dated before 2026-11-23 are retained as historical
+> evidence. See the **2026-11-23 privacy disclosure correction** at the end of this file
+> for the current documentation status and the outstanding Android release blocker.
+
 **Last verified:** 2026-08-10
 **Status:** release candidate / local build verified
 **Confidence:** high (unit + assembleRelease); medium (instrumented migration — not yet device-run)
@@ -96,7 +100,7 @@ This section is additive; the historical text above is preserved as written but 
    workflow file are untouched.
 4. **Diagnostics** — Gradle configuration now logs `Release signing: ENABLED|DISABLED …` once per build,
    so an unsigned artifact can never be mistaken for a signed one.
-5. **Docs** — `PRIVACY.md` placeholders replaced with the public policy URL
+5. **Docs (historical; URL statement superseded 2026-11-23)** — `PRIVACY.md` placeholders replaced with the public policy URL
    <https://raw.githubusercontent.com/gthgomez/MonteCarloLedger-Android/main/PRIVACY.md> (reachable, HTTP 200 on
    2026-10-11; the URL serves this file only **after the branch merges** — until then `main` still shows the
    placeholder);
@@ -120,3 +124,25 @@ This section is additive; the historical text above is preserved as written but 
   Play credentials (see [docs/RELEASE.md](docs/RELEASE.md) §4).
 - Instrumented migration/UI verification still needs a device/emulator.
 
+---
+
+## 2026-11-23 — Privacy disclosure correction
+
+**Scope:** documentation-only review. Android runtime, tests, builds, devices, signing,
+publication, and live network behavior were not run. The historical sections above are
+retained as historical evidence.
+
+- [PRIVACY.md](PRIVACY.md) now describes local-first use with no account required, plus
+  optional, user-initiated encrypted vault sync. It deliberately makes no claim that a
+  public policy URL is live, that a build is signed, that a store release occurred, or
+  that server-side retention or deletion was verified.
+- The WS5 entries above that say `PRIVACY.md` was replaced with a public URL, and the
+  2026-10-11 `curl` HTTP 200 row, are historical evidence of that earlier candidate. They
+  are not current publication evidence and do not describe the current file.
+- **Device verification outstanding:** the in-app Privacy policy dialog text was corrected
+  against [PRIVACY.md](PRIVACY.md) (`app/src/main/java/com/montecarlo/ledger/ui/AppDialogs.kt`)
+  to describe optional `INTERNET` vault sync, unencrypted export, erase boundaries, and the
+  repository policy. It has not been rendered on a device.
+- Static source basis: the manifest declares `INTERNET` for optional vault sync and
+  `POST_NOTIFICATIONS` for local reminders; the only HTTP client is the vault client; the
+  declared app dependencies contain no analytics, advertising, or crash-reporting SDK.
