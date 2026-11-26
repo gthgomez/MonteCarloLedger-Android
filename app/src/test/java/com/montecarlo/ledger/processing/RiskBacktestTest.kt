@@ -94,11 +94,26 @@ class RiskBacktestTest {
         assertTrue("month-end coverage too low: ${report.empiricalCoverage}", report.empiricalCoverage >= 0.5)
         // Defined tolerance on a 6-month holdout: the band must not be off by more than a quarter.
         assertTrue("month-end coverage too far: ${report.coverageError}", report.coverageError <= 0.25)
-        // The trough sample is too small to gate; exact behaviour is pinned by the fixtures below.
-        assertTrue(
-            "trough band must be non-degenerate for at least one month",
-            report.observations.any { it.troughP90Cents > it.troughP10Cents },
-        )
+    }
+
+    @Test
+    fun backtest_troughBandReflectsVariationInBillsBeforePayday() {
+        // The stationary fixture pays on day 1, so its lowest cash can legitimately
+        // be the opening balance in every run. Here the rent comes before payday,
+        // and every ±10% rent draw leaves a negative balance from the $200 opening.
+        val history = (1..3).flatMap { month ->
+            val stamp = "2026-%02d".format(month)
+            listOf(expense("Rent", 40_000L, "$stamp-05", "bills"), income(50_000L, "$stamp-20"))
+        }
+        val report = RiskBacktest.run(history, today, seed = 42, runs = 500) {
+            noVariation().copy(expenseVariationMin = -10, expenseVariationMax = 10)
+        }
+        val score = report.observations.single()
+        assertEquals(20_000L, score.openingCents)
+        assertTrue("the trough band must vary with the early bill", score.troughP90Cents > score.troughP10Cents)
+        assertTrue(score.troughP10Cents >= -24_000L)
+        assertTrue(score.troughP90Cents <= -16_000L)
+        assertEquals(1.0, score.predictedDipProbability, 0.0)
     }
 
     @Test
