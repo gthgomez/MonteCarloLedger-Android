@@ -772,8 +772,7 @@ private fun AppChrome(
                         DebtManagementScreen(
                             debts = debts,
                             payments = payments,
-                            onAdd = viewModel::addDebt,
-                            onUpdate = viewModel::updateDebt,
+                            onSave = viewModel::saveDebt,
                             onDelete = viewModel::deleteDebt,
                             modifier = Modifier.weight(1f),
                             accounts = accounts,

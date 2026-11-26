@@ -45,6 +45,17 @@ data class AppUiState(
     val driftCents: Long = 0L,
     val transactions: List<TransactionEntity> = emptyList(),
     val forecastRows: List<BalanceForecastRow> = emptyList(),
+    /**
+     * Deterministic lowest running balance over the forecast window, including the opening
+     * balance. Null means the forecast was withheld ([CanonicalForecastStatus.Failed]); callers
+     * must present that as unavailable rather than substituting `0`.
+     */
+    val forecastLowestBalanceCents: Long? = null,
+    /**
+     * Deterministic ending balance over the forecast window, including the opening balance and
+     * any dated events. Null means the forecast was withheld; never render it as `$0`.
+     */
+    val forecastEndingBalanceCents: Long? = null,
     val cashFlowWindows: List<CashFlowWindow> = emptyList(),
     val categorySpend: List<CategorySpend> = emptyList(),
     val recurringCandidates: List<RecurringCandidate> = emptyList(),

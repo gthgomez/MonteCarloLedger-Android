@@ -171,6 +171,7 @@ private data class BillTimelineEntry(
     val occurrenceId: Int,
     val paymentName: String,
     val dueDate: LocalDate,
+    val movedFrom: String?,
     val amountCents: Long,
     val isPaid: Boolean,
     val recurrenceLabel: String,
@@ -194,6 +195,7 @@ private fun buildBillTimelineEntries(
                 occurrenceId = occurrence.id,
                 paymentName = payment?.name ?: "Removed bill",
                 dueDate = dueDate,
+                movedFrom = occurrence.original_due_date?.takeUnless { it == occurrence.due_date },
                 amountCents = occurrence.amount_cents,
                 isPaid = occurrence.is_paid != 0,
                 recurrenceLabel = payment?.let {
@@ -346,6 +348,13 @@ private fun BillTimelineRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isOverdue) GlassTokens.ErrorRed else GlassTokens.TextDim
                 )
+                entry.movedFrom?.let { originalDate ->
+                    Text(
+                        "Moved from ${originalDate.formatDateDisplay()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GlassTokens.TextSecondary
+                    )
+                }
             }
 
             Column(

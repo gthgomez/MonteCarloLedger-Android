@@ -381,6 +381,11 @@ class DashboardDeriver {
             today = today,
         )
 
+        // WS2/F2: a withheld canonical forecast has no balance to show. Exposing the
+        // authoritative summary values (which include the opening balance) as nulls keeps the
+        // UI from reconstructing them from post-event rows — rows are empty both when there are
+        // genuinely no dated events and when the calculation failed.
+        val forecastAvailable = canonicalStatus != CanonicalForecastStatus.Failed
         val uiState = AppUiState(
             isLoading = false,
             bankBalanceCents = bankBalanceCents,
@@ -404,6 +409,8 @@ class DashboardDeriver {
             driftCents = driftCents,
             transactions = pack.txns,
             forecastRows = forecastRows,
+            forecastLowestBalanceCents = forecastSummary.projectedLowPointCents.takeIf { forecastAvailable },
+            forecastEndingBalanceCents = forecastSummary.endingBalanceCents.takeIf { forecastAvailable },
             cashFlowWindows = cashFlowWindows,
             categorySpend = categorySpend,
             recurringCandidates = recurringCandidates,

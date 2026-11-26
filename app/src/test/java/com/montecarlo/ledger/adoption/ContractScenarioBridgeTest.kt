@@ -8,6 +8,7 @@ import com.montecarlo.ledger.data.DebtEntity
 import com.montecarlo.ledger.data.DebtKind
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
+import com.montecarlo.ledger.data.TransactionEntity
 import com.montecarlo.ledger.processing.MonteCarloCalibration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -66,6 +67,7 @@ class ContractScenarioBridgeTest {
         paymentCategories: Map<Int, String> = emptyMap(),
         debts: List<DebtEntity> = emptyList(),
         startDate: LocalDate = asOf,
+        transactions: List<TransactionEntity> = emptyList(),
     ) = ContractScenarioBridge.build(
         ContractScenarioBridge.Inputs(
             startingBalanceCents = startingBalanceCents,
@@ -77,6 +79,7 @@ class ContractScenarioBridgeTest {
             horizonDays = horizonDays,
             paymentCategories = paymentCategories,
             debts = debts,
+            transactions = transactions,
         )
     )
 
@@ -131,6 +134,108 @@ class ContractScenarioBridgeTest {
         assertEquals(listOf("payment-7", "debt-1-2026-01-10"), separateEvents.map { it.id })
         assertEquals(listOf(-30_000L), ContractEngine.inWindowBaseEvents(oneObligation).map { it.amountCents })
         assertEquals(listOf(-30_000L), ContractEngine.inWindowBaseEvents(inactiveLink).map { it.amountCents })
+    }
+
+    @Test
+    fun aLinkedMonthlyBillOwnsThePeriodAndTheReserveIsNotCash() {
+        val bill = payment(id = 250, amountCents = 30_000L, dayOfMonth = 15, nextDate = "2026-01-15")
+        val debt = DebtEntity(
+            id = 18,
+            name = bill.name,
+            balanceCents = 100_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 20,
+            linkedPaymentId = bill.id,
+        )
+        val params = ContractSimulationParams(runs = 4, surpriseProbabilityPpm = 0, reserveCents = 10_000L)
+        val purchase = TransactionEntity(
+            id = 9, description = "Synthetic purchase", date = "2026-01-02",
+            amount_cents = -4_000L, type = "expense", category = "Shopping",
+        )
+        val base = build(
+            payments = listOf(bill), debts = listOf(debt), startingBalanceCents = 50_000L,
+            horizonDays = 20, simulation = params,
+        )
+        assertEquals(
+            listOf(LocalDate.parse("2026-01-15") to -30_000L),
+            ContractEngine.inWindowBaseEvents(base).map { it.date to it.amountCents },
+        )
+        val baseline = ContractRunner.run(base)
+        assertEquals(20_000L, baseline.forecast.minimumBalanceCents)
+        assertEquals(20_000L, baseline.forecast.endingBalanceCents)
+        assertEquals(10_000L, baseline.risk!!.safeToSpendCents)
+
+        val withPurchase = build(
+            payments = listOf(bill), debts = listOf(debt), startingBalanceCents = 50_000L,
+            horizonDays = 20, simulation = params, transactions = listOf(purchase),
+        )
+        val updated = ContractRunner.run(withPurchase)
+        assertEquals(16_000L, updated.forecast.endingBalanceCents)
+        assertEquals(6_000L, updated.risk!!.safeToSpendCents)
+    }
+
+    @Test
+    fun aPartialBillAndSameDayIncomeUseTheBillDateWithAnExclusiveBoundary() {
+        val bill = payment(id = 7, amountCents = 20_000L, dayOfMonth = 15, nextDate = "2026-01-15")
+        val debt = DebtEntity(
+            id = 18, name = "Loan", balanceCents = 100_000L, aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L, dueDayOfMonth = 10, linkedPaymentId = bill.id,
+        )
+        val paycheck = income(amountCents = 10_000L, frequency = "One-time", nextDate = "2026-01-15")
+        val beforeBill = build(payments = listOf(bill), debts = listOf(debt), horizonDays = 14)
+        assertTrue(ContractEngine.inWindowBaseEvents(beforeBill).isEmpty())
+
+        val scenario = build(
+            payments = listOf(bill), debts = listOf(debt), incomes = listOf(paycheck),
+            startingBalanceCents = 50_000L, horizonDays = 15,
+        )
+        val events = ContractEngine.inWindowBaseEvents(scenario)
+        assertEquals(List(3) { LocalDate.parse("2026-01-15") }, events.map { it.date })
+        assertEquals(10_000L, events.first().amountCents)
+        assertEquals(setOf(-20_000L, -10_000L), events.drop(1).map { it.amountCents }.toSet())
+        assertEquals(30_000L, ContractRunner.run(scenario).forecast.endingBalanceCents)
+    }
+
+    @Test
+    fun aMovedLeapMonthBillCoversItsOriginalMonthButNotTheNextMonth() {
+        val bill = payment(id = 9, amountCents = 30_000L, dayOfMonth = 31, nextDate = "2028-02-29")
+        val debt = DebtEntity(
+            id = 21, name = "Loan", balanceCents = 100_000L, aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L, dueDayOfMonth = 20, linkedPaymentId = bill.id,
+        )
+        val moved = BillOccurrenceEntity(
+            id = 8, payment_id = bill.id, original_due_date = "2028-02-29",
+            due_date = "2028-03-02", amount_cents = 30_000L, is_user_modified = 1,
+        )
+        val scenario = build(
+            payments = listOf(bill), debts = listOf(debt), occurrences = listOf(moved),
+            startDate = LocalDate.parse("2028-02-15"), horizonDays = 47,
+        )
+        assertEquals(
+            listOf(LocalDate.parse("2028-03-02") to -30_000L, LocalDate.parse("2028-03-31") to -30_000L),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
+    }
+
+    @Test
+    fun anEarlierPaidOccurrenceAndAnEditedTemplateDoNotWithholdTheForecast() {
+        val bill = payment(id = 7, amountCents = 30_000L, dayOfMonth = 25, nextDate = "2026-01-25")
+        val debt = DebtEntity(
+            id = 18, name = "Loan", balanceCents = 100_000L, aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L, dueDayOfMonth = 20, linkedPaymentId = bill.id,
+        )
+        val paid = BillOccurrenceEntity(
+            id = 71, payment_id = bill.id, due_date = "2026-01-15", amount_cents = 30_000L, is_paid = 1,
+        )
+        val scenario = build(
+            payments = listOf(bill), debts = listOf(debt), occurrences = listOf(paid),
+            startDate = LocalDate.parse("2026-01-20"), horizonDays = 10, startingBalanceCents = 50_000L,
+        )
+        assertEquals(
+            listOf(LocalDate.parse("2026-01-25") to -30_000L),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
     }
 
     @Test
@@ -338,7 +443,7 @@ class ContractScenarioBridgeTest {
             balanceCents = 100_000L,
             aprBasisPoints = 0,
             minimumPaymentCents = 30_000L,
-            dueDayOfMonth = 10,
+            dueDayOfMonth = 15,
             linkedPaymentId = bill.id,
         )
         val inputs = ContractScenarioBridge.Inputs(
@@ -504,6 +609,39 @@ class ContractScenarioBridgeTest {
 
         assertTrue(events.contains("2026-01-20" to -12_000L))
         assertFalse(events.any { it.first == "2026-01-01" })
+    }
+
+    @Test
+    fun moveOntoTheNextRegularDateKeepsThatPeriodsOwnBillAndDebtCoverage() {
+        val bill = payment(id = 4, amountCents = 30_000L, dayOfMonth = 15, nextDate = "2026-01-15")
+        val debt = DebtEntity(
+            id = 2,
+            name = "Loan",
+            balanceCents = 60_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 20,
+            linkedPaymentId = bill.id,
+        )
+        val moved = BillOccurrenceEntity(
+            id = 11,
+            payment_id = bill.id,
+            due_date = "2026-02-15",
+            original_due_date = "2026-01-15",
+            amount_cents = 30_000L,
+            is_user_modified = 1,
+        )
+        val scenario = build(
+            payments = listOf(bill),
+            occurrences = listOf(moved),
+            debts = listOf(debt),
+            startingBalanceCents = 50_000L,
+            horizonDays = 59,
+        )
+
+        val events = ContractEngine.inWindowBaseEvents(scenario)
+        assertEquals(setOf("occurrence-11", "payment-4"), events.map { it.id }.toSet())
+        assertEquals(List(2) { LocalDate.of(2026, 2, 15) to -30_000L }, events.map { it.date to it.amountCents })
     }
 
     /** The first in-window income occurrence uses `expected_amount_cents`, later ones do not. */

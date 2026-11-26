@@ -40,8 +40,7 @@ private val TRANSACTION_TYPES = listOf("income", "expense", "adjustment")
 @Composable
 fun EditTransactionScreen(
     transaction: TransactionEntity,
-    onSave: (TransactionEntity) -> Unit,
-    onSaveRule: (String, String) -> Unit = { _, _ -> },
+    onSave: (TransactionEntity, Boolean) -> Unit,
     onDelete: (TransactionEntity) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -69,7 +68,8 @@ fun EditTransactionScreen(
     if (showDeleteConfirm) {
         ConfirmDeleteDialog(
             title = "Delete this transaction?",
-            message = "Remove \"${transaction.description}\"? This will affect your account balance and cannot be undone.",
+            message = "Remove \"${transaction.description}\"? This will affect your account balance. " +
+                "If this payment closed a bill, the bill will reopen. This cannot be undone.",
             onConfirm = {
                 onDelete(transaction)
                 showDeleteConfirm = false
@@ -198,10 +198,7 @@ fun EditTransactionScreen(
                                 }
                             )
                         )
-                        onSave(updated)
-                        if (rememberRule && category.isNotBlank()) {
-                            onSaveRule(description, category)
-                        }
+                        onSave(updated, rememberRule && updated.category.isNotBlank())
                     }
                 },
                 modifier = Modifier.weight(1f)

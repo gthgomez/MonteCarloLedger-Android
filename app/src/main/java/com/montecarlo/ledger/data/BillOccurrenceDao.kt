@@ -43,6 +43,22 @@ interface BillOccurrenceDao {
     @Query("UPDATE bill_occurrences SET is_paid = 1, transaction_id = :transactionId WHERE id = :id")
     suspend fun markPaid(id: Int, transactionId: Int? = null)
 
+    @Query(
+        "UPDATE bill_occurrences SET is_paid = 0, transaction_id = NULL " +
+            "WHERE transaction_id = :transactionId"
+    )
+    suspend fun reopenLinkedTo(transactionId: Int): Int
+
+    @Query(
+        "UPDATE bill_occurrences SET is_paid = 0, transaction_id = NULL " +
+            "WHERE transaction_id IS NOT NULL AND NOT EXISTS (" +
+            "SELECT 1 FROM transactions WHERE transactions.id = bill_occurrences.transaction_id)"
+    )
+    suspend fun reopenDanglingLinks(): Int
+
+    @Query("SELECT COUNT(*) FROM bill_occurrences WHERE transaction_id = :transactionId")
+    suspend fun countLinkedTo(transactionId: Int): Int
+
     @Query("SELECT * FROM bill_occurrences WHERE due_date BETWEEN :start AND :end ORDER BY due_date ASC")
     suspend fun getInRange(start: LocalDate, end: LocalDate): List<BillOccurrenceEntity>
 
@@ -63,7 +79,7 @@ interface BillOccurrenceDao {
 
     @Query(
         "SELECT COUNT(*) FROM bill_occurrences " +
-            "WHERE payment_id = :paymentId AND (due_date = :scheduleDate OR original_due_date = :scheduleDate)"
+            "WHERE payment_id = :paymentId AND COALESCE(original_due_date, due_date) = :scheduleDate"
     )
     suspend fun countForPaymentOnScheduleDate(paymentId: Int, scheduleDate: String): Int
 

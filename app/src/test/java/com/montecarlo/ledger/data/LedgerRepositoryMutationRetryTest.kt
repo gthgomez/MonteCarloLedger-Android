@@ -55,6 +55,52 @@ class LedgerRepositoryMutationRetryTest {
         return repo.allTransactions.first().single { it.type == "expense" }
     }
 
+    private suspend fun seedLinkedPayment(
+        paymentId: Int = 7,
+        occurrenceId: Int = 41,
+        transactionId: Int = 91,
+        dueDate: String = "2026-03-15",
+        originalDueDate: String = dueDate,
+        isUserModified: Int = 0,
+    ): TransactionEntity {
+        db.paymentDao().insert(
+            PaymentEntity(
+                id = paymentId,
+                name = "Card bill",
+                amount_cents = 30_000L,
+                frequency = "Monthly",
+                day_of_month = LocalDate.parse(dueDate).dayOfMonth,
+                next_date = dueDate,
+                is_active = 1,
+                isAutoWithdraw = true,
+            ),
+        )
+        val transaction = TransactionEntity(
+            id = transactionId,
+            description = "Card bill",
+            amount_cents = -30_000L,
+            date = dueDate,
+            type = "expense",
+            category = "bills",
+        )
+        db.transactionDao().insert(transaction)
+        db.billOccurrenceDao().insert(
+            BillOccurrenceEntity(
+                id = occurrenceId,
+                payment_id = paymentId,
+                due_date = dueDate,
+                amount_cents = 30_000L,
+                is_paid = 1,
+                transaction_id = transactionId,
+                created_at = "2026-03-01T00:00:00",
+                original_due_date = originalDueDate,
+                is_user_modified = isUserModified,
+            ),
+        )
+        repo.setBankBalance(50_000L)
+        return transaction
+    }
+
     @Test
     fun repeatedDeletionReversesTheBalanceOnlyOnce() = runBlocking {
         val expense = recordExpense()
@@ -200,5 +246,154 @@ class LedgerRepositoryMutationRetryTest {
         assertTrue(failure is IllegalArgumentException)
         assertEquals(original, db.transactionDao().getById(original.id))
         assertEquals(15_000L, db.debtDao().getActive().first().single().balanceCents)
+    }
+
+    @Test
+    fun deletingLinkedPaymentReopensOccurrenceAndRepeatedDeleteIsIdempotent() = runBlocking {
+        val transaction = seedLinkedPayment(
+            dueDate = "2026-03-25",
+            originalDueDate = "2026-03-15",
+            isUserModified = 1,
+        )
+        val occurrenceBefore = db.billOccurrenceDao().getById(41)!!
+
+        repo.deleteTransaction(transaction)
+
+        assertEquals(null, db.transactionDao().getById(91))
+        val reopened = db.billOccurrenceDao().getById(41)!!
+        assertEquals(0, reopened.is_paid)
+        assertEquals(null, reopened.transaction_id)
+        assertEquals(occurrenceBefore.due_date, reopened.due_date)
+        assertEquals(occurrenceBefore.original_due_date, reopened.original_due_date)
+        assertEquals(occurrenceBefore.is_user_modified, reopened.is_user_modified)
+        assertEquals(occurrenceBefore.amount_cents, reopened.amount_cents)
+        assertEquals(occurrenceBefore.created_at, reopened.created_at)
+        assertEquals(80_000L, repo.getBankBalanceCents())
+
+        repo.deleteTransaction(transaction)
+
+        assertEquals(80_000L, repo.getBankBalanceCents())
+        assertEquals(0, db.billOccurrenceDao().getById(41)!!.is_paid)
+        assertEquals(null, db.billOccurrenceDao().getById(41)!!.transaction_id)
+
+        val replacementId = repo.insertTransaction(
+            TransactionEntity(
+                description = "Card bill",
+                amount_cents = -30_000L,
+                date = "2026-03-16",
+                type = "expense",
+            ),
+            41,
+        )
+        assertTrue(replacementId != 91L)
+        assertEquals(1, repo.allTransactions.first().count { it.type == "expense" })
+        assertEquals(replacementId.toInt(), db.billOccurrenceDao().getById(41)!!.transaction_id)
+        assertEquals(1, db.billOccurrenceDao().getById(41)!!.is_paid)
+        assertEquals(50_000L, repo.getBankBalanceCents())
+
+        val repeatedId = repo.insertTransaction(
+            TransactionEntity(
+                description = "Card bill",
+                amount_cents = -30_000L,
+                date = "2026-03-16",
+                type = "expense",
+            ),
+            41,
+        )
+        assertEquals(replacementId, repeatedId)
+        assertEquals(1, repo.allTransactions.first().count { it.type == "expense" })
+        assertEquals(50_000L, repo.getBankBalanceCents())
+
+        repo.deleteTransaction(db.transactionDao().getById(replacementId.toInt())!!)
+
+        assertEquals(80_000L, repo.getBankBalanceCents())
+        assertEquals(0, db.billOccurrenceDao().getById(41)!!.is_paid)
+        assertEquals(null, db.billOccurrenceDao().getById(41)!!.transaction_id)
+    }
+
+    @Test
+    fun linkedPaymentEditRejectsAmountTypeAndAccountButAllowsNoteDateAndCategory() = runBlocking {
+        val transaction = seedLinkedPayment()
+
+        val amountFailure = runCatching {
+            repo.updateTransaction(transaction.copy(amount_cents = -40_000L))
+        }.exceptionOrNull()
+        assertTrue(amountFailure is IllegalArgumentException)
+        assertTrue(amountFailure!!.message!!.contains("linked to a bill"))
+        assertEquals(transaction, db.transactionDao().getById(91))
+        assertEquals(50_000L, repo.getBankBalanceCents())
+
+        val typeFailure = runCatching {
+            repo.updateTransaction(transaction.copy(type = "adjustment"))
+        }.exceptionOrNull()
+        assertTrue(typeFailure is IllegalArgumentException)
+        assertEquals(transaction, db.transactionDao().getById(91))
+
+        val accountFailure = runCatching {
+            repo.updateTransaction(transaction.copy(account_id = 1L))
+        }.exceptionOrNull()
+        assertTrue(accountFailure is IllegalArgumentException)
+        assertEquals(transaction, db.transactionDao().getById(91))
+
+        repo.updateTransaction(
+            transaction.copy(
+                description = "Card bill (corrected)",
+                date = "2026-03-16",
+                category = "card",
+            )
+        )
+        val saved = db.transactionDao().getById(91)!!
+        assertEquals("Card bill (corrected)", saved.description)
+        assertEquals("2026-03-16", saved.date)
+        assertEquals("card", saved.category)
+        assertEquals(-30_000L, saved.amount_cents)
+        assertEquals(91, db.billOccurrenceDao().getById(41)!!.transaction_id)
+        assertEquals(50_000L, repo.getBankBalanceCents())
+    }
+
+    @Test
+    fun skipAndRescheduleCannotSilentlyDetachOrMoveARecordedPayment() = runBlocking {
+        val transaction = seedLinkedPayment()
+
+        val skipFailure = runCatching { repo.skipBillOccurrence(41) }.exceptionOrNull()
+        assertTrue(skipFailure is IllegalArgumentException)
+        assertEquals(1, db.billOccurrenceDao().getById(41)!!.is_paid)
+        assertEquals(91, db.billOccurrenceDao().getById(41)!!.transaction_id)
+        assertEquals(50_000L, repo.getBankBalanceCents())
+
+        val moveFailure = runCatching {
+            repo.rescheduleBillOccurrence(41, "2026-03-20")
+        }.exceptionOrNull()
+        assertTrue(moveFailure is IllegalArgumentException)
+        assertEquals("2026-03-15", db.billOccurrenceDao().getById(41)!!.due_date)
+
+        repo.deleteTransaction(transaction)
+        repo.skipBillOccurrence(41)
+        val skipped = db.billOccurrenceDao().getById(41)!!
+        assertEquals(1, skipped.is_paid)
+        assertEquals(null, skipped.transaction_id)
+        assertEquals(80_000L, repo.getBankBalanceCents())
+    }
+
+    @Test
+    fun occurrenceSyncReopensLegacyPaidRowsWhoseSettlingTransactionIsMissing() = runBlocking {
+        val dueDate = LocalDate.now().plusDays(1).toString()
+        val transaction = seedLinkedPayment(
+            paymentId = 8,
+            occurrenceId = 42,
+            transactionId = 93,
+            dueDate = dueDate,
+        )
+        db.transactionDao().delete(transaction)
+        assertEquals(1, db.billOccurrenceDao().getById(42)!!.is_paid)
+        assertEquals(93, db.billOccurrenceDao().getById(42)!!.transaction_id)
+
+        repo.syncBillOccurrences()
+
+        val repaired = db.billOccurrenceDao().getById(42)!!
+        assertEquals(0, repaired.is_paid)
+        assertEquals(null, repaired.transaction_id)
+        assertEquals(dueDate, repaired.due_date)
+        assertEquals(dueDate, repaired.original_due_date)
     }
 }

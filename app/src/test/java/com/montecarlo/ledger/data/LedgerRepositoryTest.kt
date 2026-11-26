@@ -209,7 +209,7 @@ class LedgerRepositoryTest {
             val repo = LedgerRepository(db)
             val today = LocalDate.now()
             val originalDue = today.plusDays(5)
-            val movedDue = today.plusDays(12)
+            val movedDue = originalDue.plusMonths(1)
             val payment = PaymentEntity(
                 id = 10,
                 name = "Internet",
@@ -231,13 +231,15 @@ class LedgerRepositoryTest {
 
             val updatedPayment = db.paymentDao().getById(payment.id)
             val occurrences = db.billOccurrenceDao().getForPayment(payment.id).first()
-            val movedOccurrence = occurrences.single { it.due_date == movedDue.toString() }
+            val movedOccurrence = occurrences.single { it.id == occurrence.id }
 
             assertEquals(originalDue.toString(), updatedPayment?.next_date)
             assertEquals(originalDue.dayOfMonth, updatedPayment?.day_of_month)
             assertEquals(originalDue.toString(), movedOccurrence.original_due_date)
+            assertEquals(movedDue.toString(), movedOccurrence.due_date)
             assertEquals(1, movedOccurrence.is_user_modified)
             assertFalse(occurrences.any { it.due_date == originalDue.toString() && it.is_paid == 0 })
+            assertEquals(2, occurrences.count { it.due_date == movedDue.toString() })
         } finally {
             db.close()
         }
