@@ -21,20 +21,10 @@ object TimelineService {
 
         val endDate = startDate.plusDays(daysAhead.toLong())
         val paymentById = payments.associateBy { it.id }
-        // Paid/skipped occurrences and user-moved occurrences suppress the generated template date.
+        // A moved bill replaces its original slot even if it lands on another slot's cash date.
         val suppressedSet: Set<Pair<Int, String>> = paidOccurrences
-            .filter { it.is_paid != 0 }
+            .filter { it.is_paid != 0 || it.is_user_modified != 0 }
             .map { Pair(it.payment_id, it.original_due_date ?: it.due_date) }
-            .plus(
-                paidOccurrences
-                    .filter { it.is_paid == 0 && it.is_user_modified != 0 }
-                    .map { Pair(it.payment_id, it.original_due_date ?: it.due_date) }
-            )
-            .plus(
-                paidOccurrences
-                    .filter { it.is_user_modified != 0 }
-                    .map { Pair(it.payment_id, it.due_date) }
-            )
             .toSet()
 
         val events = mutableListOf<ForecastEvent>()

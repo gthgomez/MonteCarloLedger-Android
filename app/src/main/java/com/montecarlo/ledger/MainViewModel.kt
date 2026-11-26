@@ -278,8 +278,12 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    fun updateTransaction(entity: TransactionEntity, onResult: (Result<Unit>) -> Unit = {}) {
-        launchPersistence(onResult) { repo.updateTransaction(entity) }
+    fun updateTransaction(
+        entity: TransactionEntity,
+        original: TransactionEntity,
+        onResult: (Result<Unit>) -> Unit = {},
+    ) {
+        launchPersistence(onResult) { repo.updateTransaction(entity, expectedOriginal = original) }
     }
 
     fun approveTransactionReview(transactionId: Int) {
@@ -302,7 +306,7 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     fun deleteTransaction(entity: TransactionEntity, onResult: (Result<Unit>) -> Unit = {}) {
-        launchPersistence(onResult) { repo.deleteTransaction(entity) }
+        launchPersistence(onResult) { repo.deleteTransaction(entity, expectedOriginal = entity) }
     }
 
     fun saveTransactionRule(description: String, category: String, applyRetroactively: Boolean = true) {
@@ -469,12 +473,10 @@ class MainViewModel @JvmOverloads constructor(
         viewModelScope.launch { repo.setDefaultAccount(id) }
     }
 
-    fun addDebt(debt: DebtEntity) {
-        viewModelScope.launch { repo.insertDebt(debt) }
-    }
-
-    fun updateDebt(debt: DebtEntity) {
-        viewModelScope.launch { repo.updateDebt(debt) }
+    fun saveDebt(debt: DebtEntity, onResult: (Result<Unit>) -> Unit) {
+        launchPersistence(onResult) {
+            if (debt.id == 0L) repo.insertDebt(debt) else repo.updateDebt(debt)
+        }
     }
 
     fun deleteDebt(debt: DebtEntity) {

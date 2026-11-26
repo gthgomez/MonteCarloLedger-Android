@@ -93,13 +93,15 @@ internal fun EditSheets(
         SheetContainer(colorScheme, { onSelectTransaction(null) }) {
             EditTransactionScreen(
                 transaction = transaction,
-                onSave = {
-                    viewModel.updateTransaction(it) { result ->
-                        handleResult(result, true) { onSelectTransaction(null) }
+                onSave = { updated, rememberCategory ->
+                    viewModel.updateTransaction(updated, transaction) { result ->
+                        handleResult(result, true) {
+                            if (rememberCategory) {
+                                viewModel.saveTransactionRule(updated.description, updated.category)
+                            }
+                            onSelectTransaction(null)
+                        }
                     }
-                },
-                onSaveRule = { description, category ->
-                    viewModel.saveTransactionRule(description, category)
                 },
                 onDelete = {
                     viewModel.deleteTransaction(it) { result ->

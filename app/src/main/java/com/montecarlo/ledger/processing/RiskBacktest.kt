@@ -38,10 +38,10 @@ data class BacktestObservation(
 }
 
 /**
- * Out-of-sample report. The month-end band checks the calibrator's own monthly-variance unit; the
- * trough band and [dipBrier] check the path quantity the dashboard shows. The dip baseline is the
- * **training** window's realized dip rate — a holdout-fitted base rate would score the model against
- * its own scored outcomes.
+ * Out-of-sample report. The month-end band checks the calibrator's own monthly-variance unit with no
+ * surprises; the trough band and [dipBrier] check a zero-surprise path quantity. The dip baseline is
+ * the **training** window's realized dip rate — a holdout-fitted base rate would score the model
+ * against its own scored outcomes.
  */
 data class BacktestReport(
     val observations: List<BacktestObservation>,
@@ -77,7 +77,13 @@ data class BacktestReport(
         (trainingDipRate - o) * (trainingDipRate - o)
     }.let { if (sampleSize == 0) 0.0 else it / sampleSize }
 
-    /** `1 - dipBrier / training baseline`; 0.0 when the training baseline is degenerate. */
+    /**
+     * `1 - dipBrier / training baseline`. Forced to 0.0 **only** when the baseline Brier is exactly
+     * zero: the constant training rate already matches every scored outcome (all held-out months dip
+     * with a training rate of 1, or none dip with a rate of 0). A nonzero baseline is never
+     * suppressed; if the model merely matches it the formula also yields 0.0, and a worse model
+     * yields a negative score.
+     */
     val dipSkillScore: Double get() = if (dipBaseRateBrier <= 0.0) 0.0 else 1.0 - dipBrier / dipBaseRateBrier
 
     private fun rate(predicate: (BacktestObservation) -> Boolean): Double =
@@ -88,7 +94,7 @@ data class BacktestReport(
  * Deterministic, seeded out-of-sample backtest for the Monte Carlo risk model.
  *
  * Months are split chronologically; calibration and the intra-month timing baseline use training
- * rows only. Two runs per held-out month share one [MonteCarloParams] and scan the same calibration:
+ * rows only. Both runs use one zero-surprise [MonteCarloParams]:
  *
  *  - **Month-end**: one income event on the first day and one expense on the last, from a zero
  *    opening. This isolates the calibrator's monthly-total variance from any timing approximation, so
@@ -96,6 +102,9 @@ data class BacktestReport(
  *  - **Path**: the same monthly totals on a training-derived payday and four weekly buckets, from the
  *    ledger balance before the month. This is the only layout that can produce a non-degenerate trough.
  *
+ * Surprises are suppressed in both runs. The baseline expense is the mean of realized monthly totals,
+ * which already contains irregular charges; the harness has no verified recurring/irregular
+ * decomposition to subtract them, so injecting the calibrated surprise layer would count them twice.
  * A one-month window is not the product's 90-day headline. See `docs/risk-backtest.md` for limits.
  */
 object RiskBacktest {
@@ -178,8 +187,8 @@ object RiskBacktest {
                 ),
                 today = start,
             )
-            // `today = start` bounds the surprise horizon to this month. The product's 90-day
-            // horizon and the engine's wall-clock default are both deliberately not used.
+            // `today = start` fixes each scored run to this month. The product's 90-day horizon
+            // and the engine's wall-clock default are both deliberately not used.
             val path = MonteCarloEngine(params).runSimulation(
                 balanceCents = opening,
                 events = pathEvents(month, baselineIncome, timing),
@@ -221,6 +230,11 @@ object RiskBacktest {
 
     private class Timing(val paydayOfMonth: Int?, val expenseBucketCents: LongArray)
 
+    /**
+     * Engine parameters for a scored month. The calibrated surprise fields are deliberately not
+     * copied: the baseline expense already includes irregular spend, so injecting surprises would
+     * double-count it and bias both the month-end band and the path dip probability.
+     */
     private fun MonteCarloCalibration.toParams(seed: Long, runs: Int): MonteCarloParams = MonteCarloParams(
         seed = seed,
         runs = runs,
@@ -229,9 +243,9 @@ object RiskBacktest {
         expenseVariationMin = expenseVariationMin,
         expenseVariationMax = expenseVariationMax,
         expenseCategoryVariation = expenseCategoryVariation,
-        surpriseProbability = surpriseProbability,
-        surpriseAmountMin = surpriseAmountMin,
-        surpriseAmountMax = surpriseAmountMax,
+        surpriseProbability = 0.0,
+        surpriseAmountMin = 0,
+        surpriseAmountMax = 0,
         includeDailyPercentiles = false,
     )
 
@@ -273,9 +287,9 @@ object RiskBacktest {
     /**
      * Dated events for one month. `MonteCarloEngine.generateScenarioTimeline` reads
      * `baseTimeline.last()` **before** it sorts, so this list is built chronologically and always
-     * ends with a month-end expense: when the last bucket is empty that event carries zero cents to
-     * pin the surprise horizon at the full month. It has no path effect and consumes one
-     * expense-variation draw only when that range is enabled, which stays deterministic.
+     * ends with a month-end expense. When the last bucket is empty that event carries zero cents;
+     * it has no path effect, but it keeps the terminal date explicit for the engine's timeline scan.
+     * Surprises are disabled in [toParams], so the engine adds none.
      */
     private fun pathEvents(month: YearMonth, baselineIncome: Long, timing: Timing): List<ForecastEvent> {
         val payday = timing.paydayOfMonth

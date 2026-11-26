@@ -40,8 +40,7 @@ private val TRANSACTION_TYPES = listOf("income", "expense", "adjustment")
 @Composable
 fun EditTransactionScreen(
     transaction: TransactionEntity,
-    onSave: (TransactionEntity) -> Unit,
-    onSaveRule: (String, String) -> Unit = { _, _ -> },
+    onSave: (TransactionEntity, Boolean) -> Unit,
     onDelete: (TransactionEntity) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -199,10 +198,7 @@ fun EditTransactionScreen(
                                 }
                             )
                         )
-                        onSave(updated)
-                        if (rememberRule && category.isNotBlank()) {
-                            onSaveRule(description, category)
-                        }
+                        onSave(updated, rememberRule && updated.category.isNotBlank())
                     }
                 },
                 modifier = Modifier.weight(1f)

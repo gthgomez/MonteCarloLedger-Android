@@ -282,9 +282,11 @@ private fun buildBillLinkOptions(
         .sortedBy { runCatching { LocalDate.parse(it.due_date) }.getOrNull() ?: LocalDate.MAX }
         .mapNotNull { occurrence ->
             val payment = paymentById[occurrence.payment_id] ?: return@mapNotNull null
+            val movedFrom = occurrence.original_due_date?.takeUnless { it == occurrence.due_date }
+                ?.let { " (moved from ${it.formatDateDisplay()})" }.orEmpty()
             BillLinkOption(
                 occurrenceId = occurrence.id,
-                label = "${payment.name} • due ${occurrence.due_date.formatDateDisplay()} • ${centsToDisplay(occurrence.amount_cents)}"
+                label = "${payment.name} • due ${occurrence.due_date.formatDateDisplay()}$movedFrom • ${centsToDisplay(occurrence.amount_cents)}"
             )
         }
         .toList()

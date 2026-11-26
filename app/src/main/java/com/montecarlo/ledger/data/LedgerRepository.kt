@@ -247,7 +247,10 @@ class LedgerRepository(private val db: AppDatabase) {
             transactionId
         }
 
-    suspend fun updateTransaction(entity: TransactionEntity) {
+    suspend fun updateTransaction(
+        entity: TransactionEntity,
+        expectedOriginal: TransactionEntity? = null,
+    ) {
         DomainRules.validateTransactionSign(entity.amount_cents, entity.type)
         val reviewed = applyTransactionRules(entity).copy(
             review_status = REVIEW_APPROVED,
@@ -256,14 +259,20 @@ class LedgerRepository(private val db: AppDatabase) {
         db.withTransaction {
             val existing = db.transactionDao().getById(entity.id)
                 ?: throw IllegalArgumentException("This transaction no longer exists.")
+            if (expectedOriginal != null && existing != expectedOriginal) {
+                throw IllegalArgumentException(
+                    "This transaction changed since you opened it. Reopen it and try again."
+                )
+            }
             if (db.billOccurrenceDao().countLinkedTo(existing.id) > 0) {
                 require(entity.type == existing.type) {
                     "This payment is linked to a bill and must remain an expense. " +
                         "Delete the payment to reopen the bill, then record the correction."
                 }
                 require(entity.amount_cents == existing.amount_cents) {
-                    "This payment is linked to a bill. " +
-                        "Delete the payment to reopen the bill, then record the corrected amount."
+                    "This payment is linked to a bill. Delete the payment to reopen the bill; " +
+                        "its amount stays the scheduled amount, so edit the bill first, " +
+                        "then record the payment again."
                 }
                 require(entity.account_id == existing.account_id) {
                     "This payment is linked to a bill and cannot move to another account. " +
@@ -316,9 +325,17 @@ class LedgerRepository(private val db: AppDatabase) {
             )
         }
     }
-    suspend fun deleteTransaction(entity: TransactionEntity) {
+    suspend fun deleteTransaction(
+        entity: TransactionEntity,
+        expectedOriginal: TransactionEntity? = null,
+    ) {
         db.withTransaction {
             val existing = db.transactionDao().getById(entity.id) ?: return@withTransaction
+            if (expectedOriginal != null && existing != expectedOriginal) {
+                throw IllegalArgumentException(
+                    "This transaction changed since you opened it. Reopen it and try again."
+                )
+            }
             // A deleted settling transaction must not leave the bill marked paid: reopen every
             // occurrence that used it, preserving its moved slot and amount, then delete the cash row.
             db.billOccurrenceDao().reopenLinkedTo(existing.id)
@@ -361,9 +378,26 @@ class LedgerRepository(private val db: AppDatabase) {
 
     // Debts
     val allDebts: Flow<List<DebtEntity>> = db.debtDao().getAll()
-    suspend fun insertDebt(debt: DebtEntity) = db.debtDao().insert(debt)
-    suspend fun updateDebt(debt: DebtEntity) = db.debtDao().update(debt)
+    suspend fun insertDebt(debt: DebtEntity): Long = db.withTransaction {
+        validateActiveDebtLink(debt, existing = null)
+        db.debtDao().insert(debt)
+    }
+    suspend fun updateDebt(debt: DebtEntity) = db.withTransaction {
+        val existing = db.debtDao().getAll().first().firstOrNull { it.id == debt.id }
+        validateActiveDebtLink(debt, existing)
+        db.debtDao().update(debt)
+    }
     suspend fun deleteDebt(debt: DebtEntity) = db.debtDao().delete(debt)
+
+    private suspend fun validateActiveDebtLink(debt: DebtEntity, existing: DebtEntity?) {
+        val activeDebts = db.debtDao().getActive().first()
+        activeDebtLinkValidationError(
+            candidate = debt,
+            existing = existing,
+            paymentsById = db.paymentDao().getAllPaymentsList().associateBy { it.id },
+            activeDebts = activeDebts,
+        )?.let { throw IllegalArgumentException(it) }
+    }
 
     val onboardingProgress: Flow<OnboardingProgress> = db.settingsDao().getAll().map { settings ->
         val byKey = settings.associateBy { it.key }
@@ -841,6 +875,8 @@ class LedgerRepository(private val db: AppDatabase) {
         // Re-validate restored rows so a hand-edited or legacy backup cannot smuggle
         // invalid financial signs (e.g. a positive "expense") into the ledger.
         snapshot.transactions.forEach { DomainRules.validateTransactionSign(it.amount_cents, it.type) }
+        validateBackupBillLinks(snapshot)
+        validateBackupActiveDebtLinks(snapshot)
         db.withTransaction {
             val preservedLockSettings = db.settingsDao().getAll().first()
                 .filter { isAppLockSettingKey(it.key) }
@@ -876,6 +912,49 @@ class LedgerRepository(private val db: AppDatabase) {
             preservedLockSettings.forEach { db.settingsDao().setValue(it) }
             // Accounts reflect the restored state; reseed if the snapshot predates v5.
             ensureDefaultAccountSeeded()
+        }
+    }
+
+    /**
+     * Fail closed before the wipe when a backup carries a link that Room would otherwise
+     * preserve but the canonical vault rejects. A link whose settling transaction is
+     * genuinely absent stays repairable: [BillOccurrenceDao.reopenDanglingLinks] clears it
+     * after insert, matching the legacy-backup repair path.
+     */
+    private fun validateBackupBillLinks(snapshot: LedgerBackupSnapshot) {
+        val paymentsById = snapshot.payments.associateBy { it.id }
+        val transactionsById = snapshot.transactions.associateBy { it.id }
+        val occupiedOriginalSlots = HashSet<Pair<Int, String>>()
+        val linkedTransactionIds = HashSet<Int>()
+        snapshot.billOccurrences.forEach { occurrence ->
+            require(paymentsById.containsKey(occurrence.payment_id)) {
+                "Backup bill occurrence references a missing bill."
+            }
+            val originalSlot = occurrence.original_due_date ?: occurrence.due_date
+            require(occupiedOriginalSlots.add(occurrence.payment_id to originalSlot)) {
+                "Backup has duplicate bill occurrence slots for one bill."
+            }
+            val transactionId = occurrence.transaction_id ?: return@forEach
+            val transaction = transactionsById[transactionId] ?: return@forEach
+            require(linkedTransactionIds.add(transactionId)) {
+                "Backup links one payment transaction to multiple bill occurrences."
+            }
+            require(occurrence.is_paid != 0) {
+                "Backup bill occurrence is unpaid but still linked to a payment."
+            }
+            // Compare against the occurrence's own amount, not the bill template: a settled
+            // occurrence legitimately keeps its historical amount after the bill is edited.
+            DomainRules.validateOccurrenceLink(occurrence, transaction)
+        }
+    }
+
+    private fun validateBackupActiveDebtLinks(snapshot: LedgerBackupSnapshot) {
+        val linkedPaymentIds = HashSet<Int>()
+        snapshot.debts.filter { it.isActive }.forEach { debt ->
+            val linkedPaymentId = debt.linkedPaymentId ?: return@forEach
+            require(linkedPaymentIds.add(linkedPaymentId)) {
+                "Backup has multiple active debts linked to the same bill."
+            }
         }
     }
 
@@ -1521,4 +1600,36 @@ class LedgerRepository(private val db: AppDatabase) {
         }
     }
 
+}
+
+/**
+ * Shared rule for a newly saved active debt link. An unchanged link on an already-active
+ * debt is left alone so legacy rows can still be edited without unrelated failures.
+ *
+ * @return an actionable message when the save must be rejected, or null when it may proceed.
+ */
+internal fun activeDebtLinkValidationError(
+    candidate: DebtEntity,
+    existing: DebtEntity?,
+    paymentsById: Map<Int, PaymentEntity>,
+    activeDebts: List<DebtEntity>,
+): String? {
+    if (!candidate.isActive) return null
+    val linkedPaymentId = candidate.linkedPaymentId ?: return null
+    val unchangedExistingLink = existing != null &&
+        existing.isActive &&
+        existing.linkedPaymentId == linkedPaymentId
+    if (unchangedExistingLink) return null
+
+    val payment = paymentsById[linkedPaymentId]
+        ?: return "The linked bill no longer exists. Choose another bill or remove the link."
+    if (!CanonicalVaultMapper.isLinkable(payment)) {
+        return "An active debt can link only to an active monthly bill with a due day " +
+            "or a dated one-time bill."
+    }
+    if (activeDebts.any { it.id != candidate.id && it.linkedPaymentId == linkedPaymentId }) {
+        return "Another active debt is already linked to this bill. " +
+            "Unlink or archive one of them first."
+    }
+    return null
 }

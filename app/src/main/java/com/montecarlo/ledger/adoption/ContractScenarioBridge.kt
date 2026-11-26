@@ -412,17 +412,10 @@ object ContractScenarioBridge {
     }
 
     /** Mirrors [com.montecarlo.ledger.processing.TimelineService] paid/skipped/moved suppression. */
-    private fun suppressedDates(occurrences: List<BillOccurrenceEntity>): Set<Pair<Int, String>> {
-        val result = HashSet<Pair<Int, String>>()
-        for (occurrence in occurrences) {
-            result.add(Pair(occurrence.payment_id, occurrence.original_due_date ?: occurrence.due_date))
-            if (occurrence.is_user_modified != 0) {
-                result.add(Pair(occurrence.payment_id, occurrence.original_due_date ?: occurrence.due_date))
-                result.add(Pair(occurrence.payment_id, occurrence.due_date))
-            }
+    private fun suppressedDates(occurrences: List<BillOccurrenceEntity>): Set<Pair<Int, String>> =
+        occurrences.mapTo(HashSet()) {
+            it.payment_id to (it.original_due_date ?: it.due_date)
         }
-        return result
-    }
 
     /** Product spellings -> contract frequency names. Unknown/unsupported values are dropped. */
     private fun contractFrequency(raw: String): String? = when (RecurrenceMath.normalizeFrequency(raw)) {

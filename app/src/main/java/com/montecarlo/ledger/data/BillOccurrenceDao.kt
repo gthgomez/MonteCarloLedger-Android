@@ -79,7 +79,7 @@ interface BillOccurrenceDao {
 
     @Query(
         "SELECT COUNT(*) FROM bill_occurrences " +
-            "WHERE payment_id = :paymentId AND (due_date = :scheduleDate OR original_due_date = :scheduleDate)"
+            "WHERE payment_id = :paymentId AND COALESCE(original_due_date, due_date) = :scheduleDate"
     )
     suspend fun countForPaymentOnScheduleDate(paymentId: Int, scheduleDate: String): Int
 

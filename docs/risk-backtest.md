@@ -15,19 +15,27 @@ claims real-world forecast accuracy.
 | Simulation band | percentile of each run's **minimum (trough)** balance | `minimum_balance_p10/p50/p90` → `monteCarlo10th/50th/90th` |
 | Calibrator unit | **monthly** income and expense totals | `MonteCarloCalibrator.calibrate` |
 
-`RiskBacktest` runs the model twice per held-out month from one calibration and one `MonteCarloParams`:
+`RiskBacktest` runs the model twice per held-out month from one calibration. Both runs disable the
+calibrator's surprise layer:
 
-- **Month-end run** — income on day 1, one expense on the last day, zero opening. Its ending
-  quantiles are the month's net quantiles. This isolates the calibrator's monthly-total variance from
-  any timing approximation, so a coverage miss here is attributable to calibration.
+- **Month-end run** — income on day 1, one expense on the last day, zero opening, no surprises. Its
+  ending quantiles are the month's net quantiles under the calibrated monthly-total variation. This
+  isolates that variation from any timing approximation, so a coverage miss here is attributable to
+  calibration.
 - **Path run** — income on the training-window payday and four weekly expense buckets, starting from
-  the ledger balance before the month. This is the only layout that can produce a non-degenerate
-  trough.
+  the ledger balance before the month, also without surprises. This is the only layout that can
+  produce a non-degenerate trough.
 
-Ending quantiles minus the opening are exactly the path run's net quantiles, so one run *could* serve
-both. The month-end run is kept because scoring the calibrator through the four-bucket timing
-approximation would confound calibration error with timing error; it also keeps the monthly-coverage
-gate measuring the same quantity it always did.
+The two runs share a calibration but not an outcome distribution. The path run splits the expense
+budget across buckets and each bucket receives its own variation draw, so summing independent bucket
+draws damps variance (`Σbᵢ² < (Σbᵢ)²`). Its ending quantiles are therefore **not** exactly the
+month-end quantiles minus the opening; the runs are separate checks, not one run reused.
+
+Surprises are suppressed in both runs because the baseline expense is the mean of realized monthly
+totals, which already includes irregular charges. Injecting the calibrated surprise layer would count
+that spend twice, and this harness has no verified recurring/irregular decomposition to subtract the
+irregular part first. The path check therefore covers timing plus monthly-total variance, not the
+product's surprise-inclusive path.
 
 ## Harness
 
@@ -37,19 +45,20 @@ gate measuring the same quantity it always did.
 2. Split distinct months chronologically into training and held-out windows (default 50/50, minimum
    3 months total).
 3. Calibrate on training rows only; recurring patterns are detected from those rows, so no holdout
-   description, date, amount, or pattern enters the calibration.
+   description, date, amount, or pattern enters the calibration. Only the variation ranges and
+   per-category ranges are forwarded; the calibrated surprise fields are intentionally ignored.
 4. Derive the intra-month timing baseline from training rows only: the median payday and four weekly
    expense shares, scaled to the month-end expense budget so both runs forecast the same total.
 5. Score the holdout month: realized net (income minus expense; adjustment rows excluded), and the
    realized trough — `min(opening, running balance after each row)`, ordered by date with money-in
    before money-out, summed by recorded sign.
 
-`MonteCarloEngine.generateScenarioTimeline` computes its surprise horizon from `baseTimeline.last()`
-**before** sorting. The path list is therefore built chronologically and always ends with a month-end
-expense; when the last bucket is empty that event carries zero cents so the horizon is the full month.
-It has no path effect and consumes one expense-variation draw only when that range is enabled, which
-stays deterministic. Both runs pass the month's first day as the engine's `today`, so the horizon is
-the month — not the engine's wall-clock default and not the product's 90-day horizon.
+`MonteCarloEngine.generateScenarioTimeline` reads `baseTimeline.last()` **before** sorting. The path
+list is therefore built chronologically and always ends with a month-end expense; when the last
+bucket is empty that event carries zero cents and has no path effect. Surprises are disabled, so the
+engine adds no unexpected expenses. Both runs pass the month's first day as the engine's `today`, so
+each scored run covers that month — not the engine's wall-clock default and not the product's 90-day
+horizon.
 
 ### Opening balance
 
@@ -68,17 +77,24 @@ warm-up.
 | `troughCoverage` | fraction whose **realized within-month minimum** fell in the model's 80% trough band | ≈ 0.80; first evidence about the displayed band |
 | `dipBrier` | mean squared error of `predictedDipProbability` vs `actualDippedNegative` | same event on both sides |
 | `dipBaseRateBrier` | Brier of the constant **training** dip rate | reference a skilled model must beat |
-| `dipSkillScore` | `1 - dipBrier / dipBaseRateBrier`; `0.0` when the baseline is degenerate | positive = beats training climatology |
+| `dipSkillScore` | `1 - dipBrier / dipBaseRateBrier`; forced to `0.0` only when `dipBaseRateBrier` is exactly 0 | positive = beats training climatology; `0.0` can also mean the model merely matches a nonzero baseline |
 | `sampleSize` | scored holdout months | at the 3-month floor with a 50/50 split this is **1** |
 | `unparseableDateRows`, `excludedIncompleteMonthRows` | rows dropped before scoring | missing-data visibility |
 
 The previous revision estimated the base rate from the holdout and scored the same holdout against it.
 That in-sample baseline is gone; `trainingDipRate` is the only baseline.
 
+`dipBaseRateBrier` is exactly 0 only when the constant training rate already matches every scored
+outcome: all held-out months dip and `trainingDipRate == 1`, or none dip and `trainingDipRate == 0`.
+If the training rate is strictly between 0 and 1, or the holdout disagrees with an extreme rate, the
+baseline Brier is positive and the formula is reported unchanged. A reported `0.0` can therefore mean
+either an undefined skill (zero baseline) or a model that merely matched a nonzero baseline; a
+negative score means the model did worse than the constant.
+
 ## Independent oracles
 
-`RiskBacktestTest` pins the behaviour with hand-computed ledgers and an injected zero-variation,
-zero-surprise calibration, so no assertion depends on the RNG:
+`RiskBacktestTest` pins the behaviour with hand-computed ledgers and injected zero-variation
+calibrations, so no assertion depends on the RNG:
 
 - **Aligned payday** — income on the 20th, rent on the 5th. The holdout month opens at +20 000, dips
   to −20 000 and ends at +30 000; both bands contain the actual and the model predicts the dip with
@@ -87,6 +103,13 @@ zero-surprise calibration, so no assertion depends on the RNG:
   holdout month moves its payday to the 20th: it dips to −50 000 and ends at 0, its net. Month-end
   coverage is 1.0, trough coverage 0.0, dip Brier 1.0, and `dipBaseRateBrier` is 1.0 — only true with a
   training-only baseline.
+- **Surprise suppression** — a synthetic ledger whose totals already include an irregular charge is
+  run with a calibration that would inject a guaranteed 500 000-cent surprise at every check. The
+  month-end band stays at the realized net and the path dip probability stays at 0.0. Forwarding the
+  surprise fields would move the band to −950 000 and turn the non-dipping path negative.
+- **Brier degeneracy** — a report built directly from observations scores a zero-baseline report as
+  `0.0`, and a nonzero baseline (training rate 0, holdout dip) with a 0.5 forecast as `0.75`; the
+  formula is not suppressed for a positive baseline.
 - **No lookahead** — doubling the last holdout month's amounts changes its realized net and leaves the
   training calibration, its opening, both bands and its dip probability identical.
 - **No wall clock** — a training window in the future relative to the machine clock still reports
@@ -94,8 +117,10 @@ zero-surprise calibration, so no assertion depends on the RNG:
 
 ## Limits
 
-- **One month is not the product horizon.** The headline is a 90-day, scheduled-event path; this is a
-  necessary check, not a validation of it.
+- **No production 90-day calibration.** The harness scores one realized month at a time with a
+  one-month horizon and no surprise injection. It does not exercise the product's 90-day
+  scheduled-event path, its 14-day surprise cadence, or the engine's wall-clock defaults, so nothing
+  here validates the headline 90-day probability.
 - **Very small samples.** A personal ledger has few months. At `MIN_MONTHS = 3` with the default split
   there is one holdout month, so coverage is 0.0 or 1.0. Daily minima are not independent, so the
   sample is months, never days.
@@ -109,8 +134,14 @@ zero-surprise calibration, so no assertion depends on the RNG:
   their transaction date, not the card payment date.
 - **Net excludes adjustment rows** while the trough path sums every row by sign; the two numbers
   answer different questions.
-- **Degenerate baselines.** When no training month dips, or every one does, the constant forecast
-  carries no information and the skill score is 0.0 by definition.
+- **No verified recurring/irregular decomposition.** Baseline income and expense are whole monthly
+  means. The harness cannot separate recurring from irregular spend with verification, so it disables
+  surprises instead of adding them to totals that already contain them. The path check is not a test
+  of the surprise layer.
+- **Exact Brier condition.** The skill score is forced to 0.0 only when `dipBaseRateBrier` is exactly
+  0. A training window with no dips (or all dips) does not by itself make the baseline degenerate; a
+  disagreeing holdout still produces a positive baseline Brier. A `0.0` score can also mean the model
+  matched a nonzero baseline.
 - The stationary fixture is generated from the same law the model assumes, so its coverage is a
   sanity check, not independent evidence about a real household.
 

@@ -49,6 +49,27 @@ class RiskBacktestTest {
         monthsCovered = 6,
     )
 
+    /**
+     * Synthetic ledger whose monthly expense total already contains an irregular charge. Any
+     * surprise injection on top of the baseline therefore double-counts that charge.
+     */
+    private fun surpriseLedger(): List<TransactionEntity> = buildList {
+        for (month in 1..3) {
+            val stamp = "2026-%02d".format(month)
+            add(income(100_000L, "$stamp-01"))
+            add(expense("Rent", 40_000L, "$stamp-05", "bills"))
+            add(expense("One-off repair", 10_000L, "$stamp-15", "home"))
+        }
+    }
+
+    /** Guarantees two large surprises per month if the harness forwards the calibration's fields. */
+    private fun guaranteedSurprises() = noVariation().copy(
+        surpriseProbability = 1.0,
+        surpriseAmountMin = 500_000,
+        surpriseAmountMax = 500_000,
+        monthsCovered = 2,
+    )
+
     /** Seeded stationary ledger: volatility is drawn from the same stationary law the model assumes. */
     private fun stationaryLedger(months: Int = 12, seed: Int = 7): List<TransactionEntity> {
         val rng = Random(seed)
@@ -152,6 +173,98 @@ class RiskBacktestTest {
             flatModel.empiricalCoverage < calibrated.empiricalCoverage,
         )
         assertTrue("flat model should miss most months", flatModel.empiricalCoverage < 0.5)
+    }
+
+    /**
+     * Month-end control: the baseline expense already averages the irregular charge, so a
+     * surprise-heavy calibration must not move the band. With surprises forwarded it would shift
+     * the band to -950_000 while the realized net stays at 50_000, and coverage would be 0.0.
+     */
+    @Test
+    fun backtest_monthEndBandIsNotShiftedBySurpriseCalibration() {
+        val report = RiskBacktest.run(
+            surpriseLedger(),
+            today = LocalDate.of(2026, 4, 30),
+            seed = 42,
+            runs = 16,
+            calibration = { guaranteedSurprises() },
+        )
+
+        val observation = report.observations.single()
+        assertEquals(100_000L, observation.openingCents)
+        assertEquals(50_000L, observation.actualNetCents)
+        assertEquals(50_000L, observation.monthEndP10Cents)
+        assertEquals(50_000L, observation.monthEndP50Cents)
+        assertEquals(50_000L, observation.monthEndP90Cents)
+        assertTrue(observation.withinMonthEndBand)
+        assertEquals(1.0, report.empiricalCoverage, 0.0)
+    }
+
+    /**
+     * Path control: the same ledger never dips without surprises (opening 100_000, income 100_000,
+     * scheduled expense 50_000). Forwarding the guaranteed 500_000 surprises would turn the dip
+     * probability into 1.0, so this pins surprise suppression on the path run too.
+     */
+    @Test
+    fun backtest_pathDipIsNotInflatedBySurpriseCalibration() {
+        val report = RiskBacktest.run(
+            surpriseLedger(),
+            today = LocalDate.of(2026, 4, 30),
+            seed = 42,
+            runs = 16,
+            calibration = { guaranteedSurprises() },
+        )
+
+        val observation = report.observations.single()
+        assertEquals(100_000L, observation.openingCents)
+        assertEquals(100_000L, observation.actualTroughCents)
+        assertEquals(100_000L, observation.troughP10Cents)
+        assertEquals(100_000L, observation.troughP50Cents)
+        assertEquals(100_000L, observation.troughP90Cents)
+        assertEquals(0.0, observation.predictedDipProbability, 0.0)
+    }
+
+    /**
+     * Exact Brier condition: the skill score is forced to 0.0 only when the training baseline
+     * Brier is exactly 0. A nonzero baseline is scored by the formula, so a 0.5 forecast against
+     * a holdout that dipped (baseline 1.0) reports 0.75, not a suppressed 0.0.
+     */
+    @Test
+    fun report_skillScoreIsSuppressedOnlyWhenBaselineBrierIsExactlyZero() {
+        fun observation(predicted: Double, dipped: Boolean) = BacktestObservation(
+            month = "2026-01",
+            openingCents = 0L,
+            actualNetCents = 0L,
+            actualTroughCents = if (dipped) -1L else 0L,
+            monthEndP10Cents = 0L,
+            monthEndP50Cents = 0L,
+            monthEndP90Cents = 0L,
+            troughP10Cents = if (dipped) -1L else 0L,
+            troughP50Cents = if (dipped) -1L else 0L,
+            troughP90Cents = if (dipped) -1L else 0L,
+            predictedDipProbability = predicted,
+        )
+
+        fun report(trainingDipMonths: Int, scored: BacktestObservation) = BacktestReport(
+            observations = listOf(scored),
+            trainingCalibration = noVariation(),
+            trainingMonths = 1,
+            holdoutMonths = 1,
+            seed = 0L,
+            runs = 1,
+            trainingDipMonths = trainingDipMonths,
+        )
+
+        // Training rate 0 with no holdout dip already matches every outcome: baseline Brier 0.
+        val degenerate = report(0, observation(predicted = 0.0, dipped = false))
+        assertEquals(0.0, degenerate.dipBaseRateBrier, 0.0)
+        assertEquals(0.0, degenerate.dipSkillScore, 0.0)
+
+        // Training rate 0 with a dip: baseline Brier 1.0, so the formula must be reported.
+        val informed = report(0, observation(predicted = 0.5, dipped = true))
+        assertEquals(1.0, informed.dipBaseRateBrier, 0.0)
+        assertEquals(0.25, informed.dipBrier, 0.0)
+        assertEquals(0.75, informed.dipSkillScore, 0.0)
     }
 
     @Test

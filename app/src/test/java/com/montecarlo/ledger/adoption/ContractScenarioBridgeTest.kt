@@ -611,6 +611,39 @@ class ContractScenarioBridgeTest {
         assertFalse(events.any { it.first == "2026-01-01" })
     }
 
+    @Test
+    fun moveOntoTheNextRegularDateKeepsThatPeriodsOwnBillAndDebtCoverage() {
+        val bill = payment(id = 4, amountCents = 30_000L, dayOfMonth = 15, nextDate = "2026-01-15")
+        val debt = DebtEntity(
+            id = 2,
+            name = "Loan",
+            balanceCents = 60_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 20,
+            linkedPaymentId = bill.id,
+        )
+        val moved = BillOccurrenceEntity(
+            id = 11,
+            payment_id = bill.id,
+            due_date = "2026-02-15",
+            original_due_date = "2026-01-15",
+            amount_cents = 30_000L,
+            is_user_modified = 1,
+        )
+        val scenario = build(
+            payments = listOf(bill),
+            occurrences = listOf(moved),
+            debts = listOf(debt),
+            startingBalanceCents = 50_000L,
+            horizonDays = 59,
+        )
+
+        val events = ContractEngine.inWindowBaseEvents(scenario)
+        assertEquals(setOf("occurrence-11", "payment-4"), events.map { it.id }.toSet())
+        assertEquals(List(2) { LocalDate.of(2026, 2, 15) to -30_000L }, events.map { it.date to it.amountCents })
+    }
+
     /** The first in-window income occurrence uses `expected_amount_cents`, later ones do not. */
     @Test
     fun expectedIncomeAmountAppliesToFirstInWindowOccurrenceOnly() {

@@ -41,8 +41,7 @@ import java.math.RoundingMode
 fun DebtManagementScreen(
     debts: List<DebtEntity>,
     payments: List<PaymentEntity>,
-    onAdd: (DebtEntity) -> Unit,
-    onUpdate: (DebtEntity) -> Unit,
+    onSave: (DebtEntity, (Result<Unit>) -> Unit) -> Unit,
     onDelete: (DebtEntity) -> Unit,
     modifier: Modifier = Modifier,
     accounts: List<AccountEntity> = emptyList(),
@@ -129,10 +128,7 @@ fun DebtManagementScreen(
             payments = payments,
             accounts = accounts,
             onDismiss = { showEditor = false },
-            onSave = { debt ->
-                if (editingDebt == null) onAdd(debt) else onUpdate(debt)
-                showEditor = false
-            },
+            onSave = onSave,
         )
     }
 }
@@ -156,7 +152,7 @@ private fun DebtEditorDialog(
     payments: List<PaymentEntity>,
     accounts: List<AccountEntity>,
     onDismiss: () -> Unit,
-    onSave: (DebtEntity) -> Unit,
+    onSave: (DebtEntity, (Result<Unit>) -> Unit) -> Unit,
 ) {
     var name by remember(initial) { mutableStateOf(initial?.name.orEmpty()) }
     var balance by remember(initial) { mutableStateOf(initial?.let { centsToInput(it.balanceCents) }.orEmpty()) }
@@ -180,9 +176,10 @@ private fun DebtEditorDialog(
     var paymentsExpanded by remember { mutableStateOf(false) }
     var accountsExpanded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(if (initial == null) "Add debt" else "Edit debt") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -258,7 +255,7 @@ private fun DebtEditorDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextButton(enabled = !saving, onClick = {
                 val balanceParsed = parseDollars(balance)
                 val floorParsed = parseDollars(minFloor)
                 val balanceCents = when (val p = balanceParsed) { is DollarParseResult.Valid -> p.cents; else -> 0L }
@@ -297,8 +294,8 @@ private fun DebtEditorDialog(
                     isRevolving && percentBps == 0 && floorCents <= 0L -> error = "Set a minimum percentage or a floor above zero"
                     day !in 1..31 -> error = "Due day must be between 1 and 31"
                     stmtDay != null && stmtDay !in 1..31 -> error = "Statement day must be between 1 and 31"
-                    else -> onSave(
-                        DebtEntity(
+                    else -> {
+                        val candidate = DebtEntity(
                             id = initial?.id ?: 0L,
                             name = name.trim(),
                             balanceCents = balanceCents,
@@ -313,11 +310,19 @@ private fun DebtEditorDialog(
                             minPaymentFloorCents = if (isRevolving) floorCents else 0L,
                             linkedAccountId = linkedAccountId,
                         )
-                    )
+                        saving = true
+                        error = null
+                        onSave(candidate) { result ->
+                            saving = false
+                            result.onSuccess { onDismiss() }.onFailure {
+                                error = it.message ?: "The debt could not be saved."
+                            }
+                        }
+                    }
                 }
-            }) { Text("Save") }
+            }) { Text(if (saving) "Saving…" else "Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

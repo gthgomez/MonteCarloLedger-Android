@@ -330,6 +330,9 @@ private fun BillAttentionRow(
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(payment?.name ?: "Removed bill", style = MaterialTheme.typography.titleSmall, color = GlassTokens.TextPrimary)
                     Text("Due $dueDate • ${centsToDisplay(-occurrence.amount_cents)}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
+                    occurrence.original_due_date?.takeUnless { it == occurrence.due_date }?.let { originalDate ->
+                        Text("Moved from ${originalDate.formatDateDisplay()}", style = MaterialTheme.typography.bodySmall, color = GlassTokens.TextSecondary)
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Button(onClick = onMarkPaid) {
