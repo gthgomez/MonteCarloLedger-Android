@@ -62,8 +62,7 @@ internal fun ScenarioWhatIfCard(
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                "Runs the same forecast engine as your dashboard twice — once for the plan you have, " +
-                    "once for the change you are considering — and compares the two results.",
+                "See how a purchase or late paycheck could change your plan. Checking a decision does not change your ledger.",
                 style = MaterialTheme.typography.bodySmall,
                 color = GlassTokens.TextSecondary,
             )

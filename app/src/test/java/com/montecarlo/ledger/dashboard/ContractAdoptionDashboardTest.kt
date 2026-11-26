@@ -137,6 +137,50 @@ class ContractAdoptionDashboardTest {
         assertEquals(today.withDayOfMonth(10), result.forecast.minimumBalanceDate)
     }
 
+    @Test
+    fun dashboardOnlyDeductsAnExplicitlyLinkedPaymentOnceWhenDueDatesDiffer() = runBlocking {
+        val payment = PaymentEntity(
+            id = 79,
+            name = "January loan payment",
+            amount_cents = 30_000L,
+            frequency = "One-time",
+            day_of_month = null,
+            next_date = "2026-01-15",
+        )
+        val debt = DebtEntity(
+            id = 18,
+            name = payment.name,
+            balanceCents = 30_000L,
+            aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L,
+            dueDayOfMonth = 20,
+            linkedPaymentId = payment.id,
+        )
+        val reporting = pack().copy(
+            incomes = emptyList(),
+            payments = listOf(payment),
+            txns = emptyList(),
+            balanceState = LedgerRepository.BalanceState(bankBalanceCents = 50_000L, isReconciled = true),
+            debts = listOf(debt),
+        )
+
+        val linked = DashboardDeriver().derive(reporting, today, contractForecastEnabled = true).uiState
+        assertEquals(CanonicalForecastStatus.Live, linked.canonicalForecastStatus)
+        assertEquals(20_000L, linked.forecastRows.last().balanceCents)
+        assertEquals(30_000L, linked.upcomingBillBurdenCents)
+        assertEquals(null, linked.firstNegativeDateLabel)
+
+        val independent = DashboardDeriver().derive(
+            reporting.copy(debts = listOf(debt.copy(linkedPaymentId = null))),
+            today,
+            contractForecastEnabled = true,
+        ).uiState
+        assertEquals(CanonicalForecastStatus.Live, independent.canonicalForecastStatus)
+        assertEquals(-10_000L, independent.forecastRows.last().balanceCents)
+        assertEquals(60_000L, independent.upcomingBillBurdenCents)
+        assertEquals("2026-01-20", independent.firstNegativeDateLabel)
+    }
+
     /**
      * MCD-0008: safe-to-spend is the quantile-based value, not the deterministic low point, so it
      * must match the contract risk block rather than `forecast.minimum_balance_cents`.

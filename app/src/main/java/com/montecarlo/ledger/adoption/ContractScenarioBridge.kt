@@ -124,7 +124,7 @@ object ContractScenarioBridge {
                     )
                 )
             }
-        explicit.addAll(debtMinimumEvents(inputs, representedPayments, endExclusive))
+        explicit.addAll(debtMinimumEvents(inputs, paymentById, representedPayments, endExclusive))
 
         val recurrences = ArrayList<ContractRecurrence>()
         val exclusions = ArrayList<ContractRecurrenceExclusion>()
@@ -165,7 +165,9 @@ object ContractScenarioBridge {
             endExclusive,
             suppressedDates(inputs.billOccurrences),
         )
-        return debtMinimumEvents(inputs, representedPayments, endExclusive).map { event ->
+        return debtMinimumEvents(
+            inputs, activePayments.associateBy { it.id }, representedPayments, endExclusive,
+        ).map { event ->
             ForecastEvent(
                 date = event.date,
                 description = "Debt payment: ${event.name}",
@@ -185,17 +187,21 @@ object ContractScenarioBridge {
         endExclusive: LocalDate,
         suppressed: Set<Pair<Int, String>>,
     ): Map<Int, Map<LocalDate, PaymentCoverage>> {
+        if (endExclusive <= inputs.asOf) return emptyMap()
+        // Locate the bill's slot even when the last month is only partly visible.
+        // A bill due after the window must not pull its linked minimum into it.
+        val periodEnd = YearMonth.from(endExclusive.minusDays(1)).plusMonths(1).atDay(1)
         val slotsByPayment = mutableMapOf<Int, MutableMap<LocalDate, PaymentCoverage>>()
         activePayments.forEach { payment ->
             val recurrence = buildPaymentRecurrence(
                 payment = payment,
                 asOf = inputs.asOf,
-                endExclusive = endExclusive,
+                endExclusive = periodEnd,
                 suppressed = suppressed,
                 category = inputs.paymentCategories[payment.id],
             )
             if (recurrence != null) {
-                ContractEngine.generateOccurrences(recurrence.recurrence, endExclusive)
+                ContractEngine.generateOccurrences(recurrence.recurrence, periodEnd)
                     .filter { !it.isBefore(inputs.asOf) && Pair(payment.id, it.toString()) !in suppressed }
                     .forEach { date ->
                         slotsByPayment.getOrPut(payment.id) { mutableMapOf() }[date] =
@@ -208,9 +214,7 @@ object ContractScenarioBridge {
                 ?.takeIf { it.amount_cents > 0L } ?: return@forEach
             val original = LedgerDate.parseIsoOrNull(occurrence.original_due_date ?: occurrence.due_date)
                 ?: return@forEach
-            // A moved occurrence represents its original scheduled slot, never the destination
-            // slot. This matters when a debt is due on the 31st and a bill is moved into another
-            // date/month: only the original clamped schedule can replace that debt minimum.
+            // Keep the original obligation period even when cash moves to another month.
             if (occurrence.amount_cents > 0L) {
                 val prior = slotsByPayment.getOrPut(payment.id) { mutableMapOf() }.put(
                     original,
@@ -229,16 +233,17 @@ object ContractScenarioBridge {
      */
     private fun debtMinimumEvents(
         inputs: Inputs,
+        activePayments: Map<Int, PaymentEntity>,
         representedPaymentSlots: Map<Int, Map<LocalDate, PaymentCoverage>>,
         endExclusive: LocalDate,
     ): List<ContractEvent> {
+        if (endExclusive <= inputs.asOf) return emptyList()
         val debts = inputs.debts
         val liabilities = CanonicalVaultMapper.liabilitiesFromDebts(debts).sortedBy { it.id }
         val activeDebts = debts.filter { it.isActive }
-        val activePaymentIds = inputs.payments.filter { it.is_active != 0 }.map { it.id }.toSet()
         // A dangling/inactive link is unusable and therefore cannot suppress the debt minimum;
         // this keeps malformed local rows fail-safe without erasing the obligation.
-        val linkedIds = activeDebts.mapNotNull { it.linkedPaymentId?.takeIf { id -> id in activePaymentIds } }
+        val linkedIds = activeDebts.mapNotNull { it.linkedPaymentId?.takeIf { id -> id in activePayments } }
         require(linkedIds.size == linkedIds.toSet().size) {
             "Each payment may be linked to at most one active debt"
         }
@@ -246,11 +251,31 @@ object ContractScenarioBridge {
         ContractDebt.validateLiabilities(liabilities)
         val events = ArrayList<ContractEvent>()
         for (liability in liabilities) {
+            val paymentId = linkedPaymentByDebtId[liability.id]
+            val payment = activePayments[paymentId]
+            val slots = representedPaymentSlots[paymentId].orEmpty()
+            val ownsMonthlySlot = payment != null && when (contractFrequency(payment.frequency)) {
+                "monthly", "onetime" -> true
+                else -> false
+            }
             var month = YearMonth.from(inputs.asOf)
             var first = true
             var balance = liability.balanceCents
-            while (balance > 0L) {
-                val due = month.atDay(minOf(liability.dueDayOfMonth, month.lengthOfMonth()))
+            while (balance > 0L && month.atDay(1).isBefore(endExclusive)) {
+                val storedDue = month.atDay(minOf(liability.dueDayOfMonth, month.lengthOfMonth()))
+                val slot = if (ownsMonthlySlot) {
+                    // Only an explicit link can cover a minimum. For a monthly or one-time
+                    // bill the original obligation month, not the liability's day, matches it.
+                    val inMonth = slots.keys.filter { YearMonth.from(it) == month }
+                    require(inMonth.size <= 1) {
+                        "Linked payment $paymentId has more than one scheduled slot in $month"
+                    }
+                    inMonth.singleOrNull()
+                } else {
+                    // Other recurring frequencies have no portable month-level link semantics.
+                    storedDue.takeIf { it in slots }
+                }
+                val due = slot ?: storedDue
                 if (!due.isBefore(endExclusive)) break
                 month = month.plusMonths(1)
                 // A current-month minimum whose due day has passed is still an outstanding
@@ -266,8 +291,7 @@ object ContractScenarioBridge {
                 }
                 first = false
                 val minimum = ContractDebt.minimumPaymentCents(liability, balance)
-                val coverage = linkedPaymentByDebtId[liability.id]
-                    ?.let { paymentId -> representedPaymentSlots[paymentId]?.get(due) }
+                val coverage = slots[slot]
                 val shortfall = (minimum - (coverage?.cents ?: 0L)).coerceAtLeast(0L)
                 // Starting debt is the amount still owed. Only future payments reduce it.
                 balance -= if (coverage?.paid == true) shortfall else minimum

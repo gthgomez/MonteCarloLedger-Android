@@ -27,6 +27,7 @@ import com.montecarlo.ledger.scenario.PurchaseSimulation
 import com.montecarlo.ledger.scenario.ScenarioOps
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
@@ -124,6 +125,7 @@ class MainViewModel @JvmOverloads constructor(
         _paycheckDelaySimulation.asStateFlow()
 
     private val _scenarioSimulationError = MutableStateFlow<String?>(null)
+    private var comparisonJob: Job? = null
 
     /** Reason the last what-if comparison could not run (e.g. no canonical scenario available). */
     val scenarioSimulationError: StateFlow<String?> = _scenarioSimulationError.asStateFlow()
@@ -485,8 +487,8 @@ class MainViewModel @JvmOverloads constructor(
      * financial conclusion is the contract's; this method only schedules the work off the main thread.
      */
     fun simulatePurchase(amountCents: Long, purchaseDate: LocalDate) {
-        runScenarioComparison { inputs ->
-            _purchaseSimulation.value = ScenarioOps.simulatePurchase(amountCents, purchaseDate, inputs)
+        runScenarioComparison(_purchaseSimulation) { inputs ->
+            ScenarioOps.simulatePurchase(amountCents, purchaseDate, inputs)
         }
     }
 
@@ -495,8 +497,8 @@ class MainViewModel @JvmOverloads constructor(
      * income occurrence shifted later.
      */
     fun simulatePaycheckDelay(days: Int) {
-        runScenarioComparison { inputs ->
-            _paycheckDelaySimulation.value = ScenarioOps.simulatePaycheckDelay(days, inputs)
+        runScenarioComparison(_paycheckDelaySimulation) { inputs ->
+            ScenarioOps.simulatePaycheckDelay(days, inputs)
         }
     }
 
@@ -505,17 +507,22 @@ class MainViewModel @JvmOverloads constructor(
      * surfaced through [scenarioSimulationError] rather than silently producing no result, and
      * coroutine cancellation is never treated as a comparison failure.
      */
-    private fun runScenarioComparison(comparison: (ContractScenarioBridge.Inputs) -> Unit) {
+    private fun <T> runScenarioComparison(
+        result: MutableStateFlow<T?>,
+        comparison: (ContractScenarioBridge.Inputs) -> T,
+    ) {
+        comparisonJob?.cancel()
+        result.value = null
         val inputs = _scenarioInputs.value
         if (inputs == null) {
             _scenarioSimulationError.value =
                 "No canonical forecast scenario is available right now, so there is nothing to compare against."
             return
         }
-        viewModelScope.launch {
+        comparisonJob = viewModelScope.launch {
             _scenarioSimulationError.value = null
             try {
-                withContext(Dispatchers.Default) { comparison(inputs) }
+                result.value = withContext(Dispatchers.Default) { comparison(inputs) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -582,9 +589,18 @@ class MainViewModel @JvmOverloads constructor(
                 val derivation = dashboardDeriver.derive(pack, today, contractForecastEnabled)
                 _reconciliationDetails.value = derivation.reconciliationDetails
                 _reconciliationMismatch.value = derivation.reconciliationMismatch
-                // WS6: keep the canonical scenario the dashboard just ran so the "what if"
-                // comparisons are measured against exactly this scenario.
-                _scenarioInputs.value = derivation.scenarioInputs
+                // A retained forecast is useful as history, but decisions must use the
+                // current plan. Never leave a comparison visible after its inputs change.
+                val nextScenario = derivation.scenarioInputs.takeIf {
+                    derivation.uiState.canonicalForecastStatus == CanonicalForecastStatus.Live
+                }
+                if (_scenarioInputs.value != nextScenario) {
+                    comparisonJob?.cancel()
+                    _purchaseSimulation.value = null
+                    _paycheckDelaySimulation.value = null
+                    _scenarioSimulationError.value = null
+                    _scenarioInputs.value = nextScenario
+                }
                 _uiState.value = derivation.uiState
                 refreshGlanceWidget()
             }.catch { e ->

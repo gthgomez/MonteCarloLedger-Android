@@ -104,7 +104,16 @@ fun AnalysisContent(
             )
         }
 
-        forecastSection(rows = uiState.forecastRows, hazeState = hazeState)
+        forecastSection(
+            rows = uiState.forecastRows,
+            lowestBalanceCents = uiState.forecastLowestBalanceCents,
+            endingBalanceCents = uiState.forecastEndingBalanceCents,
+            firstNegativeDateLabel = uiState.firstNegativeDateLabel,
+            canonicalForecastStatus = uiState.canonicalForecastStatus,
+            canonicalForecastAsOf = uiState.canonicalForecastAsOf,
+            unavailableReason = uiState.canonicalForecastError,
+            hazeState = hazeState,
+        )
 
         item { Spacer(Modifier.height(16.dp)) }
     }

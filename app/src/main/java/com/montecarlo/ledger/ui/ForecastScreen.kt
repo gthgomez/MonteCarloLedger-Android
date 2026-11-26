@@ -36,9 +36,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.montecarlo.ledger.CanonicalForecastStatus
 import com.montecarlo.ledger.GlassTokens
 import com.montecarlo.ledger.MainViewModel
 import com.montecarlo.ledger.processing.BalanceForecastRow
@@ -87,6 +89,12 @@ fun ForecastScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
         item { Spacer(Modifier.height(8.dp)) }
         forecastSection(
             rows = uiState.forecastRows,
+            lowestBalanceCents = uiState.forecastLowestBalanceCents,
+            endingBalanceCents = uiState.forecastEndingBalanceCents,
+            firstNegativeDateLabel = uiState.firstNegativeDateLabel,
+            canonicalForecastStatus = uiState.canonicalForecastStatus,
+            canonicalForecastAsOf = uiState.canonicalForecastAsOf,
+            unavailableReason = uiState.canonicalForecastError,
             fanPoints = fanPoints,
             mcResult = uiState.monteCarloResult,
             hazeState = hazeState,
@@ -142,30 +150,87 @@ fun ForecastScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
     }
 }
 
+/**
+ * Presentation view of the authoritative forecast summary.
+ *
+ * Only raw authoritative values are stored. Labels are formatted at the point of display, and the
+ * summary is not recomputed from [rows]: rows hold post-event balances only, so an empty row list
+ * (no dated events) would read as `$0` and would ignore the opening balance.
+ */
+internal data class ForecastSummaryModel(
+    val eventCount: Int,
+    val lowestBalanceCents: Long?,
+    val endingBalanceCents: Long?,
+    val hasNegativeBalance: Boolean,
+    val staleAsOf: String? = null,
+) {
+    val isAvailable: Boolean
+        get() = lowestBalanceCents != null && endingBalanceCents != null
+
+    val hasDatedEvents: Boolean
+        get() = eventCount > 0
+
+    val needsStatusMessage: Boolean
+        get() = !isAvailable || !hasDatedEvents
+
+    val staleLabel: String?
+        get() = staleAsOf
+            ?.takeIf { isAvailable }
+            ?.let { "Previous forecast — calculated $it" }
+}
+
+internal fun forecastSummaryModel(
+    rows: List<BalanceForecastRow>,
+    lowestBalanceCents: Long?,
+    endingBalanceCents: Long?,
+    firstNegativeDateLabel: String?,
+    staleAsOf: String? = null,
+): ForecastSummaryModel {
+    val available = lowestBalanceCents != null && endingBalanceCents != null
+    return ForecastSummaryModel(
+        eventCount = rows.size,
+        lowestBalanceCents = lowestBalanceCents,
+        endingBalanceCents = endingBalanceCents,
+        hasNegativeBalance = available && firstNegativeDateLabel != null,
+        staleAsOf = staleAsOf,
+    )
+}
+
+internal fun forecastStaleAsOf(
+    status: CanonicalForecastStatus,
+    asOf: String?,
+): String? = asOf?.takeIf { status == CanonicalForecastStatus.Stale }
+
 internal fun LazyListScope.forecastSection(
     rows: List<com.montecarlo.ledger.processing.BalanceForecastRow>,
+    lowestBalanceCents: Long?,
+    endingBalanceCents: Long?,
+    firstNegativeDateLabel: String?,
+    canonicalForecastStatus: CanonicalForecastStatus,
+    canonicalForecastAsOf: String?,
+    unavailableReason: String? = null,
     fanPoints: List<FanChartPoint> = emptyList(),
     mcResult: MonteCarloResult? = null,
     hazeState: HazeState? = null,
-    probabilityNegativePct: Double = 0.0,
     onViewDailyValuesClicked: (() -> Unit)? = null,
 ) {
-    val lowestBalance = rows.minOfOrNull { it.balanceCents } ?: 0
-    val endingBalance = rows.lastOrNull()?.balanceCents ?: 0
+    val summary = forecastSummaryModel(
+        rows = rows,
+        lowestBalanceCents = lowestBalanceCents,
+        endingBalanceCents = endingBalanceCents,
+        firstNegativeDateLabel = firstNegativeDateLabel,
+        staleAsOf = forecastStaleAsOf(canonicalForecastStatus, canonicalForecastAsOf),
+    )
     val firstNegativeIdx = rows.indexOfFirst { it.balanceCents < 0 }
-    val hasNegative = firstNegativeIdx >= 0
 
     item {
         ForecastSummaryCard(
-            rowCount = rows.size,
-            lowestBalanceCents = lowestBalance,
-            endingBalanceCents = endingBalance,
-            hasNegative = hasNegative,
+            summary = summary,
             hazeState = hazeState,
         )
     }
 
-    if (fanPoints.isNotEmpty()) {
+    if (fanPoints.isNotEmpty() && summary.isAvailable) {
         item {
             MonteCarloFanChart(
                 points = fanPoints,
@@ -177,25 +242,26 @@ internal fun LazyListScope.forecastSection(
 
     item { Spacer(Modifier.height(4.dp)) }
 
-    if (rows.isEmpty()) {
+    if (summary.needsStatusMessage) {
         item {
-            ForecastEmptyState()
+            ForecastStatusCard(
+                isAvailable = summary.isAvailable,
+                unavailableReason = unavailableReason,
+            )
         }
     }
 
-    itemsIndexed(rows) { index, row ->
-        val isNegative = row.balanceCents < 0
-        val isFirstNegative = index == firstNegativeIdx
-        val tint = when {
-            isNegative -> GlassTint.Error
-            else -> GlassTint.Teal
-        }
+    if (summary.isAvailable) {
+        itemsIndexed(rows) { index, row ->
+            val isNegative = row.balanceCents < 0
+            val isFirstNegative = index == firstNegativeIdx
 
-        if (isFirstNegative) {
-            WarningDivider()
-        }
+            if (isFirstNegative) {
+                WarningDivider()
+            }
 
-        ForecastRowCard(row = row, tint = tint, isNegative = isNegative)
+            ForecastRowCard(row = row, isNegative = isNegative)
+        }
     }
 }
 
@@ -203,13 +269,17 @@ internal fun LazyListScope.forecastSection(
 
 @Composable
 private fun ForecastSummaryCard(
-    rowCount: Int,
-    lowestBalanceCents: Long,
-    endingBalanceCents: Long,
-    hasNegative: Boolean,
+    summary: ForecastSummaryModel,
     hazeState: HazeState?,
 ) {
-    val summaryTint = if (hasNegative) GlassTint.Error else GlassTint.Teal
+    val summaryTint = when {
+        !summary.isAvailable -> GlassTint.Neutral
+        summary.hasNegativeBalance -> GlassTint.Error
+        else -> GlassTint.Teal
+    }
+    val eventCountLabel = if (summary.isAvailable) summary.eventCount.toString() else "—"
+    val lowestBalanceLabel = summary.lowestBalanceCents?.let(::centsToDisplay) ?: "Unavailable"
+    val endingBalanceLabel = summary.endingBalanceCents?.let(::centsToDisplay) ?: "Unavailable"
     GlassCard(tint = summaryTint, surfaceStyle = GlassSurfaceStyle.Hero, hazeState = hazeState) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -221,7 +291,13 @@ private fun ForecastSummaryCard(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(if (hasNegative) GlassTokens.ErrorRed else GlassTokens.Cyan)
+                        .background(
+                            when {
+                                !summary.isAvailable -> GlassTokens.TextDim
+                                summary.hasNegativeBalance -> GlassTokens.ErrorRed
+                                else -> GlassTokens.Cyan
+                            }
+                        )
                 )
                 Text(
                     "90-day forecast",
@@ -234,6 +310,14 @@ private fun ForecastSummaryCard(
 
             HorizontalDivider(color = GlassTokens.DividerColor)
 
+            summary.staleLabel?.let { stale ->
+                Text(
+                    stale,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GlassTokens.TextSecondary,
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -241,24 +325,32 @@ private fun ForecastSummaryCard(
                 SummaryMetric(
                     friendlyLabel = "Events",
                     technicalLabel = "forecast events",
-                    value = "$rowCount",
+                    value = eventCountLabel,
                     valueColor = GlassTokens.TextPrimary,
                 )
                 SummaryMetric(
                     friendlyLabel = "Lowest balance",
                     technicalLabel = "lowest forecast balance",
-                    value = centsToDisplay(lowestBalanceCents),
-                    valueColor = if (lowestBalanceCents < 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen,
+                    value = lowestBalanceLabel,
+                    valueColor = when {
+                        !summary.isAvailable -> GlassTokens.TextDim
+                        (summary.lowestBalanceCents ?: 0L) < 0L -> GlassTokens.ErrorRed
+                        else -> GlassTokens.PositiveGreen
+                    },
                 )
                 SummaryMetric(
                     friendlyLabel = "Ending balance",
                     technicalLabel = "forecast ending balance",
-                    value = centsToDisplay(endingBalanceCents),
-                    valueColor = if (endingBalanceCents < 0) GlassTokens.ErrorRed else GlassTokens.PositiveGreen,
+                    value = endingBalanceLabel,
+                    valueColor = when {
+                        !summary.isAvailable -> GlassTokens.TextDim
+                        (summary.endingBalanceCents ?: 0L) < 0L -> GlassTokens.ErrorRed
+                        else -> GlassTokens.PositiveGreen
+                    },
                 )
             }
 
-            if (hasNegative) {
+            if (summary.hasNegativeBalance) {
                 Text(
                     "Balance may dip below zero. Review scheduled bills.",
                     style = MaterialTheme.typography.labelSmall,
@@ -271,7 +363,12 @@ private fun ForecastSummaryCard(
 
 @Composable
 private fun SummaryMetric(friendlyLabel: String, technicalLabel: String, value: String, valueColor: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$friendlyLabel $value"
+        },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text(
             value,
             style = MaterialTheme.typography.titleSmall,
@@ -286,20 +383,36 @@ private fun SummaryMetric(friendlyLabel: String, technicalLabel: String, value: 
 }
 
 @Composable
-private fun ForecastEmptyState() {
+private fun ForecastStatusCard(
+    isAvailable: Boolean,
+    unavailableReason: String?,
+) {
     GlassCard(tint = GlassTint.Neutral, surfaceStyle = GlassSurfaceStyle.Quiet) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                "Nothing to forecast yet.",
+                if (isAvailable) "No dated events" else "Forecast unavailable",
                 style = MaterialTheme.typography.titleMedium,
                 color = GlassTokens.TextPrimary,
                 modifier = Modifier.semantics { heading() }
             )
             Text(
-                "Add a paycheck and at least one bill, then this screen will show the next 90 days of forecast events and the ending balance.",
+                if (isAvailable) {
+                    "Showing your opening balance. Add income or a bill to project changes."
+                } else {
+                    "The forecast was withheld, so no balances are shown."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = GlassTokens.TextSecondary,
             )
+            if (!isAvailable) {
+                unavailableReason?.takeIf { it.isNotBlank() }?.let { detail ->
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GlassTokens.TextDim,
+                    )
+                }
+            }
         }
     }
 }
@@ -341,7 +454,7 @@ private val rowFormatter = DateTimeFormatter.ofPattern("MMM d")
 private val yearFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
 
 @Composable
-private fun ForecastRowCard(row: BalanceForecastRow, tint: GlassTint, isNegative: Boolean) {
+private fun ForecastRowCard(row: BalanceForecastRow, isNegative: Boolean) {
     val accentColor = if (isNegative) GlassTokens.ErrorRed else GlassTokens.Cyan
     val today = java.time.LocalDate.now()
 
