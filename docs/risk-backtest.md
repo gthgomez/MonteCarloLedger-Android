@@ -142,8 +142,9 @@ calibrations, so no assertion depends on the RNG:
   0. A training window with no dips (or all dips) does not by itself make the baseline degenerate; a
   disagreeing holdout still produces a positive baseline Brier. A `0.0` score can also mean the model
   matched a nonzero baseline.
-- The stationary fixture is generated from the same law the model assumes, so its coverage is a
-  sanity check, not independent evidence about a real household.
+- The fixed-law synthetic fixture checks five covered months out of six against a hand-derived
+  band. The separate mixed-expense fixture measured three of six with the revised harness.
+  Neither small sample establishes coverage for a real household.
 
 ## Provenance
 
