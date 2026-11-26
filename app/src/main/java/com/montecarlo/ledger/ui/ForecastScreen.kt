@@ -94,7 +94,7 @@ fun ForecastScreen(viewModel: MainViewModel, hazeState: HazeState? = null) {
             firstNegativeDateLabel = uiState.firstNegativeDateLabel,
             canonicalForecastStatus = uiState.canonicalForecastStatus,
             canonicalForecastAsOf = uiState.canonicalForecastAsOf,
-            unavailableReason = uiState.canonicalForecastError,
+            loading = uiState.isLoading,
             fanPoints = fanPoints,
             mcResult = uiState.monteCarloResult,
             hazeState = hazeState,
@@ -208,12 +208,16 @@ internal fun LazyListScope.forecastSection(
     firstNegativeDateLabel: String?,
     canonicalForecastStatus: CanonicalForecastStatus,
     canonicalForecastAsOf: String?,
-    unavailableReason: String? = null,
+    loading: Boolean,
     fanPoints: List<FanChartPoint> = emptyList(),
     mcResult: MonteCarloResult? = null,
     hazeState: HazeState? = null,
     onViewDailyValuesClicked: (() -> Unit)? = null,
 ) {
+    if (loading) {
+        item { Text("Loading forecast…", color = GlassTokens.TextSecondary) }
+        return
+    }
     val summary = forecastSummaryModel(
         rows = rows,
         lowestBalanceCents = lowestBalanceCents,
@@ -243,12 +247,7 @@ internal fun LazyListScope.forecastSection(
     item { Spacer(Modifier.height(4.dp)) }
 
     if (summary.needsStatusMessage) {
-        item {
-            ForecastStatusCard(
-                isAvailable = summary.isAvailable,
-                unavailableReason = unavailableReason,
-            )
-        }
+        item { ForecastStatusCard(isAvailable = summary.isAvailable) }
     }
 
     if (summary.isAvailable) {
@@ -383,10 +382,7 @@ private fun SummaryMetric(friendlyLabel: String, technicalLabel: String, value: 
 }
 
 @Composable
-private fun ForecastStatusCard(
-    isAvailable: Boolean,
-    unavailableReason: String?,
-) {
+private fun ForecastStatusCard(isAvailable: Boolean) {
     GlassCard(tint = GlassTint.Neutral, surfaceStyle = GlassSurfaceStyle.Quiet) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -399,20 +395,11 @@ private fun ForecastStatusCard(
                 if (isAvailable) {
                     "Showing your opening balance. Add income or a bill to project changes."
                 } else {
-                    "The forecast was withheld, so no balances are shown."
+                    "Review the cash and bill details on Home to see what needs attention."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = GlassTokens.TextSecondary,
             )
-            if (!isAvailable) {
-                unavailableReason?.takeIf { it.isNotBlank() }?.let { detail ->
-                    Text(
-                        detail,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = GlassTokens.TextDim,
-                    )
-                }
-            }
         }
     }
 }

@@ -219,6 +219,26 @@ class ContractScenarioBridgeTest {
     }
 
     @Test
+    fun anEarlierPaidOccurrenceAndAnEditedTemplateDoNotWithholdTheForecast() {
+        val bill = payment(id = 7, amountCents = 30_000L, dayOfMonth = 25, nextDate = "2026-01-25")
+        val debt = DebtEntity(
+            id = 18, name = "Loan", balanceCents = 100_000L, aprBasisPoints = 0,
+            minimumPaymentCents = 30_000L, dueDayOfMonth = 20, linkedPaymentId = bill.id,
+        )
+        val paid = BillOccurrenceEntity(
+            id = 71, payment_id = bill.id, due_date = "2026-01-15", amount_cents = 30_000L, is_paid = 1,
+        )
+        val scenario = build(
+            payments = listOf(bill), debts = listOf(debt), occurrences = listOf(paid),
+            startDate = LocalDate.parse("2026-01-20"), horizonDays = 10, startingBalanceCents = 50_000L,
+        )
+        assertEquals(
+            listOf(LocalDate.parse("2026-01-25") to -30_000L),
+            ContractEngine.inWindowBaseEvents(scenario).map { it.date to it.amountCents },
+        )
+    }
+
+    @Test
     fun unusableLinkedBillDoesNotEraseDebtMinimum() {
         val debt = DebtEntity(
             id = 1,

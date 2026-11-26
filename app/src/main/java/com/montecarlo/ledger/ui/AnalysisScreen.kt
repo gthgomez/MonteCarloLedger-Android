@@ -111,7 +111,7 @@ fun AnalysisContent(
             firstNegativeDateLabel = uiState.firstNegativeDateLabel,
             canonicalForecastStatus = uiState.canonicalForecastStatus,
             canonicalForecastAsOf = uiState.canonicalForecastAsOf,
-            unavailableReason = uiState.canonicalForecastError,
+            loading = uiState.isLoading,
             hazeState = hazeState,
         )
 

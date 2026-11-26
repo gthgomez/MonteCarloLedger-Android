@@ -256,6 +256,20 @@ class LedgerRepository(private val db: AppDatabase) {
         db.withTransaction {
             val existing = db.transactionDao().getById(entity.id)
                 ?: throw IllegalArgumentException("This transaction no longer exists.")
+            if (db.billOccurrenceDao().countLinkedTo(existing.id) > 0) {
+                require(entity.type == existing.type) {
+                    "This payment is linked to a bill and must remain an expense. " +
+                        "Delete the payment to reopen the bill, then record the correction."
+                }
+                require(entity.amount_cents == existing.amount_cents) {
+                    "This payment is linked to a bill. " +
+                        "Delete the payment to reopen the bill, then record the corrected amount."
+                }
+                require(entity.account_id == existing.account_id) {
+                    "This payment is linked to a bill and cannot move to another account. " +
+                        "Delete the payment to reopen the bill, then record it again."
+                }
+            }
             revertTransactionSideEffects(existing.amount_cents, existing.account_id)
             db.transactionDao().update(reviewed)
             applyTransactionSideEffects(reviewed.amount_cents, reviewed.account_id)
@@ -305,6 +319,9 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun deleteTransaction(entity: TransactionEntity) {
         db.withTransaction {
             val existing = db.transactionDao().getById(entity.id) ?: return@withTransaction
+            // A deleted settling transaction must not leave the bill marked paid: reopen every
+            // occurrence that used it, preserving its moved slot and amount, then delete the cash row.
+            db.billOccurrenceDao().reopenLinkedTo(existing.id)
             db.transactionDao().delete(existing)
             revertTransactionSideEffects(existing.amount_cents, existing.account_id)
         }
@@ -480,17 +497,23 @@ class LedgerRepository(private val db: AppDatabase) {
         db.billOccurrenceDao().markPaid(id, resolvedTransactionId)
     }
 
-    suspend fun skipBillOccurrence(id: Int) {
+    suspend fun skipBillOccurrence(id: Int) = db.withTransaction {
         val occurrence = db.billOccurrenceDao().getById(id)
             ?: throw IllegalArgumentException("Occurrence not found.")
+        require(occurrence.transaction_id == null) {
+            "This bill has a recorded payment. Delete the payment to reopen the bill instead of skipping it."
+        }
         db.billOccurrenceDao().markPaid(occurrence.id, null)
     }
 
-    suspend fun rescheduleBillOccurrence(id: Int, dueDate: String) {
+    suspend fun rescheduleBillOccurrence(id: Int, dueDate: String) = db.withTransaction {
         val parsedDueDate = LedgerDate.parseIsoOrNull(dueDate)
             ?: throw IllegalArgumentException("Enter a valid due date.")
         val occurrence = db.billOccurrenceDao().getById(id)
             ?: throw IllegalArgumentException("Occurrence not found.")
+        require(occurrence.is_paid == 0) {
+            "This bill has already been recorded. Delete the payment to reopen it before moving the due date."
+        }
         db.billOccurrenceDao().update(
             occurrence.copy(
                 due_date = parsedDueDate.toString(),
@@ -545,6 +568,9 @@ class LedgerRepository(private val db: AppDatabase) {
                     cursor = RecurrenceMath.nextDate(cursor, payment.frequency, dayOfMonth) ?: break
                 }
             }
+            // Legacy repair for rows written before deleting a payment reopened its bill.
+            // Only links whose transaction is missing are cleared; paid/null skip markers are untouched.
+            db.billOccurrenceDao().reopenDanglingLinks()
         }
     }
 
@@ -837,6 +863,9 @@ class LedgerRepository(private val db: AppDatabase) {
             snapshot.payments.forEach { db.paymentDao().insert(it) }
             snapshot.transactions.forEach { db.transactionDao().insert(it) }
             snapshot.billOccurrences.forEach { db.billOccurrenceDao().insert(it) }
+            // Old backups can contain a paid occurrence whose settling transaction was deleted by
+            // an earlier build. Reopen only those missing links; paid/null skip rows stay untouched.
+            db.billOccurrenceDao().reopenDanglingLinks()
             snapshot.rules.forEach { db.transactionRuleDao().upsert(it) }
             snapshot.assets.forEach { db.assetDao().insertAsset(it) }
             snapshot.goals.forEach { db.goalDao().insertGoal(it) }

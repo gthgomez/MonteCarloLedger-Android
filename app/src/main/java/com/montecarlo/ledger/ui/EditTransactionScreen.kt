@@ -69,7 +69,8 @@ fun EditTransactionScreen(
     if (showDeleteConfirm) {
         ConfirmDeleteDialog(
             title = "Delete this transaction?",
-            message = "Remove \"${transaction.description}\"? This will affect your account balance and cannot be undone.",
+            message = "Remove \"${transaction.description}\"? This will affect your account balance. " +
+                "If this payment closed a bill, the bill will reopen. This cannot be undone.",
             onConfirm = {
                 onDelete(transaction)
                 showDeleteConfirm = false

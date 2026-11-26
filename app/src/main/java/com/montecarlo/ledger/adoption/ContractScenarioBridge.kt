@@ -254,23 +254,27 @@ object ContractScenarioBridge {
             val paymentId = linkedPaymentByDebtId[liability.id]
             val payment = activePayments[paymentId]
             val slots = representedPaymentSlots[paymentId].orEmpty()
-            val ownsMonthlySlot = payment != null && when (contractFrequency(payment.frequency)) {
-                "monthly", "onetime" -> true
-                else -> false
-            }
+            val frequency = payment?.let { contractFrequency(it.frequency) }
+            val firstBillDate = payment?.let { LedgerDate.parseIsoOrNull(it.next_date) }
+            val anchor = payment?.day_of_month ?: firstBillDate?.dayOfMonth
             var month = YearMonth.from(inputs.asOf)
             var first = true
             var balance = liability.balanceCents
             while (balance > 0L && month.atDay(1).isBefore(endExclusive)) {
                 val storedDue = month.atDay(minOf(liability.dueDayOfMonth, month.lengthOfMonth()))
-                val slot = if (ownsMonthlySlot) {
-                    // Only an explicit link can cover a minimum. For a monthly or one-time
-                    // bill the original obligation month, not the liability's day, matches it.
-                    val inMonth = slots.keys.filter { YearMonth.from(it) == month }
-                    require(inMonth.size <= 1) {
-                        "Linked payment $paymentId has more than one scheduled slot in $month"
+                val slot = if (frequency == "monthly" || frequency == "onetime") {
+                    val scheduled = if (frequency == "monthly") {
+                        anchor?.let { month.atDay(minOf(it, month.lengthOfMonth())) }
+                    } else {
+                        firstBillDate
                     }
-                    inMonth.singleOrNull()
+                    // A template edit can leave a historical occurrence at another date in
+                    // the same month. Prefer the current slot; otherwise use the stored slot.
+                    slots.keys.asSequence().filter { YearMonth.from(it) == month }.minWithOrNull(
+                        compareBy<LocalDate> { it != scheduled }
+                            .thenBy { slots[it]?.paid == true }
+                            .thenBy { it },
+                    )
                 } else {
                     // Other recurring frequencies have no portable month-level link semantics.
                     storedDue.takeIf { it in slots }
