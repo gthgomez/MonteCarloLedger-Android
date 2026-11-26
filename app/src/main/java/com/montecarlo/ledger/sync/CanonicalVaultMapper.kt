@@ -8,6 +8,7 @@ import com.montecarlo.ledger.data.DebtKind
 import com.montecarlo.ledger.data.IncomeEntity
 import com.montecarlo.ledger.data.PaymentEntity
 import com.montecarlo.ledger.data.TransactionEntity
+import com.montecarlo.ledger.domain.DomainRules
 import com.montecarlo.ledger.util.LedgerDate
 import java.time.LocalDate
 import kotlinx.serialization.json.JsonObject
@@ -69,6 +70,28 @@ object CanonicalVaultMapper {
         require(debts.none { it.linkedAccountId != null }) {
             "This ledger has account-linked debts that the cross-platform vault cannot preserve. " +
                 "Use the encrypted Android backup until the vault format supports account links."
+        }
+        val paymentsById = payments.associateBy { it.id }
+        val transactionsById = transactions.associateBy { it.id }
+        val occupiedSlots = HashSet<Pair<Int, String>>()
+        val settlements = HashSet<Int>()
+        occurrences.forEach { occurrence ->
+            val payment = paymentsById[occurrence.payment_id]
+                ?: throw IllegalArgumentException("A saved occurrence refers to a missing bill.")
+            require(occurrence.amount_cents == payment.amount_cents) {
+                "The vault cannot preserve a bill occurrence with an amount different from its schedule. " +
+                    "Use the encrypted Android backup."
+            }
+            val originalDate = occurrence.original_due_date ?: occurrence.due_date
+            require(occupiedSlots.add(occurrence.payment_id to originalDate)) {
+                "Cannot export a vault with duplicate original bill slots."
+            }
+            occurrence.transaction_id?.let { id ->
+                require(occurrence.is_paid != 0 && settlements.add(id)) {
+                    "Cannot export an unpaid bill with a payment link or a transaction used by multiple bills."
+                }
+                DomainRules.validateOccurrenceLink(occurrence, transactionsById[id])
+            }
         }
         val requiresV22 = debts.any { !it.isActive || it.linkedPaymentId != null }
         return buildJsonObject {
@@ -139,7 +162,10 @@ object CanonicalVaultMapper {
                         put("paid", occ.is_paid != 0)
                         occ.transaction_id?.let { put("transaction_id", canonicalIds.canonicalElement("transactions", it)) }
                         put("original_due_date", occ.original_due_date ?: occ.due_date)
-                        put("is_user_modified", occ.is_user_modified != 0)
+                        // Older readers accept paid/no-transaction markers only without
+                        // the edit flag. Both dates still identify the moved skipped slot.
+                        put("is_user_modified", occ.is_user_modified != 0 &&
+                            (occ.is_paid == 0 || occ.transaction_id != null))
                     },
                 )
             }

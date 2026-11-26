@@ -100,7 +100,16 @@ class LedgerRepository(private val db: AppDatabase) {
         markOnboardingMilestone(OnboardingMilestone.FIRST_BILL)
         syncBillOccurrences()
     }
-    suspend fun updatePayment(entity: PaymentEntity) = db.paymentDao().update(entity)
+    suspend fun updatePayment(entity: PaymentEntity) = db.withTransaction {
+        val previous = db.paymentDao().getById(entity.id)
+            ?: throw IllegalArgumentException("This bill no longer exists.")
+        if (CanonicalVaultMapper.isLinkable(previous) && !CanonicalVaultMapper.isLinkable(entity)) {
+            require(db.debtDao().getActive().first().none { it.linkedPaymentId == entity.id }) {
+                "This bill is linked to an active debt. Remove the link before changing to this schedule."
+            }
+        }
+        db.paymentDao().update(entity)
+    }
     suspend fun deletePayment(entity: PaymentEntity) {
         db.withTransaction {
             // Drop unpaid occurrences so the forecast/timeline does not keep orphan bills.
@@ -384,6 +393,7 @@ class LedgerRepository(private val db: AppDatabase) {
     }
     suspend fun updateDebt(debt: DebtEntity) = db.withTransaction {
         val existing = db.debtDao().getAll().first().firstOrNull { it.id == debt.id }
+            ?: throw IllegalArgumentException("This debt no longer exists.")
         validateActiveDebtLink(debt, existing)
         db.debtDao().update(debt)
     }

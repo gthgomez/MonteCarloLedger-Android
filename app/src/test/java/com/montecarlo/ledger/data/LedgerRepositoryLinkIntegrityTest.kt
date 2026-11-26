@@ -274,6 +274,65 @@ class LedgerRepositoryLinkIntegrityTest {
         assertEquals(15_000L, restored.amount_cents)
         assertEquals(1, restored.is_paid)
         assertEquals(20, restored.transaction_id)
+        val failure = runCatching {
+            repo.exportCrossPlatformVaultJson("2026-11-20T09:00:00Z")
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("Use the encrypted Android backup"))
+        assertEquals(restored, repo.allBillOccurrences.first().single())
+    }
+
+    @Test
+    fun vaultRoundTripRetainsMovedSkippedSlotWithoutCreatingCash() = runBlocking {
+        repo.restoreBackup(
+            snapshot(
+                payments = listOf(monthlyPayment()),
+                occurrences = listOf(
+                    occurrence(
+                        paid = false,
+                        dueDate = "2026-03-20",
+                        originalDueDate = "2026-03-15",
+                        modified = true,
+                    )
+                ),
+            )
+        )
+        repo.skipBillOccurrence(1)
+        val stamp = "2026-11-20T09:00:00Z"
+        val exported = repo.exportCrossPlatformVaultJson(stamp)
+        repo.restoreCrossPlatformVaultJson(exported)
+        val restored = repo.allBillOccurrences.first().single()
+        assertEquals("2026-03-15", restored.original_due_date)
+        assertEquals("2026-03-20", restored.due_date)
+        assertEquals(1, restored.is_paid)
+        assertNull(restored.transaction_id)
+        assertTrue(repo.allTransactions.first().isEmpty())
+        assertEquals(exported, repo.exportCrossPlatformVaultJson(stamp))
+    }
+
+    @Test
+    fun linkedBillCannotBeEditedToAnUnsupportedScheduleUntilUnlinked() = runBlocking {
+        val bill = monthlyPayment()
+        repo.insertPayment(bill)
+        val original = debt(bill.id)
+        val debtId = repo.insertDebt(original)
+        val weekly = bill.copy(frequency = "Weekly", day_of_month = null)
+
+        val failure = runCatching { repo.updatePayment(weekly) }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().contains("linked to an active debt"))
+        assertEquals(bill, repo.allPayments.first().single())
+
+        repo.updateDebt(original.copy(id = debtId, linkedPaymentId = null))
+        repo.updatePayment(weekly)
+        assertEquals(weekly, repo.allPayments.first().single())
+    }
+
+    @Test
+    fun editingMissingDebtDoesNotReportSuccess() = runBlocking {
+        val failure = runCatching {
+            repo.updateDebt(debt(link = null).copy(id = 99L))
+        }.exceptionOrNull()
+        assertEquals("This debt no longer exists.", failure?.message)
     }
 
     @Test
