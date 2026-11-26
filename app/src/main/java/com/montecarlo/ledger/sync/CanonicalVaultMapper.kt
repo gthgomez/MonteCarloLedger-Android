@@ -73,12 +73,17 @@ object CanonicalVaultMapper {
         }
         val paymentsById = payments.associateBy { it.id }
         val transactionsById = transactions.associateBy { it.id }
+        val activeDebtPaymentIds = debts.filter { it.isActive }.mapNotNull { it.linkedPaymentId }.toSet()
         val occupiedSlots = HashSet<Pair<Int, String>>()
         val settlements = HashSet<Int>()
         occurrences.forEach { occurrence ->
             val payment = paymentsById[occurrence.payment_id]
                 ?: throw IllegalArgumentException("A saved occurrence refers to a missing bill.")
-            require(occurrence.amount_cents == payment.amount_cents) {
+            // An unlinked, already closed marker with no cash transaction only
+            // suppresses its slot. Its old amount does not affect the forecast.
+            val amountMatters = occurrence.is_paid == 0 || occurrence.transaction_id != null ||
+                occurrence.payment_id in activeDebtPaymentIds
+            require(!amountMatters || occurrence.amount_cents == payment.amount_cents) {
                 "The vault cannot preserve a bill occurrence with an amount different from its schedule. " +
                     "Use the encrypted Android backup."
             }

@@ -298,6 +298,9 @@ class LedgerRepositoryLinkIntegrityTest {
             )
         )
         repo.skipBillOccurrence(1)
+        // Neither the original slot nor cash should change after the schedule
+        // amount is edited. The closed marker's original amount is not needed.
+        repo.updatePayment(monthlyPayment(amountCents = 12_000L))
         val stamp = "2026-11-20T09:00:00Z"
         val exported = repo.exportCrossPlatformVaultJson(stamp)
         repo.restoreCrossPlatformVaultJson(exported)
